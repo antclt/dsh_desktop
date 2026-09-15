@@ -94,6 +94,25 @@ static INSTANCE_LOCK: std::sync::Mutex<Option<shell_core::SingleInstanceGuard>> 
 /// 所有退出路径先置位；route_one_event 退出态只留日志直通。
 static EXITING: AtomicBool = AtomicBool::new(false);
 
+/// 一键重启的游离拉起（见托盘 "restart" 分支注释）。Windows 走 cmd 延迟 +
+/// CREATE_NO_WINDOW；非 Windows 无 cmd 语义，直接 spawn 自身（0.6.4 修复：
+/// 原 `use std::os::windows::process::CommandExt` 裸奔无 cfg 门禁，Linux/macOS
+/// 构建在 E0433/E0599 上全灭）。
+#[cfg(windows)]
+fn relaunch_detached() {
+    use std::os::windows::process::CommandExt;
+    let exe = std::env::current_exe().unwrap_or_else(|_| "dsh-tauri-app.exe".into());
+    let _ = std::process::Command::new("cmd")
+        .args(["/C", "timeout", "/t", "2", "/nobreak", ">nul", "&", "start", "", &exe.to_string_lossy()])
+        .creation_flags(0x0800_0000)
+        .spawn();
+}
+#[cfg(not(windows))]
+fn relaunch_detached() {
+    let exe = std::env::current_exe().unwrap_or_else(|_| "dsh-tauri-app".into());
+    let _ = std::process::Command::new(exe).spawn();
+}
+
 /// 保存主窗状态——**window-state.json（Electron 同文件同 schema）**：
 /// 升级用户窗口位置不丢，回退 Electron 也不丢（双向兼容，contracts 见
 /// shell-core/src/upgrade.rs 数据契约表）。
@@ -952,14 +971,7 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
                 // 引号配对错乱污染路径（实测「Windows 找不到文件」弹窗）。改为
                 // 原子 args：空标题以裸 "" 到达 cmd，exe 含空格由 Rust 加引号
                 // 且无内部引号 → 零转义残留。
-                {
-                    use std::os::windows::process::CommandExt;
-                    let exe = std::env::current_exe().unwrap_or_else(|_| "dsh-tauri-app.exe".into());
-                    let _ = std::process::Command::new("cmd")
-                        .args(["/C", "timeout", "/t", "2", "/nobreak", ">nul", "&", "start", "", &exe.to_string_lossy()])
-                        .creation_flags(0x0800_0000)
-                        .spawn();
-                }
+                relaunch_detached();
                 app.exit(0);
             }
             "quit" => {
