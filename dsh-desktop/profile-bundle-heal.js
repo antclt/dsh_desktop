@@ -393,7 +393,9 @@ function applyAppBootBundleGuard(src) {
   if (typeof src !== 'string') return { changed: false, src };
   if (src.includes(PROFILE_BUNDLE_GUARD_MARKER)) return { changed: false, src };
   if (!src.includes(APP_BOOT_LAYERS_ANCHOR) || !src.includes(APP_BOOT_INSERT_ANCHOR)) return { changed: false, src };
-  let out = src.replace(APP_BOOT_LAYERS_ANCHOR, '\tconst layers = loadProfileLayers(binName, name, dir, installAnchor);');
+  // rc.1 起该块落在 loadProfileDirectory(binName, dir, installAnchor, options) 内，
+  // 其签名无 name 形参（上游自己以 basename(dir) 派生 profile 名）——传 name 会 ReferenceError。
+  let out = src.replace(APP_BOOT_LAYERS_ANCHOR, '\tconst layers = loadProfileLayers(binName, basename(dir), dir, installAnchor);');
   out = out.replace(APP_BOOT_INSERT_ANCHOR, APP_BOOT_GUARD_CODE + '\n\n' + APP_BOOT_INSERT_ANCHOR);
   return { changed: true, src: out };
 }
@@ -413,10 +415,14 @@ function applyAppBootBundleGuard(src) {
 // 的这次。这里把调用包 try/catch：heal 失败只告警，绝不 brick 启动。
 // 幂等标记 = dsh-desktop guard: healProfilesModuleFallback failed。
 const PROFILE_BOOT_HEAL_MARKER = 'dsh-desktop guard: healProfilesModuleFallback failed';
-const PROFILE_BOOT_HEAL_ANCHOR = '\thealProfilesModuleFallback(INSTALL_ANCHOR);';
+// 0.1.5-rc.1 重锚：调用改为 await healProfilesModuleFallback({ installAnchor, profile }) 四行形态。
+const PROFILE_BOOT_HEAL_ANCHOR = '\tawait healProfilesModuleFallback({\n\t\tinstallAnchor: INSTALL_ANCHOR,\n\t\tprofile\n\t});';
 const PROFILE_BOOT_HEAL_GUARDED = [
   'try {',
-  '\thealProfilesModuleFallback(INSTALL_ANCHOR);',
+  '\tawait healProfilesModuleFallback({',
+  '\t\tinstallAnchor: INSTALL_ANCHOR,',
+  '\t\tprofile',
+  '\t});',
   '} catch (error) {',
   '\tprocess.stderr.write(`dsh-desktop guard: healProfilesModuleFallback failed (${String(error?.message ?? error)}); continuing boot without fallback healing\n`);',
   '}',
@@ -430,11 +436,13 @@ function applyProfileBootHealGuard(src) {
   return { changed: true, src: src.replace(PROFILE_BOOT_HEAL_ANCHOR, PROFILE_BOOT_HEAL_GUARDED) };
 }
 
-const PROFILE_BOOT_IMPORT_ANCHOR = 'import { writeFileSync } from "node:fs";';
+// 0.1.5-rc.1 重锚：node:fs import 扩充（existsSync/mkdirSync/rmSync 已入 bundle）。
+const PROFILE_BOOT_IMPORT_ANCHOR = 'import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";';
 const PROFILE_BOOT_HOME_ANCHOR = '\tconst homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? [];';
 const PROFILE_BOOT_LIVE_PROFILE_ANCHOR = '\t\t...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],';
 const PROFILE_BOOT_LIVE_HOME_ANCHOR = '\t\t...loadOptionalPatches(NAME, homePatchPath()) ?? [],';
-const PROFILE_BOOT_EXPORT_ANCHOR = 'export { resolveTelemetryPatch as a, prepareProfile as i, PROFILE_ROOT_FILENAME as n, runProfile as o, homePatchPath as r, INSTALL_ANCHOR as t };';
+// 0.1.5-rc.1 重锚：export 别名重排（新增 initializeProfileFromDefault as i）。
+const PROFILE_BOOT_EXPORT_ANCHOR = 'export { prepareProfile as a, initializeProfileFromDefault as i, PROFILE_ROOT_FILENAME as n, resolveTelemetryPatch as o, homePatchPath as r, runProfile as s, INSTALL_ANCHOR as t };';
 
 const PROFILE_BOOT_GUARD_CODE = [
   '/** dsh-desktop guard: the profile patch layer and the home-level patch layer',
@@ -474,7 +482,7 @@ function applyProfileBootBundleGuard(src) {
   ];
   if (!anchors.every((anchor) => src.includes(anchor))) return { changed: false, src };
   let out = src
-    .replace(PROFILE_BOOT_IMPORT_ANCHOR, 'import { readFileSync, writeFileSync } from "node:fs";')
+    .replace(PROFILE_BOOT_IMPORT_ANCHOR, 'import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";')
     .replace(PROFILE_BOOT_HOME_ANCHOR, '\tconst homePatches = loadUserPatchLayerSafe(NAME, homePatchPath());')
     .replace(PROFILE_BOOT_LIVE_PROFILE_ANCHOR, '\t\t...loadUserPatchLayerSafe(NAME, composed.profile.patchPath),')
     .replace(PROFILE_BOOT_LIVE_HOME_ANCHOR, '\t\t...loadUserPatchLayerSafe(NAME, homePatchPath()),');

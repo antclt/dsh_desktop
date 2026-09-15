@@ -19,6 +19,8 @@ const {
 const {
   toPristineSource, transformSessionHeaderScanGuard, transformSessionLoadGraceful,
 } = require('../lib/patch-adapters');
+// rc.1 header 契约的版本号单一数据源（alpha.5 为 0，rc.1 为 3）。
+const { SESSION_FORMAT_VERSION } = require('@deepseek-ai/dsh-session');
 
 // 靶基准：dev node_modules 里的内核副本经 PRISTINE_FAMILIES 逆运算剥掉全部四个
 // 持久化补丁后的 pristine 字节。旧实现抓 .tmp-rc2-stage 装配产物、缺省静默回退
@@ -29,6 +31,14 @@ const {
 // 仍能从包目录正常解析。
 const DESKTOP_ROOT = path.resolve(__dirname, '..', '..');
 const TARGET = path.join(DESKTOP_ROOT, 'node_modules', '@deepseek-ai', PERSISTENCE_PKG_REL);
+
+// rc.1 起内核 bundle 只 `JsonlSessionPersistence as default`（具名导出退役）。
+// 两种形态都拿不到时必须硬失败点名，不能再退化成 undefined.prototype 的隐晦报错。
+function persistenceClassOf(mod) {
+  const Klass = mod.JsonlSessionPersistence ?? mod.default;
+  assert.equal(typeof Klass, 'function', '内核模块应导出 JsonlSessionPersistence（rc.1 起为 default 导出）');
+  return Klass;
+}
 
 function kernelPristine() {
   assert.ok(fs.existsSync(TARGET), '找不到内核靶文件：' + TARGET);
@@ -66,11 +76,14 @@ function frame(value) {
 }
 
 function fixture() {
+  // rc.1 header 契约：SESSION_FORMAT_VERSION 由 alpha.5 的 0 升到 3，且新增必填
+  // isSeeded —— 硬编码 version:0 会被 refuseForeignFormatVersion 在读结构前拒载。
   const header = {
     type: 'session',
-    version: 0,
+    version: SESSION_FORMAT_VERSION,
     id: 'session-recovery-test',
     createdAt: 1,
+    isSeeded: false,
     cwd: 'C:/fake',
     delegationDepth: 0,
     agentPreset: 'standard',
@@ -106,19 +119,19 @@ test('session persistence patch is applied and idempotent', (t) => {
 
 test('complete final zstd frame with torn JSONL returns a repair marker', async (t) => {
   const mod = await loadFullStackKernel(t);
-  const backend = Object.create(mod.JsonlSessionPersistence.prototype);
+  const backend = Object.create(persistenceClassOf(mod).prototype);
   const { headerFrame, start } = fixture();
   const eventFrame = frame(JSON.stringify(start) + '\n{"type":"assistant/message","seq":1');
 
   const result = await backend.readZstdPrefix(Buffer.concat([headerFrame, eventFrame]));
   assert.deepEqual(result.events.map((event) => event.type), ['turn/start']);
-  assert.deepEqual(result.tornMarker.recoveredEvents.map((event) => event.type), ['turn/start']);
-  assert.equal(result.tornMarker.truncateTo, headerFrame.length);
+  assert.deepEqual(result.recoveredTail.map((event) => event.type), ['turn/start'], 'rc.1 扁平契约：恢复事件走 recoveredTail');
+  assert.equal(result.tornTruncateTo, headerFrame.length, 'rc.1 扁平契约：截盘偏移走 tornTruncateTo');
 });
 
 test('complete newline-terminated frame keeps the normal no-marker path', async (t) => {
   const mod = await loadFullStackKernel(t);
-  const backend = Object.create(mod.JsonlSessionPersistence.prototype);
+  const backend = Object.create(persistenceClassOf(mod).prototype);
   const { headerFrame, start } = fixture();
   const end = {
     type: 'turn/end',
@@ -132,7 +145,9 @@ test('complete newline-terminated frame keeps the normal no-marker path', async 
     frame(JSON.stringify(start) + '\n' + JSON.stringify(end) + '\n'),
   ]));
   assert.deepEqual(result.events.map((event) => event.type), ['turn/start', 'turn/end']);
-  assert.equal(result.tornMarker, undefined);
+  assert.equal(result.tornTruncateTo, undefined, 'rc.1 扁平契约：完好日志不得置截盘偏移');
+  assert.ok(result.recoveredTail === undefined || result.recoveredTail.length === 0,
+    'rc.1 扁平契约：完好日志不得有待回灌事件');
 });
 
 // 本用例跑的是「pristine + root 应用器 + K5 + K6」全链，不是单看 torn-tail：
@@ -141,7 +156,7 @@ test('complete newline-terminated frame keeps the normal no-marker path', async 
 // 落地后，中帧损坏必须回到硬抛。
 test('torn JSONL in a non-final complete frame remains corruption', async (t) => {
   const mod = await loadFullStackKernel(t);
-  const backend = Object.create(mod.JsonlSessionPersistence.prototype);
+  const backend = Object.create(persistenceClassOf(mod).prototype);
   const { headerFrame, start } = fixture();
   const tornFrame = frame(JSON.stringify(start) + '\n{"type":"assistant/message","seq":1');
   const followingFrame = frame(JSON.stringify({

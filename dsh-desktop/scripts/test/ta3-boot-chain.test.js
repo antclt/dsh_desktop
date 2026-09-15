@@ -6,9 +6,12 @@
 // 手法：pristine 源取自 pristine-kernel-roots 给出的「未被任何补丁碰过」的内核
 // 闭包树（历史上是仓库根 .tmp-rc2-stage，现为 .tmp-kernel/.consumer-*/node_modules）；
 // 拷入两个临时目录充当 appDir 与 home（绝不碰真实
-// ~/.dsh 与在用实例），跑生产 applyAll（48 补丁注册表全量）+ 只读预检 +
+// ~/.dsh 与在用实例），跑生产 applyAll（64 补丁注册表全量，含 0.6.4 新增的
+// released-v0-history-recovery、Responses 路径工具名净化
+// pi-ai-responses-tool-name-sanitize、内核↔pi-ai 唯一交界的中央收口
+// pi-ai-tool-name-wire 与配额耗尽不重试 pi-ai-quota-not-retryable）+ 只读预检 +
 // 关键服务修复探测，断言：
-//   1. 一遍：48 补丁全部执行、changed > 0、零 errors；
+//   1. 一遍：64 补丁全部执行、changed > 0、零 errors；
 //   2. composition 字段（sources/services/criticalMissing/parseIssues）与
 //      CLI 退出码契约（关键服务全在位 → 0）；
 //   3. fault-isolation preflight：打补丁后 unpatched 为空；
@@ -75,13 +78,18 @@ async function buildTempRoots(t) {
   return { root, appDir, home, ctx, logs };
 }
 
-test('boot 链一条龙：applyAll(62) → composition-integrity → preflight → 二遍幂等', { skip: !hasPristine() && SKIP_NO_PRISTINE }, async (t) => {
+test('boot 链一条龙：applyAll(64) → composition-integrity → preflight → 二遍幂等', { skip: !hasPristine() && SKIP_NO_PRISTINE }, async (t) => {
   const { appDir, home, ctx } = await buildTempRoots(t);
 
-  // ---- 1. 一遍 applyAll：62 补丁全执行、有落盘、零 errors ----
+  // ---- 1. 一遍 applyAll：64 补丁全执行、有落盘、零 errors ----
+  // 64 = 63（上一基线）+ pi-ai-quota-not-retryable（order 337，靶
+  // @earendil-works/pi-ai/dist/utils/provider-retry.js：isRetryableProviderError
+  // 把 429 一律当可重试，而 OpenAI 兼容渠道的 insufficient_quota 同为 429 却是
+  // 终态 → 白等若干轮退避；补丁识别配额耗尽即返回不可重试，x-should-retry 头
+  // 仍优先）。
   const r1 = applyAll(ctx);
-  assert.equal(r1.total, 62, `注册表应有 60 个补丁（实际 ${r1.total}）`);
-  assert.equal(PATCH_SPECS.length, 62, 'PATCH_SPECS 与编排 total 一致');
+  assert.equal(r1.total, 64, `注册表应有 64 个补丁（实际 ${r1.total}）`);
+  assert.equal(PATCH_SPECS.length, 64, 'PATCH_SPECS 与编排 total 一致');
   assert.ok(r1.changed > 0, `pristine 源一遍必须有写入（实际 changed=${r1.changed}）`);
   assert.deepEqual(r1.errors, [], `一遍不得有 errors：${JSON.stringify(r1.errors)}`);
   // degrade/fatal 档补丁的 anchor-missing 分流进 degraded（设计语义：降级告警
@@ -130,7 +138,7 @@ test('boot 链一条龙：applyAll(62) → composition-integrity → preflight �
   const r2 = applyAll(ctx);
   // total = 处理的 spec 数（含 target-absent，applyAll 内每 spec 无条件 +1），
   // 与一遍同源必相等，均等于 PATCH_SPECS.length；二遍只是 changed 归零。
-  assert.equal(r2.total, 62, `二遍 total 应与一遍一致（实际 ${r2.total}）`);
+  assert.equal(r2.total, 64, `二遍 total 应与一遍一致（实际 ${r2.total}）`);
   assert.deepEqual(r2.errors, [], `二遍不得有 errors：${JSON.stringify(r2.errors)}`);
   assert.equal(r2.changed, 0, `二遍应幂等（一遍 changed=${changedFirst}，二遍 changed=${r2.changed}）`);
 

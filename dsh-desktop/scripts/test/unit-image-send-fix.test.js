@@ -13,7 +13,8 @@
 // 详见 patch-adapters 注释）。
 //
 // 覆盖：
-//   1. 锚点命中 pristine 源（vendored alpha.5 tarball 的 lib/index.js）→ changed；
+//   1. 锚点命中 pristine 源（vendored kernel-pin 版本 tarball 的 lib/index.js，
+//      当前为 0.1.5-rc.1）→ changed；
 //   2. transform 产物 node --check 可解析（注入体保持语法完整）；
 //   3. 幂等（二遍 already）；
 //   4. 语义：入口 content ?? [] 守卫、门槛改调 describeImagesWithVision、
@@ -67,11 +68,11 @@ const nodeCheck = (src) => {
   finally { fs.rmSync(f, { force: true }); }
 };
 
-test('1-4. image-send-fix 命中 vendored alpha.5 pristine → changed + 语义齐备 + node --check + 幂等', () => {
+test('1-4. image-send-fix 命中 vendored 0.1.5-rc.1 pristine → changed + 语义齐备 + node --check + 幂等', () => {
   const file = extractPristineIndex();
   const pristine = fs.readFileSync(file, 'utf8');
   const out = transformImageSendFix(pristine, file);
-  assert.equal(out.status, 'changed', 'pristine alpha.5 应 changed（锚点若漂移即回归）');
+  assert.equal(out.status, 'changed', `pristine ${kernel.packageVersion} 应 changed（锚点若漂移即回归）`);
   assert.equal(typeof out.src, 'string');
 
   // 故障①：入口 content ?? [] 守卫 + hasImage 走 promptContent，裸 request.content.some 消除
@@ -84,7 +85,11 @@ test('1-4. image-send-fix 命中 vendored alpha.5 pristine → changed + 语义�
   assert.match(out.src, /visionError\.dshVisionDisabled === true/);
   assert.match(out.src, /MODEL_DOES_NOT_SUPPORT_IMAGES/);
   assert.match(out.src, /IMAGE_DESCRIPTION_FAILED/);
-  assert.match(out.src, /admitPromptContent\(this\.ctx\.attachments, admittedContent\)/);
+  // 准入调用（0.1.5-rc.1 形态：admitPromptContent 是 attachments 上的实例方法，
+  // pristine 传 admission.content → 补丁后必须改挂 admittedContent）
+  assert.match(out.src, /this\.ctx\.attachments\.admitPromptContent\(admittedContent\)/);
+  assert.ok(!/admitPromptContent\(admission\.content\)/.test(out.src), '上游 admission.content 准入必须被换掉');
+  assert.ok(!/admitPromptContent\(this\.ctx\.attachments,/.test(out.src), 'alpha.5 的自由函数准入形态不得复活');
   assert.match(out.src, /async function describeImagesWithVision\(ctx, content\) \{/);
 
   // marker 在位（already 判定源）

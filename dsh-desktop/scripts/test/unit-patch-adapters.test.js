@@ -16,7 +16,9 @@ const {
   transformFlashFix,
 } = require('../lib/patch-adapters');
 
-const PATCH_GUARD_CALL = '\t\tpatches: options.userLayer !== false && existsSync(patchPath) ? loadOverlayPatches(binName, patchPath) : []';
+// 0.1.5-rc.1 重锚：loadProfileDirectory 的 patches 由对象键值（patches: …，2-tab）
+// 改为 const 语句形态（1-tab）——与 patch-adapters.js PROFILE_PATCH_GUARD_CALL_SITE 逐字一致。
+const PATCH_GUARD_CALL = '\tconst patches = options.userLayer !== false && existsSync(patchPath) ? loadOverlayPatches(binName, patchPath) : [];';
 const PATCH_GUARD_AFTER = '\treturn parsePatchList(binName, file, content, "overlay");\n}';
 
 test('transformProfilePatchGuard：匹配 / 已应用 / 失配三态', () => {
@@ -24,7 +26,7 @@ test('transformProfilePatchGuard：匹配 / 已应用 / 失配三态', () => {
   const changed = transformProfilePatchGuard(src, 't.js');
   assert.equal(changed.status, 'changed');
   assert.ok(changed.src.includes('function loadUserPatchLayer'));
-  assert.ok(changed.src.includes('patches: loadUserPatchLayer(binName, patchPath, options)'));
+  assert.ok(changed.src.includes('const patches = loadUserPatchLayer(binName, patchPath, options)'));
   // 已应用：marker（function loadUserPatchLayer）存在 → already
   assert.equal(transformProfilePatchGuard('function loadUserPatchLayer', 't.js').status, 'already');
   // 失配：缺少 callSite/insertAfter
@@ -114,12 +116,14 @@ test('transformDirectoryPickerWslBrowse：真实包三态 + WSL 判定行为（W
   assert.ok(fnMatch, 'resolveDirectoryPickerBackend 应可整段抽出');
   const present = (value) => value !== undefined && value !== '';
   const resolve = new Function('present', fnMatch[0] + '\nreturn resolveDirectoryPickerBackend;')(present);
-  const facts = (env) => ({ bindHost: '127.0.0.1', platform: 'linux', env, linuxChooser: true });
+  // 0.1.5-rc.1 重锚：resolver 的 SSH 判定由 facts.env.SSH_CONNECTION/SSH_TTY 探测
+  // 改为 boot 期实算的 facts.ssh 布尔（契约变更，fixture 须显式给 ssh）。
+  const facts = (env, ssh = false) => ({ bindHost: '127.0.0.1', platform: 'linux', env, linuxChooser: true, ssh });
   // WSL（WSLg DISPLAY=:0 + Microsoft 注入标记）：强制 browse（修复目标）。
   assert.equal(resolve(facts({ DISPLAY: ':0', WSL_INTEROP: '/run/WSL_INTEROP' })), 'browse');
   assert.equal(resolve(facts({ DISPLAY: ':0', WAYLAND_DISPLAY: 'wayland-0', WSL_DISTRO_NAME: 'Ubuntu' })), 'browse');
   // Linux 裸机（无 WSL 标记）：DISPLAY 在场仍 native（原行为不变）。
   assert.equal(resolve(facts({ DISPLAY: ':0' })), 'native');
-  // SSH 形态仍 browse（原行为不变）。
-  assert.equal(resolve(facts({ DISPLAY: ':0', SSH_CONNECTION: '10.0.0.1 50000 10.0.0.2 22' })), 'browse');
+  // SSH 形态仍 browse（原行为不变；ssh 现由 facts.ssh 承载）。
+  assert.equal(resolve(facts({ DISPLAY: ':0', SSH_CONNECTION: '10.0.0.1 50000 10.0.0.2 22' }, true)), 'browse');
 });

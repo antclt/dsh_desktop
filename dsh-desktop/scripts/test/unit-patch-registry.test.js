@@ -98,7 +98,6 @@ test('防护类补丁与包级补丁均已登记（无遗漏 apply*）', () => {
     'web-search-baseurl', 'menu-viewport', 'open-project-dir',
     'session-persistence', 'tool-source-compat', 'pi-ai-opencode-go-models',
     'pi-ai-credits', 'pi-ai-reasoning-defaults', 'pi-ai-overflow-message',
-    'token-meter-clamp',
     'atomic-write-orphan-lock', 'settings-models-resilience',
     'bundle-arrival-retry', 'agent-loop-scheduler-guard',
     'empty-tool-name-guidance', 'model-image-input',
@@ -106,15 +105,15 @@ test('防护类补丁与包级补丁均已登记（无遗漏 apply*）', () => {
   for (const id of expected) assert.ok(ids.has(id), `遗漏补丁 ${id}`);
 });
 
-test('getSpecsByCli：返回 26 个 cli:true 补丁（8 runtime + 4 数据完整性 + 2 设置写入韧性 + 1 模型图片输入勾选 + 3 内核韧性 + 1 pi-ai 超限文案 + 1 token-meter 夹取 + 2 本地二进制回落 + 1 skill 目录兼容 + 1 pi-ai 4xx 落盘 + 1 工作区标签闪跳）', () => {
+test('getSpecsByCli：返回 28 个 cli:true 补丁（8 runtime + 4 数据完整性 + 2 设置写入韧性 + 1 模型图片输入勾选 + 3 内核韧性 + 1 pi-ai 超限文案 + 2 本地二进制回落 + 1 skill 目录兼容 + 1 pi-ai 4xx 落盘 + 1 工作区标签闪跳 + 1 pi-ai Responses 工具名净化 + 1 pi-ai 工具名 wire 中央收口 + 1 pi-ai 配额耗尽不重试）', () => {
   const specs = getSpecsByCli();
-  assert.equal(specs.length, 26, 'cli 清单应恰为 26 项');
+  assert.equal(specs.length, 28, 'cli 清单应恰为 28 项');
   const expected = new Set([
     'slot-legacy-key', 'slot-unkeyed-compat', 'slot-error-isolation',
     'runtime-flash-fix', 'shell-description-compat',
     'attachment-mime-trust', 'session-persistence',
     'tool-source-compat', 'pi-ai-opencode-go-models', 'pi-ai-credits',
-    'pi-ai-reasoning-defaults', 'pi-ai-overflow-message', 'token-meter-clamp',
+    'pi-ai-reasoning-defaults', 'pi-ai-overflow-message',
     'atomic-write-orphan-lock', 'settings-models-resilience',
     'bundle-arrival-retry', 'agent-loop-scheduler-guard',
     'empty-tool-name-guidance', 'model-image-input',
@@ -123,6 +122,9 @@ test('getSpecsByCli：返回 26 个 cli:true 补丁（8 runtime + 4 数据完整
     'workspace-chip-label-hold',
     'pi-ai-4xx-dump',
     'pi-ai-tool-schema-sanitize',
+    'pi-ai-responses-tool-name-sanitize',
+    'pi-ai-tool-name-wire',
+    'pi-ai-quota-not-retryable',
     'ds-tool-schema-sanitize',
   ]);
   assert.deepEqual(new Set(specs.map((s) => s.id)), expected, 'cli 清单 id 集合不符');
@@ -158,6 +160,9 @@ test('getSpecsByCli：每个 spec 的 transform/apply 与 patch-adapters 导出�
     'workspace-chip-label-hold': adapters.transformWorkspaceChipLabelHold,
     'pi-ai-4xx-dump': adapters.transformPiAi4xxDump,
     'pi-ai-tool-schema-sanitize': adapters.transformPiAiToolSchemaSanitize,
+    'pi-ai-responses-tool-name-sanitize': adapters.transformPiAiResponsesToolNameSanitize,
+    'pi-ai-tool-name-wire': adapters.transformPiAiToolNameWire,
+    'pi-ai-quota-not-retryable': adapters.transformPiAiQuotaNotRetryable,
     'ds-tool-schema-sanitize': adapters.transformDsToolSchemaSanitize,
   };
   const rootApplyMap = {
@@ -167,7 +172,6 @@ test('getSpecsByCli：每个 spec 的 transform/apply 与 patch-adapters 导出�
     'pi-ai-credits': adapters.rootAppliers.patchPiAiCredits,
     'pi-ai-reasoning-defaults': adapters.rootAppliers.patchPiAiReasoningDefaults,
     'pi-ai-overflow-message': adapters.rootAppliers.patchPiAiOverflowMessage,
-    'token-meter-clamp': adapters.rootAppliers.patchTokenMeterClamp,
     'atomic-write-orphan-lock': adapters.rootAppliers.patchAtomicWriteOrphanLock,
     'settings-models-resilience': adapters.rootAppliers.patchSettingsModelsResilience,
     'bundle-arrival-retry': adapters.rootAppliers.patchBundleArrivalRetry,

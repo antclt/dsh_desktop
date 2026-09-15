@@ -23,7 +23,9 @@ const MARKER = 'dsh-desktop patch (ds tool schema sanitize)';
 const FN_ANCHOR = 'function requestWithMessages(options, messages, defaults) {';
 const NAME_ANCHOR = '\t\t\tname: tool.name,';
 const PARAMS_ANCHOR = '\t\t\tparameters: tool.parameters';
-const PARSE_ANCHOR = 'if (call.function?.name !== void 0) block.name = call.function.name;';
+// 0.1.5-rc.1 重锚：回call name 接纳入口改为 acceptIdentity(block.name, call.function?.name)，
+// 回映射包在 incoming 参数上（incoming 非字符串时 acceptIdentity 回落 current，安全）。
+const PARSE_ANCHOR = '\t\t\t\tblock.name = acceptIdentity(block.name, call.function?.name);';
 
 const HELPER = [
   '// ' + MARKER + ': 官方 DeepSeek API 同样校验函数名 ^[a-zA-Z0-9_-]+$ 与',
@@ -79,7 +81,7 @@ function transformDsToolSchemaSanitize(src, file) {
     .replace(FN_ANCHOR, HELPER + FN_ANCHOR)
     .replace(NAME_ANCHOR, '\t\t\t\tname: __dshDsWireName(tool.name),')
     .replace(PARAMS_ANCHOR, '\t\t\t\tparameters: __dshDsSanitizeToolSchema(tool.parameters)')
-    .replace(PARSE_ANCHOR, 'if (call.function?.name !== void 0) block.name = __dshDsRestoreToolName(call.function.name);');
+    .replace(PARSE_ANCHOR, '\t\t\t\tblock.name = acceptIdentity(block.name, __dshDsRestoreToolName(call.function?.name));');
   return { status: 'changed', src: out };
 }
 

@@ -35,6 +35,14 @@
 //
 // 运行：node --test scripts/test/unit-history-token-meter-negative-refold.test.js
 // （不依赖内核运行期 / 网络：restore/restoreFloor 数学按 alpha.5 源码逐行还原。）
+//
+// 【0.1.5-rc.1 现状·补丁已退役】内核把 contextBreakdown 整体重写为 ver4 节点式
+//   （stateSchema = { nodes[], breakdown{} }，apply 走 planSurfaceTokens /
+//   commitSurfaceTokens 累加，负 delta 在模型层即不可能），旧的
+//   `Math.max(0, state.messageTokens + fold.deltaTokens)` 夹取锚点彻底消失。
+//   故 token-meter-clamp 已从 boot 编排退役（patch-registry 62→60，rootAppliers
+//   摘除 patchTokenMeterClamp）。本测试保留实现契约（第 1 节，合成片段）与
+//   退役断言（第 2 节：真字节 anchor-missing + ver4）。
 // ---------------------------------------------------------------------------
 
 const test = require('node:test');
@@ -163,13 +171,13 @@ test('升级实态：旧版仅夹取已应用、version 仍 2 → changed，只�
 // 2. 真实已装 bundle 字节：fixed-point + 版本状态
 // ===========================================================================
 
-test('真实已装 bundle：transform → already（已全量补丁，锚点/marker 与真字节一致）', () => {
+test('真实已装 bundle：0.1.5-rc.1 已原生化（ver4 节点式）→ 补丁退役 anchor-missing', () => {
   assert.ok(fs.existsSync(BUNDLE), `缺已装 bundle：${BUNDLE}`);
   const installed = fs.readFileSync(BUNDLE, 'utf8');
   const r = transformTokenMeterClamp(installed, 'index.js');
-  assert.equal(r.status, 'already', '对已补丁真字节应幂等 already');
-  assert.ok(isClamped(installed), '真字节应已夹取 messageTokens');
-  assert.equal(extractStateVersion(installed, 'contextBreakdown'), 3, '真字节 contextBreakdown 应为 ver3');
+  assert.equal(r.status, 'anchor-missing', '内核重写 contextBreakdown（ver4 节点式），旧夹取锚点已消失 → 补丁退役');
+  assert.equal(r.src, undefined, '退役态不得改写真字节');
+  assert.equal(extractStateVersion(installed, 'contextBreakdown'), 4, '真字节 contextBreakdown 应为 ver4（上游原生修复）');
   assert.equal(extractStateVersion(installed, 'tokenUsage'), 2, '真字节 tokenUsage 应仍 ver2');
 });
 
@@ -262,9 +270,9 @@ test('对照·复现 #172：live stateVersion 仍为 2 时，restore 直接 pars
   );
 });
 
-test('修复生效：live contextBreakdown stateVersion=3（自真实 bundle 提取）→ ver 失配丢弃重折、非负、不抛', () => {
+test('修复生效：live contextBreakdown stateVersion=4（自真实 bundle 提取）→ ver 失配丢弃重折、非负、不抛', () => {
   const liveVersion = extractStateVersion(fs.readFileSync(BUNDLE, 'utf8'), 'contextBreakdown');
-  assert.equal(liveVersion, 3, '回归位：补丁未 bump 时此断言即红');
+  assert.equal(liveVersion, 4, '回归位：内核 contextBreakdown 版本（0.1.5-rc.1 已升 ver4）');
   const defs = [makeContextBreakdownDef(liveVersion), TOKEN_USAGE_DEF];
   const baseSeq = restoreFloor(defs, DIRTY_CHECKPOINT);
   assert.equal(baseSeq, 0, 'contextBreakdown ver 失配 → restoreFloor 拉到 0（全量重折）');

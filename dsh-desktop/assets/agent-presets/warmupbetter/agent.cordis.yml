@@ -41,7 +41,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: |-
+    prefix: |-
       You are a helpful software engineer assistant.
       Workspace: {{cwd}}.
 

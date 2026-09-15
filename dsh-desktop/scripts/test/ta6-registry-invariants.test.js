@@ -44,6 +44,8 @@ const IMPL_SOURCES = [
   path.join(__dirname, '..', '..', 'profile-bundle-heal.js'),
   path.join(__dirname, '..', 'patch-pi-ai-4xx-dump.js'),
   path.join(__dirname, '..', 'patch-pi-ai-tool-schema-sanitize.js'),
+  path.join(__dirname, '..', 'patch-pi-ai-responses-tool-name-sanitize.js'),
+  path.join(__dirname, '..', 'patch-pi-ai-quota-not-retryable.js'),
 ].map((f) => fs.readFileSync(f, 'utf8'));
 
 /** 既有「内联 pkgRel」白名单：registry 里未走 patch-target-resolver 常量的
@@ -125,9 +127,10 @@ test('C. marker 单一数据源 + marker 出现在 transform 实现源码文本�
   for (const [name, value] of Object.entries(adapters.markers)) {
     if (typeof value !== 'string') continue;
     const used = PATCH_SPECS.some((s) => s.marker === value);
-    // 已知多形态常量：v1 marker 不再做任何 spec 的幂等判定，只供「在野旧副本」
-    // 的识别/升级路径与逆运算 LEGACY 变体使用（v2 = 基础 marker + ' (v2)'）。
-    const knownUnused = new Set(['SLOT_ERROR_ISOLATE_MARKER', 'SESSION_LOAD_GRACEFUL_MARKER']);
+    // 已知多形态常量：v1/v2 世代 marker 不再做任何 spec 的幂等判定，只供
+    // 「在野旧副本」的识别/升级通道与逆运算登记使用
+    // （v2 = 基础 marker + ' (v2)'，v3 = 基础 marker + ' (v3)'）。
+    const knownUnused = new Set(['SLOT_ERROR_ISOLATE_MARKER', 'SESSION_LOAD_GRACEFUL_MARKER', 'SESSION_LOAD_GRACEFUL_MARKER_V2']);
     if (!used) assert.ok(knownUnused.has(name), `marker ${name} 无任何 spec 引用`);
   }
 });
@@ -177,11 +180,29 @@ test('E. order 全局唯一、组内升序、补丁间依赖序成立', () => {
   // 输入」勾选——手声明路由不写 input 时 pi-ai 恒回落 ["text"]，多模态模型被当
   // 文本模型拒收图片；靶 dsh-client-ui-settings-models/lib/client.js，与
   // settings-models-resilience 同靶不同区段）。
-  // 62 = 60（上一基线）+ 2 项新增：workspace-pin（侧栏工作区 ⋯ 菜单「置顶到
-// 列表顶部」，可多选降序压顶、localStorage 持久化）与 preset-seat-fix（模式
-// chip 选一次后 busy 卡死——remotePresets 调用点双错误修复）；均为 root
-// 应用器（order 215/216，靶 dsh-client-ui-workspace / dsh-client-ui-agent-preset）。
-assert.equal(PATCH_SPECS.length, 62, 'spec 总数应为 62');
+  // 60 = 62（0.6.3 基线）− 2 项退役：preset-seat-fix（0.1.5-rc.1 上游原生修复
+  // busy 复位）与 token-meter-clamp（0.1.5-rc.1 新公式恒非负）已从 boot 编排退役。
+  // workspace-pin（侧栏工作区 ⋯ 菜单「置顶到列表顶部」，可多选降序压顶、
+  // localStorage 持久化，order 215，靶 dsh-client-ui-workspace）仍在册。
+  // 61 = 60（上一基线）+ 1 项新增（released-v0-history-recovery，order 402，靶
+  // dsh-session-format-v0-to-v1/lib/index.js：frozen released-v0 编解码器把清单外
+  // 载荷成员整条拒载，老会话（第三方压缩插件的 tier/kernelBlockId/parentBlockIds/
+  // directMessageIds/effectiveMessageIds、早期 permission/preset.origin、
+  // subagent/descriptor version:2）读不回历史；只扩准入清单、成员原样保留）。
+  // 62 = 61（上一基线）+ 1 项新增（pi-ai-responses-tool-name-sanitize，order 335，
+  // 靶 @earendil-works/pi-ai/dist/api/openai-responses-shared.js —— 非闭包靶包，与
+  // pi-ai-tool-schema-sanitize 同族：Responses 三条路由共用的工具序列化/历史回放/
+  // 流式槽位零清洗，cardian.* 带点号名上 wire 即被 OpenAI 兼容网关按
+  // ^[a-zA-Z0-9_-]+$ 拒为 400 invalid_value，整轮失败）。
+  // 63 = 62（上一基线）+ 1 项新增（pi-ai-tool-name-wire，order 336，靶
+  // @deepseek-ai/dsh-llm-pi-ai/lib/index.js —— 内核 ↔ pi-ai 唯一交界，出站 toolsOf()
+  // 洗名 + 回程两处 case "tool-call" 还原，一处覆盖全部 provider（OpenAI/Bedrock/
+  // Gemini/Mistral），补上逐适配器两条之外的缺口）。
+  // 64 = 63（上一基线）+ 1 项新增（pi-ai-quota-not-retryable，order 337，靶
+  // @earendil-works/pi-ai/dist/utils/provider-retry.js —— isRetryableProviderError
+  // 把 429 一律当可重试，而 OpenAI 兼容渠道的 insufficient_quota 同为 429 却是
+  // 终态；补丁识别配额耗尽即返回不可重试，x-should-retry 头仍优先）。
+  assert.equal(PATCH_SPECS.length, 64, 'spec 总数应为 64');
   const orders = PATCH_SPECS.map((s) => s.order);
   assert.equal(new Set(orders).size, orders.length, 'order 必须全局唯一');
   const byId = Object.fromEntries(PATCH_SPECS.map((s) => [s.id, s]));
@@ -228,9 +249,9 @@ test('E3. device-auth 154 与 credentials-absent 153 相邻无干扰', () => {
   );
 });
 
-test('F. cli:true 恰为 26 项；failPolicy ∈ {warn,degrade}', () => {
+test('F. cli:true 恰为 28 项；failPolicy ∈ {warn,degrade}', () => {
   const cliSpecs = registry.getSpecsByCli();
-  assert.equal(cliSpecs.length, 26, 'cli:true 数量（含 skill-dirs-compat + pi-ai-4xx-dump + workspace-chip-label-hold + model-image-input）');
+  assert.equal(cliSpecs.length, 28, 'cli:true 数量（含 skill-dirs-compat + pi-ai-4xx-dump + workspace-chip-label-hold + model-image-input + pi-ai Responses 工具名净化 + pi-ai 工具名 wire 中央收口 + pi-ai 配额耗尽不重试；token-meter-clamp 已退役）');
   for (const s of cliSpecs) assert.equal(s.cli, true);
   for (const spec of PATCH_SPECS) {
     assert.ok(

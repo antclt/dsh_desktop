@@ -24,11 +24,25 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const {
-  SESSION_UNKNOWN_EVENT_TOLERANCE_MARKER,
-  SESSION_UNKNOWN_EVENT_FROM,
   transformSessionUnknownEventTolerance,
+  markers,
 } = require('../lib/patch-adapters');
 const { kernel } = require('../compat/kernel-pin.json');
+
+// marker 走 patch-adapters 单一数据源（registry 的幂等判定引用同一常量）。
+const SESSION_UNKNOWN_EVENT_TOLERANCE_MARKER = markers.SESSION_UNKNOWN_EVENT_TOLERANCE_MARKER;
+
+// rc.1 起上游把 alpha.5 的类方法 assertEventsSupported(meta, events) 重写成顶层
+// 函数 validateStoredEvents(meta, events, location)（同文件还有 adopt 循环 +
+// request/header 旧 reason 拒载）。此常量镜像 patch-adapters 的内部 FROM 锚点
+// （未导出），与源文件逐字节一致，用于「pristine 在场」哨兵——与
+// unit-persistence-corrupt-guard 镜像内部锚点的手法同款。
+const SESSION_UNKNOWN_EVENT_FROM = 'function validateStoredEvents(meta, events, location) {\n\tfor (const event of events) {\n\t\tif (!KNOWN_SESSION_EVENT_TYPES.has(event.type) && event.ignorable !== true) throw unsupported(`session "${meta.id}" contains event type "${event.type}" (seq ${event.seq}) unknown to this harness and not marked ignorable; refusing to interpret the log — it was likely written by a newer harness`, location);\n\t\tif (event.type === "request/header") {\n\t\t\tconst data = event.data;\n\t\t\tif (typeof data === "object" && data !== null && data["reason"] === "fallback") throw unsupported(`session "${meta.id}" contains a request/header event (seq ${event.seq}) with the unsupported legacy reason "fallback"; refusing to interpret the log — it was written by a retired pre-release harness`, location);\n\t\t}\n\t}';
+// 未知事件 fail-closed 抛出的专属文案（rc.1 里 "refusing to interpret the log"
+// 还保留在 request/header 旧 reason 拒载里，那是补丁有意不动的第二处 fail-closed，
+// 所以「旧文案零残留」必须按未知事件抛句的特征子串判定，不能用公共短语）。
+const UNKNOWN_THROW_TEXT = 'unknown to this harness and not marked ignorable';
+const HEADER_REASON_THROW_TEXT = 'retired pre-release harness';
 
 // pristine 源：vendored tarball 解包（dev 树已被 patch-deps 打过，幂等判定统一
 // 在 pristine 上做——与 reasoning-row-collapse-width 同口径）。
@@ -57,18 +71,20 @@ function readPristine() {
   return fs.readFileSync(SP_FILE, 'utf8');
 }
 
-/** 从产物抽出容忍版方法体，套在最小宿主上实跑（行为验证）。 */
+/** 从产物抽出容忍版函数体，套在最小宿主上实跑（行为验证）。 */
 function runTolerated(events) {
   const src = readPristine();
   const r = transformSessionUnknownEventTolerance(src, 'persistence/index.js');
   assert.equal(r.status, 'changed');
-  const sig = 'assertEventsSupported(meta, events) {';
+  const sig = 'function validateStoredEvents(meta, events, location) {';
   const start = r.src.indexOf(sig);
   assert.ok(start >= 0, '产物应含被替换的方法体签名');
-  const end = r.src.indexOf(LF_MARK + '}', start);
-  assert.ok(end > start, '产物应含方法闭合');
-  // new Function 的函数体必须是纯语句序列：剥掉签名行与方法闭合行。
-  const body = r.src.slice(start + sig.length + LF_MARK.length, end + 1);
+  // rc.1 形态：容忍循环之后紧跟未被本补丁触碰的 adopt 循环 try 块，
+  // 它引用 adoptSessionEvent 等宿主符号，必须切在 try 之前。
+  const end = r.src.indexOf(LF_MARK + 'try {', start);
+  assert.ok(end > start, '产物应含容忍块到 adopt try 的边界');
+  // new Function 的函数体必须是纯语句序列：剥掉签名行与尾部边界。
+  const body = r.src.slice(start + sig.length + LF_MARK.length, end);
   const warns = [];
   const host = {
     KNOWN_SESSION_EVENT_TYPES: new Set(['message added', 'session/created']),
@@ -81,9 +97,9 @@ function runTolerated(events) {
 }
 const LF_MARK = String.fromCharCode(10) + String.fromCharCode(9); // 方法体切片用换行+tab 锚
 
-test('pristine 锚点唯一性：fail-closed 方法体全文件一次', () => {
+test('pristine 锚点唯一性：fail-closed 函数体全文件一次', () => {
   const src = readPristine();
-  const hits = src.split('assertEventsSupported(meta, events) {').length - 1;
+  const hits = src.split('function validateStoredEvents(meta, events, location) {').length - 1;
   assert.equal(hits, 1, `方法签名应全文件唯一（实际 ${hits} 次）`);
   assert.ok(src.includes(SESSION_UNKNOWN_EVENT_FROM), 'fail-closed 循环锚应在 pristine 在场');
 });
@@ -94,7 +110,8 @@ test('transform：changed 产物未知事件改跳过、旧 throw 文案零残�
   assert.equal(r.status, 'changed');
   assert.ok(r.src.includes(SESSION_UNKNOWN_EVENT_TOLERANCE_MARKER), '产物应有 marker（幂等依据）');
   assert.ok(r.src.includes('[dsh-unknown-event-tolerance]'), '应带固定前缀告警');
-  assert.ok(!r.src.includes('refusing to interpret the log'), '旧 fail-closed 文案应零残留');
+  assert.ok(!r.src.includes(UNKNOWN_THROW_TEXT), '未知事件 fail-closed 抛句应零残留');
+  assert.ok(r.src.includes(HEADER_REASON_THROW_TEXT), 'request/header 旧 reason 拒载应原样保留（补丁不得过替换）');
   assert.ok(r.src.includes('dshUnknown.push'), '未知事件应被收集（跳过语义）');
 });
 
@@ -144,9 +161,12 @@ test('产物 assertVersion 的 fail-closed 保留（格式版本不兼容仍拒�
   const src = readPristine();
   const r = transformSessionUnknownEventTolerance(src, 'persistence/index.js');
   assert.equal(r.status, 'changed');
+  // rc.1 形态：assertVersion 从 alpha.5 的早退式改为直接取反抛错，
+  // 版本拒绝链（sessionFormatVersionRefusal）依旧 fail-closed，且不被本补丁波及。
   assert.ok(
-    r.src.includes('if (meta.version === SESSION_FORMAT_VERSION) return;') &&
-    r.src.includes('sessionFormatVersionRefusal(meta.id, meta.version)'),
+    r.src.includes('function assertVersion(meta, location) {') &&
+    r.src.includes('if (meta.version !== SESSION_FORMAT_VERSION) throw unsupported(sessionFormatVersionRefusal(meta.id, meta.version), location);') &&
+    r.src.includes('function sessionFormatVersionRefusal(id, version) {'),
     'assertVersion 版本拒绝链不得被波及',
   );
 });
@@ -169,5 +189,6 @@ test('dev 树收口：appDir 靶字节已应用本补丁（marker 在位、旧�
   assert.ok(fs.existsSync(devTarget), '缺 dev 靶: ' + devTarget);
   const src = fs.readFileSync(devTarget, 'utf8');
   assert.ok(src.includes(SESSION_UNKNOWN_EVENT_TOLERANCE_MARKER), 'dev 靶应有 marker（patch-deps 收口）');
-  assert.ok(!src.includes('refusing to interpret the log'), 'dev 靶旧 fail-closed 文案应零残留');
+  assert.ok(!src.includes(UNKNOWN_THROW_TEXT), 'dev 靶未知事件 fail-closed 抛句应零残留');
+  assert.ok(src.includes(HEADER_REASON_THROW_TEXT), 'dev 靶 request/header 旧 reason 拒载应保留');
 });

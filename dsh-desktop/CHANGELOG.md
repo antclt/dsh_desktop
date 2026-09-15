@@ -6,6 +6,352 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
 
 ## [Unreleased]
 
+### feat(plugins)：内置 dsh-easyrewrite 取代 dsh-message-rewind；修 prompt-optimizer 伴随 id 失配
+
+- **插件替换**：消息撤回/再编辑改用社区插件 `dsh-easyrewrite`（Renzic-Stone，MIT，
+  npm 2.5.2）——原版体验、上游活跃、client inject（`slots/sessions/workspaces`）
+  在 rc.2 全部在场（better-sidebar 同表实证）；自研 `dsh-message-rewind` 移除
+  （功能同域，卸载即退役，无数据迁移面）。
+- **修 id 失配**：`dsh-prompt-optimizer` 的伴随清单 id 误写为包名
+  `dsh-prompt-optimizer`，与其 bundle 层 `cordis.patch.yml` 声明的 loader id
+  （`prompt-optimizer`）不一致——同 super-injector 事故（#104）的前置形态：
+  自愈 `dropBlocksByIds` 永不命中该插件的残留 insert 块。已对齐为
+  `prompt-optimizer` 并在清单加注。
+- **验证**：easyrewrite 全链 id 一致（patch yml = client bundle load id = 清单 id
+  = `dsh-easyrewrite`）；包形单件零依赖；MIT 补入 THIRD_PARTY_NOTICES 2.1 表。
+
+### fix(pi-ai)：配额耗尽（429 `insufficient_quota`）被当可重试，先白等多轮退避
+
+- **症状**：线上报错
+  `429: {"message":"Allocated quota exceeded, please increase your quota limit...","type":"insufficient_quota","code":"insufficient_quota"}`。
+- **先澄清一点（实测，避免误修）**：**错误分类本来就是对的**。
+  `@deepseek-ai/dsh-llm` 的 `isQuotaExceededError` 模式集已覆盖
+  `insufficient[\s_-]+(quota|balance|credits)` 与 `quota exceeded/exhausted/reached`；
+  `dsh-llm-pi-ai` 的分类顺序也把 `QUOTA_EXCEEDED_CODE` 排在 `429 → RATE_LIMIT` 之前。
+  用该真实 payload 实测 `isQuotaExceededError` **返回 true**（反向对照：纯限流文案、`401
+  invalid api key` 均为 false）。所以问题**不是**"被显示成限流"或"被误判成 key 无效"。
+- **真正的缺陷**：`@earendil-works/pi-ai/dist/utils/provider-retry.js` 的
+  `isRetryableProviderError` 把 **429 一律判定可重试**（镜像 OpenAI/Anthropic SDK 的退避
+  策略，对**限流**是对的）。而配额耗尽在 OpenAI 兼容 API 里同样是 429 —— 但它是**终态**，
+  不充值永远不会成功。于是每次请求都先白等若干轮退避（单轮上限 60s）才把错误交给上层分类。
+- **修法**：新增补丁 `pi-ai-quota-not-retryable`（靶 `provider-retry.js`），在
+  `x-should-retry` 显式头之后插入配额判定，命中即 `return false`；关键词集与 dsh-llm 的
+  `isQuotaExceededError` **对齐**（单源对照便于维护）。显式头仍优先，运维可用它覆盖。
+- **验证**：应用后幂等（二次 already）；功能 **8/8** —— 配额类三条
+  （`429+insufficient_quota` / `quota exceeded` 无 code / `insufficient balance`）→ 不可重试；
+  **反向控制四条**（纯限流 429、空正文 429、500、408）→ 仍可重试；`x-should-retry:false` → 仍优先。
+- **副作用面**：只影响"重试与否"，不改分类、不改文案、不改任何错误码口径。
+
+### fix(balance)：本轮费用算错——带日期后缀的模型名落回 pro 档（高估 3 倍）
+
+- **症状**：每轮对话底部「本轮费用」金额不对（DeepSeek 渠道；账户余额本身正常）。
+- **根因**：`balance.js` 的模型→价目表是**精确键查找**，而官方/聚合渠道常下发带日期或
+  版本后缀的变体名（`deepseek-v4-pro-0813`、`deepseek-v4-flash-250610`、`deepseek-chat-V3`），
+  价目表只有 4 个规范键 → 未命中即 `|| PEAK_PRICES[DEFAULT_MODEL]` 落回 **pro**。
+  实测（本机活动模型正是 `deepseek-v4-pro-0813`，provider `jiyuan`）：
+  `effectivePrice('deepseek-v4-flash-0813')` 返回 `{4.5, 0.15, 13.5}` —— 那是 **pro 空闲价**，
+  flash 空闲应为 `{1.5, 0.05, 4.5}`，**高估 3 倍**。
+- **修法**：新增 `pricingKeyOf(model)`（精确命中 → 剥尾随日期/版本段 → 最长前缀命中 → 原值），
+  `effectivePrice` 改用它取键并导出。**保留**一条老行为：真正未知的模型名仍回退 pro 最高档
+  （宁可多报不少报），由测试显式钉住不被改坏。
+- **端到端核对**（不是只看单测）：把 widget 的纯函数（`normalizeUsage` / `costOfBuckets` /
+  `tierOf` / `pricesForModel`）从 cordis 闭包里按源码文本抽出求值，喂壳侧同口径 payload
+  （`priceTable` / `periodTables` / `pricingTier` / `prices` / `peak`），对 4 个模型名 × 峰/谷
+  两档逐一比对「widget 显示金额 vs 手算应得」→ **8/8 一致**；修复前 flash 变体显示
+  ¥0.41640（pro），现为 ¥0.13880（flash）。
+- **顺带查清的两件事（都不是缺陷，但记录以免重复调查）**：
+  ① `dsh-token-meter` 的 `tokenUsage` 投影 `projectionSchema` 是 strict 且**只有 4 个 token
+  字段、没有 `model`** → widget 的 `u.model` 恒为 null，模型只能取壳推送的活动模型；
+  但增量账本按「每次观测时的模型|档位」分桶入账（issue #168 设计），会话中途换模型已被
+  正确分档，不构成错算。
+  ② DeepSeek 适配器 `mapUsage` **只设 `cacheReadTokens`、不设 `cacheWriteTokens`**，
+  而计价是 `miss = uncached + write` → 不存在缓存写入重复计费。
+- **验证**：新增 `unit-balance-pricing-key.test.js` 5 例（规范键不改写、变体归本档、
+  flash≠pro 且差 3 倍的回归锁、未知名仍回退 pro、最长前缀大小写稳健）；
+  余额全套 **113/113 绿**；`balance.js` 属 payload 根级脚本，已重暂存并纳入安装包。
+
+### fix(presets)：内置预设的 dsh-persona 键未跟随 rc.1 schema，人设静默失效
+
+- **症状**：现场日志（`desktop.log`）报
+  `[loader-isolation] entry persona (@deepseek-ai/dsh-persona) failed to apply:
+  invalid config: - $.prefix missing required value (at prefix)` —— 启动照常，
+  但该预设的 agent **静默丢掉自己的身份 system prompt**（异常被 loader-isolation 隔离成非致命）。
+- **根因**：rc.1 起 `dsh-persona` 的 Config 是 `{ prefix: 必填, suffix?, complete? }`
+  （随 `PERSONA_SECTION` 拆成 `PERSONA_PREFIX_SECTION`/`PERSONA_SUFFIX_SECTION` 一起改的），
+  而我们 **8 个随包预设全都还在传旧键 `text:`**。属我方资产未跟随内核 schema，不是用户配置问题。
+- **修法**：`assets/agent-presets/*/agent.cordis.yml` 中 dsh-persona 挂载块内的
+  `text:` → `prefix:`，共 8 处（anchored-standard / zero-anchored-standard / whoami-standard /
+  router-standard / minimal-win / v4-flash-godmode-opencode-go / warmupbetter /
+  warmupbetter-replay）；`suffix` 省略即默认 `''`，与旧单节语义一致。
+- **验证**：8/8 改到位、零 `text:` 残留；8 个 YAML 均可解析（`!!js` 自定义标签告警属正常）；
+  预设 + better-sidebar 全套 **91/91 绿**。
+
+### fix(better-sidebar)：右上角折叠按钮簇被内置侧栏遮罩盖住，点不到
+
+- **症状**：dsh 自带侧栏与插件右上角的折叠按钮簇重叠，**两个按钮叠在一起、点不到**。
+- **根因（活页面实测，非推断）**：官方前端的内置侧栏抽屉遮罩根节点是
+  `position:fixed; z-index:1000`，且遮罩本体全屏 `602×652`、`pointer-events:auto`、
+  `background:rgba(0,0,0,.24)`；而插件的 `[data-dsh-panel-host]` 只有 `z-index:40`。
+  host 自身是层叠上下文，子元素（`.toggleCluster` 虽 `z-index:45`）**无法越出 host 与遮罩竞争**，
+  于是 `document.elementFromPoint(簇中心)` 命中的是 `DIV._mask_w1urq_14` 而非按钮。
+  同一遮罩还压住插件自带的 `mermaidModal`(1000) 与 `uploadDropZone`(1001)。
+- **修法**：把 `[data-dsh-panel-host]` 的 `z-index` 由 40 抬到 **1001**（高于实测遮罩 1000）；
+  `src/client/sidebar.module.css` 与 **四份 lib 产物**（client / client-registry /
+  client-editor / client-mermaid）同步改，避免只改 src 而运行时入口拿不到修复。
+- **验证**：隔离实例内 `sidecar boot` 重新 sync 后重载页面复测 —— 同坐标命中目标由
+  `DIV._mask_w1urq_14` 变为插件自身的 `svg`，`clickable: true`；遮罩仍在位，
+  内置抽屉的遮罩行为不受影响。插件版本 `0.15.2 → 0.15.3` 以触发 keep-newer 同步。
+
+### fix(session)：旧对话「历史加载失败」——v0→v1 迁移整条拒载（0.6.4 在野）
+
+- **症状**：升级后部分旧对话打不开，报
+  `failed to observe session "…": @deepseek-ai/dsh-session-format-v0-to-v1 refuses this
+  format v0 Session: compaction/summary 82013 data has unexpected member "tier";
+  source v0 artifact remains unchanged`。现场一台机器 **54 个会话里 19 个读不回**。
+- **根因**：换到的内核新增 `dsh-session-format-v0-to-v1`（frozen "released-v0" 编解码器），
+  它**冻结了第一方 v0 构建当时写出的载荷成员清单**，清单外成员一律 `SessionFormatError`
+  整条拒载 —— 不丢弃、不重写、也不降级，于是跨代留存的会话永久读不回。三类实测来源：
+  1. `compaction/summary` 多 `tier`/`kernelBlockId`/`parentBlockIds`/`directMessageIds`/
+     `effectiveMessageIds` —— 由**第三方压缩插件 `billion-context-dsh`(acp-kernel)** 自带的
+     块账本写入（17 个会话）；
+  2. `permission/preset` 多 `origin:"default"` —— 早期写入方的溯源信息（4 个）；
+  3. `subagent/descriptor` 的 `version:2` —— 字段集与 v3 完全相同；上游只在 v0 分支拒它
+     （v1 分支直接 `return` 容忍），而下游 v2→v3 又硬要求 3，属单纯过度收紧（14 个）。
+- **修法**：新增补丁 `released-v0-history-recovery`（order 402，靶
+  `dsh-session-format-v0-to-v1/lib/index.js`），三处**只扩准入清单、不放宽任何校验**：
+  块账本字段与 `origin` 进 optional 且**原样保留到 v3**；描述符 `version:2` 盖章为 3 后
+  **继续落到原有的严格形状校验**（不 `return`、不跳过），非 2 的未知版本仍照拒；
+  v1 分支行为逐字不变。三处锚点缺一即整体 `anchor-missing` 不落地，避免半投造成
+  准入与校验不一致。
+- **被否决的方案（记下来防重犯）**：把 `assertReleasedV0Keys` 的未知成员改成一律 `delete`。
+  错在两处 —— ① 会摧毁 `billion-context-dsh` 的块账本（`tier`/块身份是它的语义依赖）；
+  ② 覆盖不到第 2、3 类（`origin` 与描述符版本压根不是同一失效形态）。
+  准入只能按来源逐条白名单化，不能一刀切放宽。
+- **验证**：`unit-released-v0-history-recovery.test.js` 9 例 —— 三态/幂等、部分锚点缺失
+  不落地、产物 `node --check`，以及**功能级直跑打过补丁的真实 `assertReleasedEventPayload`**：
+  块账本与 `origin` 原样保留、描述符盖章后仍受严格校验；三条反向控制钉住"没把校验关掉"
+  （未知垃圾成员仍 `has unexpected member`、未知描述符版本仍 `unsupported descriptor version`、
+  必填缺失仍 `lacks required member`）。基线矩阵实测两代 pristine 靶字节一致、
+  形态均为 `changed`。
+- **生效条件**：改的是已载入 ESM 缓存的模块，**需重启 DSH** 才消失；重启后这些会话首次加载
+  完成 v0→v3 迁移并写出 `session.v3.jsonl.zstd` 代际文件（正常路径，与其它已迁移会话一致）。
+
+### fix(shell)：0.6.3 起启动闪 CMD 窗口
+
+- **症状**：自 0.6.3 起，每次启动 DSH Desktop 会闪一个控制台窗口（瞬间出现即消失）。
+- **根因**：0.6.3 新增 dsh CLI shim（终端可直接敲 `dsh`）时引入
+  `src/app/src/commands/dsh_cli.rs` 的 `append_user_path()`，它在 `setup` 期被
+  `lib.rs:479 ensure_dsh_cli_shim()` 调用，以 `powershell ... .output()` 读写
+  `HKCU\Environment` 的 Path —— **漏了本仓库统一的 `creation_flags_no_window()`**。
+  GUI 进程起 console 子程序必然分配控制台窗口（同一纪律在 `run_sidecar`、
+  `balance.fetch_once`、`acp`、`kill_tree`、`single_instance`、`node_resolve`、
+  `wsl-backend` 处都已落实，唯独这个新 spawn 漏网）。
+  且其提前返回条件是「**当前进程** PATH 已含 shim 目录」，而注册表写入不会刷新已运行
+  进程的环变 —— 因此在重新登录前，**每次启动都会闪**，不是只闪一次。
+- **修法**：补 `.creation_flags_no_window()`；trait 引入按 `#[cfg(windows)]` 门控
+  （调用点在 windows-only 函数内，无条件引入会在非 Windows 构建产生 unused import 警告，
+  本仓库执行 `cargo build --workspace` 零警告纪律）。
+- **防回归**：按仓库「形态锚点测试」纪律加
+  `append_user_path_suppresses_console_window_shape`，钉住 powershell 通道、
+  `-NoProfile`、`DoNotExpandEnvironmentNames`（保留用户 PATH 的 `%VAR%` 原文形态）
+  与 `.creation_flags_no_window()` 四项。
+  **捕获力已反证**：移除该旗后此测试 FAILED 并点名"spawn 必须抑制终端窗"，还原即绿。
+  （首次反证因 CRLF 行尾导致替换未生效而假绿，改用行尾容错匹配后才得出真结论。）
+- **全量审计（确认这是唯一漏网点）**：逐一核过 Rust 侧全部 `Command::new` 点 ——
+  supervisor 的 10 处 spawn 均走 `.creation_flags_win()`；`wsl.exe` 三处有
+  `set_no_window()`；`node_resolve` 用 `no_window()` helper；`explorer` / `open` /
+  `xdg-open` 是 GUI 程序不产生控制台窗；其余为 unix-only（`pbcopy`/`ps`/`lsof`/`sh`）
+  或 `#[cfg(test)]` 内。故启动路径上仅 `dsh_cli.rs` 一处缺旗。
+
+### feat(kernel)：内核换代 0.1.5-rc.1 → 0.1.5-rc.2（0.6.4）
+
+- **版本落点**：客户端版本三处统一 `0.6.3 → 0.6.4` ——
+  `dsh-tauri/src-tauri/src/app/tauri.conf.json`（发布权威，CI 版本闸门断言它 == tag）、
+  `dsh-tauri/src-tauri/Cargo.toml`（workspace，各 crate 继承、无独立 version 声明）、
+  `dsh-desktop/package.json`（此前从 0.5.2 起长期滞后，已一并归一）。推 `v0.6.4` tag 触发
+  三平台发布属对外动作，留人工执行。
+- **换版落点**：`kernel-pin.json` 定版 `dsh-v0.1.5-rc.2`；`vendor/dsh-kernel/` 换成 259 个 rc.2
+  tarball（rc.1 全量移入仓库根备份目录，非删除，随时可回退）；`package.json` 260 处依赖版本行
+  同步；锁由 `generate-kernel-lock.mjs` 重生成（259 个 `file:` 条目 + integrity 按真实 tarball
+  字节重算）；`install-kernel.mjs` 装入 rc.2；`patch-deps` 收口 **写入 74 处 / 失配 0 / 失败 0 /
+  告警 0**（60 条 spec）；pristine 基线树重建为 `.tmp-kernel/.consumer-0.1.5-rc.2`。
+- **漂移面实测为零（不是假设）**：换代前先做预检 —— 把 rc.2 tarball 单独解成一棵树，对
+  `PATCH_SPECS` 逐条跑 transform 三态判定：**44 条 file transform 全部 `changed`、
+  0 `anchor-missing`、0 THROW**。全家族唯一的靶文件字节变动是
+  `dsh-client-ui-chat/lib/client.js`（+15 字节），差异实为 `TurnTailNodeView.module.css` 里
+  `.TS9iAW_actions` 多了一条 `margin-top:4px`，不触任何锚。
+  7 项关键语义契约逐项比对计数完全一致（torn-tail 扁平字段、未知事件 fail-closed、`surfaceOp`
+  必填、`PERSONA_*` 拆分、`isSeeded`/格式版本、typert 协议导出面、宿主布局类名）。
+  包集合亦经 registry 探测确认 259/259 在架、零增删、抽样依赖面零变化 —— rc.2 是同源重打包。
+- **fix(compat)：消除两处「第二版本源」硬编码**（本轮真正的换代隐患）。
+  `scripts/generate-kernel-lock.mjs` 与 `scripts/install-kernel.mjs` 各自硬编码
+  `KERNEL_VERSION = '0.1.5-rc.1'`，而**两个文件的头注释都写着**「内核版本唯一定义在
+  kernel-pin.json」—— 代码与自身声明的不变量矛盾。实测后果不是报错而是**静默错判**：
+  ① 锁生成对 259 个包全报 `WRONG version … 0.1.5-rc.2`（因为它拿旧常量比对新字节）而拒绝写锁；
+  ② `install-kernel` 快速幂等路径把仍装着 rc.1 的 `node_modules` 判成「已就位」直接 skip，
+  换代被无声跳过。两处改为从 `kernel-pin.json` 读 `kernel.packageVersion`，取不到即抛。
+- **fix(dsh-hub)：内嵌协议副本随版到 rc.2**（`1.1.4 → 1.1.5`）。这条是上一轮新加的
+  内嵌跨界副本平价守卫**在下一代内核上第一次兑现** —— 它当场报出
+  `内嵌 dsh-typert-protocol = 0.1.5-rc.1，宿主 pin = 0.1.5-rc.2 → 旧协议对新宿主`，
+  否则插件会继续拿旧协议对新宿主而无人察觉。副本已刷新、manifest pin 对齐。
+- **验证（五路闸门在 rc.2 全绿）**：Node 全量 **2057 例 / 2050 通过 / 0 失败 / 7 跳过**；
+  Rust `cargo test --workspace` **739 通过 / 0 失败**（38 个 `test result: ok`）；
+  Tauri sidecar boot 六步链 **23/23**；`validate-pin` 通过 `dsh-v0.1.5-rc.2`；
+  `patch-surface verify` 49 文件 / 84 标记一致；`stage-payload` + `[payload-patches] OK 核 50 靶
+  / 滞后 0`；`smoke-installed` **PASS**（装配 resources 内核实为 0.1.5-rc.2，插件加载零致命、
+  page-error 0）；CDP 移动视口复核宿主仍渲染 `pI_x6G_rightbarCol` / `wSkVaW_scrollBody`。
+
+### feat(kernel)：内核换代 0.1.2-alpha.5 → 0.1.5-rc.1（0.6.4）
+
+- **换版落点**：`scripts/compat/kernel-pin.json` 定版 `dsh-v0.1.5-rc.1`（`pinPolicy: exact`），
+  `vendor/dsh-kernel/` 全量换成 259 个 rc.1 tarball（242 个 alpha.5 tgz 退役），
+  `package-lock.json` 由 `generate-kernel-lock.mjs` 以真实 tarball sha512 重生成，
+  `node_modules` 与 pristine 基线树（`.tmp-kernel/.consumer-0.1.5-rc.1/`，新增
+  `scripts/install-pristine-kernel.mjs` 离线解包产出）同步到位。
+- **fix(profile-bundle-heal)：注入调用点沿用旧签名 → 每次启动 ReferenceError**（本批唯一真实缺陷）。
+  **症状**：真实启动在 `dsh-app-boot/lib/index.js` 抛 `ReferenceError: name is not defined`，
+  由 `unit-profile-reconcile` 的「真实 dsh-app-boot」用例抓到。
+  **根因**：rc.1 把「逐个 bundle 严格装配」的 `bundles.map(...)` 块从 `loadProfile` 移进了
+  `loadProfileDirectory(binName, dir, installAnchor, options)`，而**该函数签名不再有 `name` 形参**
+  （上游自己以 `name: basename(dir)` 派生 profile 名）；`applyAppBootBundleGuard` 注入的调用点
+  仍写 `loadProfileLayers(binName, name, dir, installAnchor)`，落入无 `name` 的作用域即崩。
+  **修法**：调用点改传 `basename(dir)`，与上游对 profile 名的派生口径逐字一致；
+  注入的 `loadProfileLayers` / `loadProfileManifestSafe` / `loadBundleLayerSafe` 三个 helper 签名不变。
+- **fix(dsh-mini)：手机端两处 CSS Module 哈希类换代失配**（`assets/plugins/dsh-mini` 1.4.2 → 1.4.3）。
+  **症状**：手机端右栏不再被压成 0 宽（挤压正文），键盘弹起时输入框不跟随上移、也不自动滚到底。
+  **根因**：rc.1 上游把布局右列局部类 `pI_x6G_detailsCol` 改名为 `pI_x6G_rightbarCol`
+  （`pI_x6G_*` 家族现存 centerCol/sidebarCol/rightbarCol/frame/handle/overlayLayer）；
+  聊天滚动容器整族换前缀（`Md3f7G_*` → `EvIC1a_*`，实证 `Md3f7G_flowItem`→`EvIC1a_flowItem`）。
+  **修法**：CSS 规则与 `querySelector` 均改为「旧类 + 新类」并列的双代选择器（沿用
+  `dsh-conversation-tweaks` 既有策略），旧内核副本仍命中、rc.1 恢复生效；升 `version` 使
+  伴随插件 keep-newer 同步能替换存量用户机上的旧副本。
+  **未决**：`.nL4_yW_sessionLogButton`（隐藏 session log 按钮）在 rc.1 全树零命中且上游无同名局部类，
+  疑该按钮已下架，规则暂为空转，待实机确认后清理。
+- **fix(session-persistence)：rc.1 torn-tail 契约换代使两个容错补丁「锚点命中但语义失效」**。
+  **根因**：rc.1 把会话尾部恢复的返回契约从 alpha.5 的嵌套 `{tornMarker:{truncateTo,recoveredEvents}}`
+  改成扁平 state 字段（消费端只读 `state.tornTruncateTo` 驱动 `truncateTornTail` 截盘、
+  `state.recoveredTail` 驱动 `persistBatch` 回灌；rc.1 pristine 全文 `tornMarker` 出现 **0 次**）。
+  K6「会话加载优雅降级」与同族「尾部撕裂恢复」两个补丁仍返回旧嵌套形态 → 降级只落在内存里，
+  损坏尾**既不截盘也不回灌**；且 v2 注入体整个缺 rc.1 必填的 `inheritedEventCount`
+  （缺失时 seeded 会话在 `toHeaderLine` 硬抛 `seeded session header requires an inherited event count`）。
+  **这一类缺陷抓不住的原因**：锚点三态判定依旧返回 `changed`（锚点行本身没变），
+  ta6 基线矩阵与 patch-surface 都只校验「补丁是否投上去」，不校验「注入体的产物形态是否还被消费端认」——
+  只有读上游消费端函数体才能发现。**教训固化**：换代时凡注入体含「返回给上游消费」的对象字面量，
+  必须比对该字段名集在 rc.1 消费端的出现次数，而不是只看锚点。
+  **修法**：两补丁各引入世代标记（K6 → `(v3)`、torn-tail → `(v2: rc.1 flat tornTruncateTo)`），
+  `spec.marker` 升到新世代；并新增**就地升级通道**——因为两者以 marker 短路做幂等，
+  已带旧 marker 的副本（各 profile/overlay 常驻副本、本机 dev 树）进不了 fresh-apply 分支，
+  不写升级通道就会被永久锁死在死代码形态。升级采用「整块历史字面量 → 整块新注入体」单次替换，
+  使「升级产物与 pristine 全新应用逐字节相同」由构造保证（不依赖差异处清单保持同步）；
+  同族 `transformPersistenceAll` 顺带修掉组合层丢掉 `note` 的可观测性断裂。
+- **feat(compat)：patch-surface 防漂移门禁补采两族标记，覆盖面 41 → 49 文件 / 72 → 84 标记**。
+  `scripts/compat/patch-surface.js` 的 `MARKER_RE` 原只识别 `patch ()` / `fix:` / `compat:`，
+  漏采装配防护实际写入的 `guard:` 与 `isolation:` 两族——后果是 `dsh-app-boot/lib/index.js`
+  这份承载 5 处补丁、boot 最关键的文件**整份不进快照**，其补丁字节漂移对 `verify` 完全隐形
+  （本轮 `loadProfileDirectory` 注入引用未定义 `name` 的启动崩溃正是这样漏过门禁的）。
+  已把两族纳入采集，`dsh-app-boot` 首次进入监控，快照随之重基线。
+- **fix(dsh-hub)：内嵌 typert 协议副本停在 rc.6，与 rc.1 宿主协议面已分叉**（`1.1.3 → 1.1.4`）。
+  **根因**：dsh-hub 以 `shipsNodeModules: true` 自带
+  `node_modules/@deepseek-ai/dsh-typert-protocol`（manifest pin 死 `0.1.0-rc.6`），而
+  `lib/index.js:39` 实际 import 的正是这份自带副本 —— 宿主升到 rc.1 后它仍在说旧协议。
+  两代导出面实测已分叉：rc.1 **移除 `TypertLookupFailure`**、**新增 `RemoteError` / `remoteErrorOf`**。
+  **修法**：先取证 dsh-hub 只用到 `Remote` / `TypertRemoteService`（两代均在位、未触碰被移除符号），
+  再把内嵌副本刷新为宿主同版、manifest pin 对齐 `0.1.5-rc.1`、升 version 使 keep-newer 替换存量副本。
+  顺带全库盘点插件内嵌内核包副本共 89 个，真正跨宿主协议边界的仅此一处与 better-sidebar 的 `dsh-tools`
+  （`cordis@4.0.2` / `cosmokit@1.8.3` / `cordis-plugin-loader@1.0.3` 走各自独立版本线，不属落后）。
+- **fix(dsh-prompt-custom)：rc.1 人设节拆分使插件在 loader 内整册加载失败**（`0.1.0 → 0.1.1`）。
+  **来源**：安装态冒烟 `smoke-installed.sh` 的实机日志抓到，离线侧一律看不见 —— `diag-validate`
+  只校验声明与 patch 文件在位，锚点扫描只看 CSS 类，二者都不执行 ESM 链接。
+  **根因**：rc.1 把 `PERSONA_SECTION` 拆成 `PERSONA_PREFIX_SECTION` / `PERSONA_SUFFIX_SECTION`，
+  顺序键 `DEPLOYMENT_PERSONA` 也改名 `DEPLOYMENT_PERSONA_PREFIX` / `_SUFFIX`。插件
+  `lib/index.js:17` 硬 import 旧名 → ESM 具名导出缺失 → 整个 entry 加载抛错；该抛错被我们的
+  `loader-isolation` 补丁隔离成非致命，于是**启动照常、症状却是「自定义提示词完全不生效」**
+  （旧键取不到值还会让 `order` 变 NaN，是第二处隐性断点）。
+  **修法**：import 换成两新节名、按新键取 order；`replace` 模式改为 prefix 挂自定义文本、
+  suffix 置空 —— 空文本的合法性由官方自身注册该节时写作 `config.personaSuffix ?? ""` 直接佐证，
+  语义与 alpha.5 的单节整段替换等价；`append` 模式挂在 suffix 序之后。全库扫无同类残留引用。
+  **复验**：重跑 `stage-payload.sh` + `smoke-installed.sh` → **PASS**，且隔离日志中
+  装配期加载失败 0 条、`warn` 0 条、bundle 被跳过 0 条（修前该 entry 每次启动稳定报失败）。
+- **test(plugin-dom-contract)：新增 G11 宿主角锚在场守卫，补 G9 的结构性缺口**。
+  **缺口**：G9 判据是 `[class*="X"]` 的**局部名**存活，而插件另有**整 token 直写**的锚
+  （如 `.pI_x6G_rightbarCol`）。内核重打包会换掉哈希前缀而局部名可完全不变，G9 因此一路绿灯、
+  选择器却命中 0 —— 本轮 dsh-mini 手机端两处失效全程无守卫报红，正是这个形状。
+  **修法**：G11 采集内核编译产物里的 `<hash>_<local>` token 全集，逐条要求 watchlist 中的宿主角锚在场；
+  带「清单防腐」断言（watchlist 条目必须真被插件源码引用，否则只是在检查空气 —— 首跑即抓出误记进
+  dsh-mini 清单的 `uV2eYG_root`）与正反控制组（在位的 `pI_x6G_frame` 必判在场、
+  已换代的 `Md3f7G_scroll` / `pI_x6G_detailsCol` 必判不在场），防「什么都没扫到」的假绿。
+  **取舍**：只对点名 watchlist 生效而非全量扫描 —— better-sidebar 单文件即有 300+ 条自产哈希类，
+  全量扫描会一律误报成漂移；代价是新增锚需手动登记，收益是零误报且下次改名立刻报红。
+  判据注：哈希段不能要求含数字（`pXSMma` / `VOzbGW` 这类合法前缀就没有数字）。
+  **判据收紧**：在场判定从「token 出现在内核任意 css/js」升级为「必须出现在内核 **JS**」——
+  CSS Module 类名是在 JS 里作为 `className` 赋给节点的，只落在 `.css` 里可能是死样式。
+  收紧后 20 条宿主角锚全部通过。
+  **CDP 移动视口实测（390x844 + iPhone UA）与结论边界**：宿主确实把
+  `pI_x6G_rightbarCol`、`wSkVaW_scrollBody` 渲染在真实元素上（DOM 探测直接读到这两个类名），
+  即锚点指向的不是死样式而是实际挂载的类 —— 这是把 `detailsCol` 改到 `rightbarCol` 的实证依据。
+  但**同一轮探测中「mobileCss 已注入」是假阳性**，需记清：dsh-mini 的 `mobileCss` 只经
+  LAN 网关代理路径注入（代理为请求打 `x-dsh-mini-gateway: 1`，`lib/index.js:756`），
+  而桌面 WebView 直连被 `:246` / `:1014` 的回环判据当作桌面、不走注入。故当时读到的
+  `rightbarCol` 规则其实来自宿主自有 CSS，右列 0px 属宿主响应式布局，
+  `.pXSMma_previewBadge{display:none}` 之所以不在页面里也是同一原因（不是规则冲突：
+  命中该元素且设置 display 的规则实测 0 条）。
+  **已证**＝锚点对应真实渲染类名；**未证**＝手机网关路径上的注入效果（该门控与内核换代无关，
+  需手机实连或模拟 `x-dsh-mini-gateway: 1` 头另测）。
+- **test(plugin-dom-contract)：新增 G12 宿主角锚自动全量校验，堵住「漏登记＝没守卫」**。
+  G11 依赖手写 watchlist，结构性弱点是**只有登记过的锚才会被检查** —— 漏一条就等于没守卫。
+  G12 改为从插件真实源码**自动提取**选择器位的 `<hash>_<local>` 宿主角锚，逐条要求在内核 JS 在场；
+  刻意保留的旧代回退必须进白名单且**逐条带理由**（现三条：`pI_x6G_detailsCol`、`Md3f7G_scroll`
+  属并列保留的旧内核回退；`nL4_yW_sessionLogButton` 属 rc.1 全树零命中、疑上游下架，规则暂空转待实机确认）。
+  另要求 G11 的手写 watchlist 必须是自动提取集的**子集**，否则判红 —— 防清单与实现悄悄脱节。
+  **捕获力已反证**：向 `dsh-mini` 注入一个内核里不存在的 `.ZZ9qKw_bogusFutureAnchor` 即刻报红并点名
+  文件行号与「整棵树都没有」归因，还原后 13/13 绿。
+  这条同时覆盖了**手机网关路径的锚点正确性**：`mobileCss` 只在经 LAN 网关代理的请求上注入
+  （桌面 WebView 直连不走），本地渲染态无法验证该路径，但「锚指向的类是否还被内核挂到元素上」
+  已由 G12 机器保证。
+- **test(plugin-esm-link)：新增离线 ESM 具名导入链接守卫 `unit-plugin-esm-link.test.js`**。
+  把上一条那类断链从「实机才发现」变成「换代当场报红」：逐册收集插件运行时 JS 里的
+  `import { A } from '@deepseek-ai/*' | 'cordis*' | '.'`，解析到实际文件（插件自带
+  `node_modules` 优先、其次宿主树），汇总目标模块导出名（`export {…}` / `export const|function|class`
+  / `export default` / `export * from` 递归跟进）后逐条比对。覆盖面含 cordis bundle
+  与 `dsh.client` 两半 —— 后者正是服务器 boot 冒烟照不到的部分。
+  **捕获力已反证**：把 `dsh-prompt-custom` 的 import 退回 `PERSONA_SECTION` 即报红、还原即报绿；
+  另含覆盖面断言（插件 ≥30 册、具名导入 ≥150 处、`unresolved` 必须为 0）与正反控制组
+  （rc.1 已移除的 `PERSONA_SECTION` 必判缺失、在位的 `PERSONA_PREFIX_SECTION` / `renderPrompt`
+  必判在场），防「什么都没扫到」的假绿。当前 38 册 / 227 处具名导入 **0 断链**。
+  **第二档：内嵌跨界副本平价锁**。同一条测里再加一档，专防「插件自带一份旧内核包、拿它对上新宿主」
+  —— 上一档按 ESM 就近语义解析到插件自带副本，因此对这类问题天然无感。分两档是为防噪声让守卫失去意义：
+  `STRICT` 要求版本等于 `kernel-pin`（线协议契约，如 dsh-hub 的 typert-protocol）；
+  `SHAPE` 允许版本落后、但导出名集合须与宿主同名包**全等**（better-sidebar 内嵌
+  `dsh-tools@0.1.1-rc.1` 实测 `defineTool(options)` 签名一致、23 项导出零增删 → 版本落后而形状兼容）。
+  **反证顺带抓出守卫自身的真缺陷**：`resolveSpec` 原先在向上遍历的每一层都顺带试宿主
+  `node_modules`，于是第一轮即命中宿主副本、就近解析被彻底短路 —— 内嵌旧副本那条路径从来没被比对过，
+  `SHAPE` 档实际空转（往内嵌副本加一个导出名都不报红）。改为「逐层只试当层 `node_modules`，
+  宿主树仅作最后兜底」后，反证报红、还原报绿，且修正后基线仍为 0 断链 / 0 未解析。
+  **教训**：新增守卫必须同时配一条反证，否则「全绿」完全可能只是判据没接上。
+- **发版前置验收：真实 v0 会话在 rc.1 可读回，换代不丢历史**。
+  本机现存会话日志全部是 `{"type":"session","version":0,...}`，而 rc.1 `SESSION_FORMAT_VERSION = 3`，
+  且拒载文案写着「this build ships no upgrade path for it」—— 表面看像会锁死老历史。逐条取证：
+  ① `sessionFormatLogFilename(0)` **保留无版本名 `session.jsonl`**（v1 起才带 `.v<N>` 段），
+  故现存 `session.jsonl.zstd` 正是 v0 的规范代文件名、可被正常发现；
+  ② 拒载分支条件是 `selected.sourceVersion > SESSION_FORMAT_VERSION`，**只对未来的更高版本触发**；
+  ③ `v0→v1→v2→v3` 三级迁移包随内核闭包在位并由 `dsh-session-persistence-jsonl` 直接 import，
+  旧代走 `decodeStreamingMigration` / `migrationPreparations` 迁移链。
+  **遗留**：`DSH_HOME` 隔离未覆盖 dsh-cardian 的 vault 路径 —— 隔离 boot 仍改写了仓库内
+  `cardian-vault/*/README.md` 的 `updated:` 时间戳（内容零变化，已还原），属壳侧隔离面缺口，另案处理。
+- **验证（五路闸门全绿）**：
+  ① `scripts/lib/patch-registry.js` 60 条 spec 中 44 条带 transform 者在 rc.1 pristine 基线树上
+     **全部 `changed`、零 `anchor-missing`**（诊断脚本逐条实测）；
+  ② Node 全量 `node --test scripts/test/*.test.*`：**2055 例 / 2048 通过 / 0 失败 / 7 跳过**
+     （换版起点为 51 失败）；
+  ③ Rust `cargo test --workspace`：38 个 `test result: ok`、**739 通过 / 4 忽略 / 0 失败**，
+     零 `error[E]`；
+  ④ Tauri sidecar boot 六步链（repair→sync→presets→patches→compat-pin→preflight）真机沙箱
+     **23/23 绿**、`validate-pin` 通过、`patch-surface verify` 49 文件 / 84 标记一致；
+  ⑤ `stage-payload.sh` 全程 OK：`[payload-patches] OK 核 50 个靶文件 / file 规格 43 项 /
+     滞后 0 / 无靶 0 / 已退役 0`，client-compat 门禁在位；生产校验器 `diag-validate`
+     对隔离 profile 装配出的插件集 **26 checked / errors 0 / warnings 0 / conflicts [] /
+     contractViolations []**；17 个 `listed:true` bundle 插件 loader id 与 `patchOk` 全通过。
+
 ### fix(better-sidebar)：导航栏与文件目录巨隙 + 拖动左边框导航条阶梯跳变
 
 - **症状一（间隙太大）**：对话导航栏与文件目录面板之间有一个约「explorer 宽 + 8px

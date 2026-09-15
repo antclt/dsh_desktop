@@ -50,31 +50,37 @@ const X_CLAMP_182 = [
   'if (lw > 0) x = Math.min(Math.max(x, MARGIN), vw - lw - MARGIN);',
   'else x = Math.min(Math.max(x, MARGIN), Math.max(MARGIN, vw - 2 * MARGIN));',
 ].join('\n');
+// 0.1.5-rc.1 重锚：primitives 该处缩进由 3 tab 收敛为 2 tab，锚点与注入体同步。
 const CLEANUP_182_ANCHOR = [
-  '\t\t\treturn () => {',
-  '\t\t\t\twindow.removeEventListener("scroll", place, true);',
-  '\t\t\t\twindow.removeEventListener("resize", place);',
-  '\t\t\t};',
+  '\t\treturn () => {',
+  '\t\t\twindow.removeEventListener("scroll", place, true);',
+  '\t\t\twindow.removeEventListener("resize", place);',
+  '\t\t};',
 ].join('\n');
 const CLEANUP_182_NEW = [
-  '\t\t\treturn () => {',
-  '\t\t\t\tro?.disconnect();',
-  '\t\t\t\twindow.removeEventListener("scroll", place, true);',
-  '\t\t\t\twindow.removeEventListener("resize", place);',
-  '\t\t\t};',
+  '\t\treturn () => {',
+  '\t\t\tro?.disconnect();',
+  '\t\t\twindow.removeEventListener("scroll", place, true);',
+  '\t\t\twindow.removeEventListener("resize", place);',
+  '\t\t};',
 ].join('\n');
 const RO_CREATE_182_ANCHOR = [
   '\t\tplace();',
   '\t\twindow.addEventListener("scroll", place, true);',
   '\t\twindow.addEventListener("resize", place);',
 ].join(String.fromCharCode(10));
+// 注入落在 useLayoutEffect 体内（place 之外）——那里**没有** `listEl`：
+// `const listEl = listRef.current;` 是 place() 的局部量（alpha.5 与 rc.1 皆然）。
+// 早期注入体直接引用 listEl，浏览器里 ResizeObserver 存在 → && 短路到 listEl
+// 求值 → ReferenceError 击穿整个定位 effect（Menu 弹层反而完全不定位）。
+// effect 作用域内可用的是组件顶部的 `const listRef = useRef(null)`，故改走它。
 const RO_CREATE_182_NEW = [
   '\t\tplace();',
   '\t\twindow.addEventListener("scroll", place, true);',
   '\t\twindow.addEventListener("resize", place);',
   '\t\t// issue #182：列表首帧 lw=0、字体/内容撑宽后需要重新 place。',
-  '\t\tconst ro = typeof ResizeObserver !== "undefined" && listEl ? new ResizeObserver(() => place()) : null;',
-  '\t\tif (ro && listEl) ro.observe(listEl);',
+  '\t\tconst ro = typeof ResizeObserver !== "undefined" && listRef.current ? new ResizeObserver(() => place()) : null;',
+  '\t\tif (ro && listRef.current) ro.observe(listRef.current);',
 ].join(String.fromCharCode(10));
 
 function patchFile(file, log = () => {}, stats, options) {

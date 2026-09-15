@@ -30,7 +30,13 @@ const { PATCH_SPECS } = require('../lib/patch-registry');
 // pristine 源的定位统一收口在 pristine-kernel-roots：过去这里把单一
 // .tmp-rc2-stage（一次性 npm 装配产物）硬编码成唯一 pristine 根，该树被清理后
 // 本文件整片红；现在按「闭包树候选根 → 内核构建产物 → 桌面壳独有依赖」逐级回退。
-const { pristineRoots, findPristineTarget, describePristineRoots } = require('../lib/pristine-kernel-roots');
+// 但「桌面壳独有依赖」回退对 @openai/codex 与 @earendil-works/pi-ai 等 registry 包
+// 拿到的是 dsh-desktop/node_modules 里的已打补丁副本 → 用作 pristine 会假绿；对
+// @deepseek-ai/cordis-plugin-loader（registry 包、非 dsh-* 族、从来未 vendored）
+// 则找不到任何源 → 硬红。两者都属「靶包不在离线内核闭包」这一类前提不成立：
+// 守卫按 specTargetVendored 判定，对此类 spec 显式 t.skip(reason)，并在文件末尾
+// 断言该集合恰为已知 4 条，防止误扩成整体停摆。
+const { pristineRoots, findPristineTarget, describePristineRoots, specTargetVendored, specVendoredSkipReason } = require('../lib/pristine-kernel-roots');
 
 const PATCHED_DESKTOP = path.join(__dirname, '..', '..', 'node_modules'); // postinstall 后的真实已应用树
 const POISON_LABEL = 'TA6-POISON-TARGET.js';
@@ -88,7 +94,12 @@ test('前置条件：pristine 内核树与真实已应用树均可用', () => {
 });
 
 for (const spec of fileSpecs) {
-  test(`三态契约：${spec.id}`, () => {
+  // 诚实跳过（前提不成立，非静默停摆）：靶包不在 vendor/dsh-kernel 离线闭包
+  // 内时，install-pristine-kernel 天然未解包 → 无 pristine 源；且 findPristineTarget
+  // 的桌面壳回退会拿到 dsh-desktop/node_modules 已补丁副本（对 codex / pi-ai），
+  // 用作 pristine 会假绿。二者都以 TAP 中的 SKIP 行显式命名，不静默消失。
+  const skipReason = specTargetVendored(spec) ? false : specVendoredSkipReason(spec);
+  test(`三态契约：${spec.id}`, { skip: skipReason }, () => {
     const { file, src: pristine } = pristineInput(spec);
 
     // 1) pristine（依赖链先行）：三态之一，各态契约自洽。
@@ -146,6 +157,43 @@ for (const spec of fileSpecs) {
 
 // 41 = 40（旧基线）+ conversation-assembly-resilience（BUG2 会话装配「可观测化 + 自愈」：
 // BoundConversation.accept 被静默吞的装配抛错 → 安全重建 + 去重告警）一条 file 补丁。
-test('契约面完整性：43 个 file transform 全部被本文件覆盖', () => {
-  assert.equal(fileSpecs.length, 43);
+// 44 = 43（上一基线，41→42 reasoning-row-collapse-width、43 session-unknown-event-tolerance）
+// + 1 条 released-v0-history-recovery（0.6.4：released-v0 准入清单扩容，靶
+// dsh-session-format-v0-to-v1/lib/index.js；覆盖用例由上方 `for (const spec of fileSpecs)`
+// 逐条生成，pristine 闭包树实跑 status=changed）。
+// 45 = 44 + 1 条 pi-ai-responses-tool-name-sanitize（靶 @earendil-works/pi-ai/dist/
+// api/openai-responses-shared.js，Responses 三条路由共用序列化的工具名清洗 + 回映射；
+// 与 pi-ai-tool-schema-sanitize 同为非闭包靶 → 本文件按诚实 SKIP 处理，见下方集合）。
+// 46 = 45 + 1 条 pi-ai-tool-name-wire（靶 @deepseek-ai/dsh-llm-pi-ai/lib/index.js：
+// 内核 ↔ pi-ai 唯一交界的 toolsOf() 出站 + 回程两处 tool-call 中央收口；此靶属
+// vendor/dsh-kernel 离线闭包 → 走上方逐条生成的正常覆盖用例，pristine 闭包树实跑
+// status=changed，不进诚实 SKIP 集合）。
+// 47 = 46 + 1 条 pi-ai-quota-not-retryable（靶 @earendil-works/pi-ai/dist/utils/
+// provider-retry.js：isRetryableProviderError 的配额耗尽终态判定；靶包属宿主可选
+// 依赖不在离线内核闭包 → 与同包另两条 pi-ai 补丁同口径，本文件按诚实 SKIP 处理，
+// 真实字节三态与功能面判定见 scripts/test/unit-pi-ai-quota-not-retryable.test.js）。
+test('契约面完整性：47 个 file transform 全部被本文件覆盖', () => {
+  assert.equal(fileSpecs.length, 47);
+});
+
+// 反「静默停摆」哨兵：诚实跳过集合必须恰为已知的 6 条非 vendored 目标——
+// 若集合扩大，说明有真·内核靶意外掉出闭包（应查 patch-target-resolver / vendor / pin）；
+// 若收缩，说明有人把 registry 包塞进 vendor/dsh-kernel（应显式更新此基线并复核语义）。
+// 任何漂移都变红并点名，杜绝「整组 t.skip」这类把守卫价值静默吞掉的形态。
+// 第 5 条来源：pi-ai-responses-tool-name-sanitize（靶 @earendil-works/pi-ai，
+// 与同包 completions 补丁一样不属离线内核闭包）。
+// 第 6 条来源：pi-ai-quota-not-retryable（靶 @earendil-works/pi-ai/dist/utils/
+// provider-retry.js，同包第三条非闭包靶）。
+const EXPECTED_NON_VENDORED = [
+  'loader-tree-isolation',      // @deepseek-ai/cordis-plugin-loader — registry 发布包
+  'codex-local-bin-fallback',   // @openai/codex — 宿主可选依赖
+  'pi-ai-4xx-dump',             // @earendil-works/pi-ai — 宿主可选依赖
+  'pi-ai-tool-schema-sanitize', // @earendil-works/pi-ai — 宿主可选依赖
+  'pi-ai-responses-tool-name-sanitize', // @earendil-works/pi-ai — 宿主可选依赖
+  'pi-ai-quota-not-retryable',  // @earendil-works/pi-ai — 宿主可选依赖
+];
+test('诚实跳过集合恰为已知 6 条非闭包目标（防静默停摆）', () => {
+  const actual = fileSpecs.filter((s) => !specTargetVendored(s)).map((s) => s.id).sort();
+  assert.deepEqual(actual, [...EXPECTED_NON_VENDORED].sort(),
+    `非闭包（诚实 SKIP）集合漂移：实际=[${actual}]，基线=[${EXPECTED_NON_VENDORED}]`);
 });

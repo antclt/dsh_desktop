@@ -21,6 +21,7 @@
 const {
   transformFlashFix,
   transformPersistenceAll,
+  transformReleasedV0KeysTolerance,
   transformLegacySlotKey,
   transformSlotUnkeyedCompat,
   transformSlotErrorIsolation,
@@ -34,6 +35,7 @@ const {
   HISTORY_PAGE_MARKER,
   // 会话持久化族正向替换对（pristine 逆运算按引用登记，不在测试里抄第二份）。
   PERSISTENCE_TORN_HEAD,
+  PERSISTENCE_TORN_HEAD_V2,
   PERSISTENCE_FRAME_LOOP_OLD,
   PERSISTENCE_FRAME_LOOP_NEW,
   PERSISTENCE_WRITE_OLD,
@@ -42,6 +44,7 @@ const {
   PERSISTENCE_COMPLETE_CHECK_NEW,
   PERSISTENCE_CORRUPT_OLD,
   PERSISTENCE_CORRUPT_NEW,
+  RELEASED_V0_HISTORY_MARKER,
 } = require('./runtime-patches');
 
 // journal-stream 历史续读补丁（BUG1：不连续历史页断头锁死 hasMore）。
@@ -77,7 +80,6 @@ const { patchWebSearchBaseUrl } = require('../patch-web-search-baseurl');
 const { patchMenuViewport } = require('../patch-menu-viewport');
 const { patchOpenProjectDir } = require('../patch-open-project-dir');
 const { patchWorkspacePin } = require('../patch-workspace-pin');
-const { patchPresetSeat } = require('../patch-preset-seat');
 const { patchSessionPersistence } = require('../patch-session-persistence');
 // 对话删除 / 归档管理补丁（删除 + 恢复归档 + 设置内归档管理链路；孤儿进程
 // 清理已内联到 deleteSession，不再单列 session-orphans 补丁）。
@@ -97,10 +99,6 @@ const { patchPiAiReasoningDefaults } = require('../patch-pi-ai-reasoning-default
 // 模糊信号：超窗或供应商网关拒绝/故障两成因并列提示，避免「400 status code
 // (no body)」死谜语，也不再误报成超限误导用户）。
 const { patchPiAiOverflowMessage } = require('../patch-pi-ai-overflow-message');
-// dsh-token-meter messageTokens 下限夹取补丁（内核 accounting 边界：replace
-// 负 delta 使 messageTokens 溢出为负 → tokenCount nonnegative 校验失败；只用于
-// 「上下文构成」估算展示/计量，夹 0 不影响真实请求）。
-const { patchTokenMeterClamp } = require('../patch-token-meter-clamp');
 // 设置写入韧性（PR5：v0.5.2「添加供应商没反应/灰」两层根治——孤儿锁自愈 +
 // 设置页命名空间自愈 + settings-conflict 静默重试）。
 const {
@@ -121,10 +119,11 @@ const { patchSchedulerGuard } = require('./scheduler-guard-patch');
 // 工具调用 name 为空指引（unknown tool ""——ToolNotFoundError 对空 name 特判
 // 三向指引：协议错位 / 中转网关剥离 / 模型输出崩坏，非空 name 原语义不变）。
 const { patchEmptyToolName } = require('./empty-tool-name-patch');
-// 注：tool-name-mojibake（工具名 ¬ 噪音归一化）与 schema-boolean-required
-// （pi-ai google 路径布尔 required 出口清洗）均已从 boot 编排退役，其
-// rootAppliers 导出一并摘除（ta6 B 哨兵：无 spec 引用的导出即红——曾长期
-// 存量红）。实现与单测保留在各自 patch 文件，需要时重登记 spec。
+// 注：tool-name-mojibake（工具名 ¬ 噪音归一化）、schema-boolean-required
+// （pi-ai google 路径布尔 required 出口清洗）、preset-seat-fix（0.1.5-rc.1 上游
+// 原生修复 busy 复位）与 token-meter-clamp（0.1.5-rc.1 新公式恒非负）均已从
+// boot 编排退役，其 rootAppliers 导出一并摘除（ta6 B 哨兵：无 spec 引用的导出
+// 即红）。实现与单测保留在各自 patch 文件，需要时重登记 spec。
 
 // ---------------------------------------------------------------------------
 // 文本模型自动识图补丁（原 main.js applyImageSendFix 内联 transform）。
@@ -261,8 +260,10 @@ const IMAGE_SEND_GATE_NEW = [
   '\t\t\t\t\t}',
 ].join('\n');
 // 准入使用转述后的内容（admittedContent 默认 = promptContent，永不为 undefined）。
-const IMAGE_SEND_ADMIT_OLD = 'admitPromptContent(this.ctx.attachments, request.content)';
-const IMAGE_SEND_ADMIT_NEW = 'admitPromptContent(this.ctx.attachments, admittedContent)';
+// 0.1.5-rc.1 重锚：上游 prompt 改走 resolvePromptFileReceipts → admission.content，
+// 且 admitPromptContent 变为实例方法形态（this.ctx.attachments.admitPromptContent(...)）。
+const IMAGE_SEND_ADMIT_OLD = 'this.ctx.attachments.admitPromptContent(admission.content)';
+const IMAGE_SEND_ADMIT_NEW = 'this.ctx.attachments.admitPromptContent(admittedContent)';
 
 function transformImageSendFix(src, file) {
   if (src.includes(IMAGE_SEND_MARKER)) return { status: 'already' };
@@ -369,8 +370,9 @@ function transformVisionToggleGate(src, file) {
 // dsh 装配层防护：profile patch 损坏自愈加载（原 applyProfilePatchGuard）。
 // ---------------------------------------------------------------------------
 const PROFILE_PATCH_GUARD_MARKER = 'function loadUserPatchLayer';
-const PROFILE_PATCH_GUARD_CALL_SITE = '\t\tpatches: options.userLayer !== false && existsSync(patchPath) ? loadOverlayPatches(binName, patchPath) : []';
-const PROFILE_PATCH_GUARD_CALL_REPLACEMENT = '\t\tpatches: loadUserPatchLayer(binName, patchPath, options)';
+// 0.1.5-rc.1 重锚：loadProfileDirectory 的 patches 从对象键值改为 const 语句形态。
+const PROFILE_PATCH_GUARD_CALL_SITE = '\tconst patches = options.userLayer !== false && existsSync(patchPath) ? loadOverlayPatches(binName, patchPath) : [];';
+const PROFILE_PATCH_GUARD_CALL_REPLACEMENT = '\tconst patches = loadUserPatchLayer(binName, patchPath, options);';
 const PROFILE_PATCH_GUARD_INSERT_AFTER = '\treturn parsePatchList(binName, file, content, "overlay");\n}';
 const PROFILE_PATCH_GUARD_INJECTED =
   '/** dsh-desktop guard: the profile\'s own patch layer is user-owned data; a broken file must not brick\n' +
@@ -1042,9 +1044,11 @@ function transformDeviceAuthGuidance(src, file) {
 const WSL_PICKER_BROWSE_MARKER = 'dsh-desktop fix: WSL picker must browse, not zenity into WSLg';
 // 锚点 = resolveDirectoryPickerBackend 的 SSH 分支行（该函数唯一出现处，
 // dsh-host-directory-picker-auto lib/index.js:65 逐字抄录）。
-const WSL_PICKER_ANCHOR = '\tif (present(facts.env.SSH_CONNECTION) || present(facts.env.SSH_TTY)) return "browse";';
+// 0.1.5-rc.1 重锚：resolver 重构为 facts.ssh 布尔判定链
+// （bindHost → ssh → platform/linuxChooser → DISPLAY），SSH 分支锚点相应更新。
+const WSL_PICKER_ANCHOR = '\tif (facts.ssh) return "browse";';
 const WSL_PICKER_INJECTION = [
-  '\tif (present(facts.env.SSH_CONNECTION) || present(facts.env.SSH_TTY)) return "browse";',
+  '\tif (facts.ssh) return "browse";',
   '\t// ' + WSL_PICKER_BROWSE_MARKER + ': under WSL (WSLg) DISPLAY=:0 is always set and',
   '\t// zenity/kdialog exist on PATH, so the resolver would mount the native backend —',
   '\t// but the chooser window opens in the Linux session desktop the Windows user',
@@ -1998,10 +2002,12 @@ const SESSION_HEADER_SCAN_METHOD_INJECTION = [
   '\t/** Read and validate only the independently compressed header frame. */',
 ].join('\n');
 
-const SESSION_HEADER_SCAN_READ_EXPR = 'this.compression === "zstd" ? await this.readFirstZstdLine(path, signal) : await this.readFirstLine(path, signal)';
+// 0.1.5-rc.1 重锚：listArtifacts 首行读取改经 readGenerationHeader(selected)，
+// 读取对象为 selected.sourcePath（原 path 参数名）。
+const SESSION_HEADER_SCAN_READ_EXPR = 'this.compression === "zstd" ? await this.readFirstZstdLine(selected.sourcePath, signal) : await this.readFirstLine(selected.sourcePath, signal)';
 // K5 把 listArtifacts 的读表达式改写成缓存调用（唯一一处的调用形态，与注入体内
 // 的方法声明不重叠），逆运算按此常量还原，不另抄字面串。
-const SESSION_HEADER_SCAN_CACHED_CALL = 'await this.readHeaderLineCached(path, signal)';
+const SESSION_HEADER_SCAN_CACHED_CALL = 'await this.readHeaderLineCached(selected.sourcePath, signal)';
 
 const SESSION_HEADER_SCAN_CAP_ANCHOR = '\t\t\t\tcontent = Buffer.concat([content, chunk.subarray(0, bytesRead)]);';
 const SESSION_HEADER_SCAN_CAP_INJECTION = [
@@ -2061,6 +2067,14 @@ const SESSION_LOAD_GRACEFUL_MARKER = 'dsh-desktop compat: degrade session load t
 // 销毁（打补丁前是抛错、历史完好保留）。上游 torn-tail 自身明文声明：
 // "A torn record in any earlier frame ... remains a hard corruption error."
 const SESSION_LOAD_GRACEFUL_MARKER_V2 = SESSION_LOAD_GRACEFUL_MARKER + ' (v2)';
+// v3（本文件当前形态）：**只改返回体形态**，判定行与末帧守卫逐字沿用 v2。
+// 0.1.5-rc.1 把 torn-tail 契约从嵌套的 `{tornMarker:{truncateTo,recoveredEvents}}`
+// 改成扁平 state 字段（`tornTruncateTo` 驱动 truncateTornTail 截盘、`recoveredTail`
+// 驱动 persistBatch 回灌；rc.1 pristine 全文 `tornMarker` 出现 0 次），故 v2 注入体
+// 在 rc.1 上是死代码：降级只发生在内存里，损坏尾既不截盘也不回灌。
+// v3 同时补上 rc.1 必填的 `inheritedEventCount`（缺失时 seeded 会话在
+// toHeaderLine 抛 "seeded session header requires an inherited event count"）。
+const SESSION_LOAD_GRACEFUL_MARKER_V3 = SESSION_LOAD_GRACEFUL_MARKER + ' (v3)';
 
 // 锚点全部取「上游 pristine 与 torn-tail 已应用形态共有的稳定行」，故本补丁
 // 既能在 pristine（.tmp-rc2-stage）命中，也能在 torn-tail/corrupt-guard/K5 已
@@ -2094,18 +2108,10 @@ const SESSION_LOAD_GRACEFUL_GUARD_V2 = [
   '\t\t\tif (scanner !== void 0 && frames !== void 0 && (loadFrameIndex === void 0 || loadFrameIndex >= frames.length - 1)) {',
 ].join('\n');
 
-const SESSION_LOAD_GRACEFUL_CATCH_NEW = [
-  '\t\t} catch (error) {',
-  '\t\t\t/* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */',
-  '\t\t\tif (signal?.aborted) signal.throwIfAborted();',
-  '\t\t\t// ' + SESSION_LOAD_GRACEFUL_MARKER_V2 + ': 解码/校验失败降级为「加载到最后一个完整帧」——',
-  '\t\t\t// 返回已解码前缀 + tornMarker（指向首个损坏帧起始），由 commitRepair 截断损坏尾部',
-  '\t\t\t// 并补 closers；console.warn 保留告警，不掩盖真实损坏（header 帧损坏仍重抛）。',
-  SESSION_LOAD_GRACEFUL_GUARD_V2,
-  '\t\t\t\tconst corruptStart = loadFrameIndex !== void 0 && loadFrameIndex < frames.length ? frames[loadFrameIndex].start : void 0;',
-  '\t\t\t\tconst truncateTo = corruptStart ?? (frames.length > 0 ? frames[frames.length - 1].end : 0);',
-  '\t\t\t\tconsole.warn(`[dsh-session-persistence] degraded session load to last complete frame (byte ${truncateTo}): ${error instanceof Error ? error.message : String(error)}`);',
-  '\t\t\t\tconst prefix = scanner.finish();',
+// torn-tail 返回块两代形态：v2 = alpha.5 嵌套契约（0.6.2~0.6.3 在野副本），
+// v3 = rc.1 扁平契约。v2→v3 就地升级只替换 marker + 本返回块两处，以保证
+// 「升级产物与 pristine 全新应用逐字节相同」这条既有不变量继续成立。
+const SESSION_LOAD_GRACEFUL_TORN_RETURN_V2 = [
   '\t\t\t\treturn {',
   '\t\t\t\t\tmeta: prefix.meta,',
   '\t\t\t\t\tevents: prefix.events,',
@@ -2114,28 +2120,101 @@ const SESSION_LOAD_GRACEFUL_CATCH_NEW = [
   '\t\t\t\t\t\trecoveredEvents: []',
   '\t\t\t\t\t}',
   '\t\t\t\t};',
+].join('\n');
+const SESSION_LOAD_GRACEFUL_TORN_RETURN_V3 = [
+  '\t\t\t\treturn {',
+  '\t\t\t\t\tmeta: prefix.meta,',
+  '\t\t\t\t\tinheritedEventCount: prefix.inheritedEventCount,',
+  '\t\t\t\t\tevents: prefix.events,',
+  '\t\t\t\t\ttornTruncateTo: truncateTo,',
+  '\t\t\t\t\trecoveredTail: []',
+  '\t\t\t\t};',
+].join('\n');
+
+// 注入体里描述返回契约的注释散文：同样分两代，使「就地升级产物」与「pristine
+// 全新应用产物」在注释行上逐字一致（升级通道必须覆盖 v2→v3 的全部差异处）。
+const SESSION_LOAD_GRACEFUL_TORN_DESC_V2 = [
+  '\t\t\t// 返回已解码前缀 + tornMarker（指向首个损坏帧起始），由 commitRepair 截断损坏尾部',
+  '\t\t\t// 并补 closers；console.warn 保留告警，不掩盖真实损坏（header 帧损坏仍重抛）。',
+].join('\n');
+const SESSION_LOAD_GRACEFUL_TORN_DESC_V3 = [
+  '\t\t\t// 返回已解码前缀 + tornTruncateTo（指向首个损坏帧起始）+ recoveredTail，由',
+  '\t\t\t// commitRepair 截断损坏尾部并补 closers；console.warn 保留告警，不掩盖真实',
+  '\t\t\t// 损坏（header 帧损坏仍重抛）。',
+].join('\n');
+
+// v2 注入体（0.6.2~0.6.3 随 alpha.5 写入在野副本的真实字节）：保留为历史字面量，
+// 仅供 ① 派生 v1 逆运算常量 ② 识别在野 v2 副本以就地升级。rc.1 下它是死代码。
+const SESSION_LOAD_GRACEFUL_CATCH_V2 = [
+  '\t\t} catch (error) {',
+  '\t\t\t/* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */',
+  '\t\t\tif (signal?.aborted) signal.throwIfAborted();',
+  '\t\t\t// ' + SESSION_LOAD_GRACEFUL_MARKER_V2 + ': 解码/校验失败降级为「加载到最后一个完整帧」——',
+  SESSION_LOAD_GRACEFUL_TORN_DESC_V2,
+  SESSION_LOAD_GRACEFUL_GUARD_V2,
+  '\t\t\t\tconst corruptStart = loadFrameIndex !== void 0 && loadFrameIndex < frames.length ? frames[loadFrameIndex].start : void 0;',
+  '\t\t\t\tconst truncateTo = corruptStart ?? (frames.length > 0 ? frames[frames.length - 1].end : 0);',
+  '\t\t\t\tconsole.warn(`[dsh-session-persistence] degraded session load to last complete frame (byte ${truncateTo}): ${error instanceof Error ? error.message : String(error)}`);',
+  '\t\t\t\tconst prefix = scanner.finish();',
+  SESSION_LOAD_GRACEFUL_TORN_RETURN_V2,
+  '\t\t\t}',
+  '\t\t\tthrow error;',
+  '\t\t} finally {',
+].join('\n');
+
+const SESSION_LOAD_GRACEFUL_CATCH_NEW = [
+  '\t\t} catch (error) {',
+  '\t\t\t/* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */',
+  '\t\t\tif (signal?.aborted) signal.throwIfAborted();',
+  '\t\t\t// ' + SESSION_LOAD_GRACEFUL_MARKER_V3 + ': 解码/校验失败降级为「加载到最后一个完整帧」——',
+  SESSION_LOAD_GRACEFUL_TORN_DESC_V3,
+  SESSION_LOAD_GRACEFUL_GUARD_V2,
+  '\t\t\t\tconst corruptStart = loadFrameIndex !== void 0 && loadFrameIndex < frames.length ? frames[loadFrameIndex].start : void 0;',
+  '\t\t\t\tconst truncateTo = corruptStart ?? (frames.length > 0 ? frames[frames.length - 1].end : 0);',
+  '\t\t\t\tconsole.warn(`[dsh-session-persistence] degraded session load to last complete frame (byte ${truncateTo}): ${error instanceof Error ? error.message : String(error)}`);',
+  '\t\t\t\tconst prefix = scanner.finish();',
+  SESSION_LOAD_GRACEFUL_TORN_RETURN_V3,
   '\t\t\t}',
   '\t\t\tthrow error;',
   '\t\t} finally {',
 ].join('\n');
 
 // 0.5.4~0.6.1 实际写盘的 v1 catch 体（仅供 pristine 逆运算识别在野副本）。
-// 从当前定义反推而不抄两份字面串：v1 与 v2 只差【守卫行 + marker】两处，其中
+// 从 v2 字面量反推而不抄两份：v1 与 v2 只差【守卫行 + marker】两处，其中
 // marker 差异又是 V2 = V1 + ' (v2)' 的定义性差异，所以反向拼回去就是历史字节。
 // 哨兵单测会拿真实在野副本断言本常量确实包含于其中，防止这里“推错历史”。
-const SESSION_LOAD_GRACEFUL_CATCH_LEGACY = SESSION_LOAD_GRACEFUL_CATCH_NEW
+const SESSION_LOAD_GRACEFUL_CATCH_LEGACY = SESSION_LOAD_GRACEFUL_CATCH_V2
   .split(SESSION_LOAD_GRACEFUL_GUARD_V2).join(SESSION_LOAD_GRACEFUL_GUARD_V1)
   .split('// ' + SESSION_LOAD_GRACEFUL_MARKER_V2 + ':').join('// ' + SESSION_LOAD_GRACEFUL_MARKER + ':');
 
 function transformSessionLoadGraceful(src, file) {
-  if (src.includes(SESSION_LOAD_GRACEFUL_MARKER_V2)) return { status: 'already' };
-  // 升级通道（关键）：transform 以 marker 短路做幂等，已经带 v1 catch 体的副本
-  // 永远进不了下方 fresh-apply 分支（catch 锚点已被 v1 吃掉）。担心于“重新 stage
-  // 也修不了在野安装”，这里就地把 v1 补成 v2：只换守卫行与 marker，其余不动。
+  if (src.includes(SESSION_LOAD_GRACEFUL_MARKER_V3)) return { status: 'already' };
+  // 升级通道（关键）：transform 以 marker 短路做幂等，已带 v1/v2 catch 体的副本
+  // 永远进不了下方 fresh-apply 分支（catch 锚点已被旧体吃掉）。担心于“重新 stage
+  // 也修不了在野安装”，这里就地把 v1/v2 整块补成 v3。
+  // 用「整块历史字面量 → 整块 CATCH_NEW」单次替换而非逐处替换：v3 相对 v2 的差异
+  // 已有三处（marker 行 / 契约注释 / torn-tail 返回块），整块替换使「升级产物与
+  // pristine 全新应用逐字节相同」由构造直接成立，不依赖差异处清单保持同步。
+  // v2 体在 rc.1 上是死代码（消费端只读扁平 tornTruncateTo/recoveredTail），
+  // 不重写就等于把这些副本永久留在「降级不截盘、不回灌」的形态。
+  if (src.includes(SESSION_LOAD_GRACEFUL_CATCH_V2)) {
+    return {
+      status: 'changed',
+      src: src.split(SESSION_LOAD_GRACEFUL_CATCH_V2).join(SESSION_LOAD_GRACEFUL_CATCH_NEW),
+      note: 'v2-repair',
+    };
+  }
+  if (src.includes(SESSION_LOAD_GRACEFUL_CATCH_LEGACY)) {
+    return {
+      status: 'changed',
+      src: src.split(SESSION_LOAD_GRACEFUL_CATCH_LEGACY).join(SESSION_LOAD_GRACEFUL_CATCH_NEW),
+      note: 'v1-repair',
+    };
+  }
   if (src.includes(SESSION_LOAD_GRACEFUL_MARKER) && src.includes(SESSION_LOAD_GRACEFUL_GUARD_V1)) {
     const upgraded = src
       .replace(SESSION_LOAD_GRACEFUL_GUARD_V1, () => SESSION_LOAD_GRACEFUL_GUARD_V2)
-      .replace('// ' + SESSION_LOAD_GRACEFUL_MARKER + ':', () => '// ' + SESSION_LOAD_GRACEFUL_MARKER_V2 + ':');
+      .replace('// ' + SESSION_LOAD_GRACEFUL_MARKER + ':', () => '// ' + SESSION_LOAD_GRACEFUL_MARKER_V3 + ':');
     return { status: 'changed', src: upgraded, note: 'v1-repair' };
   }
   const missing = [];
@@ -2385,9 +2464,11 @@ const PRISTINE_INJECTIONS = {
     [SESSION_LOAD_GRACEFUL_DECODER_OLD, SESSION_LOAD_GRACEFUL_DECODER_NEW],
     [SESSION_LOAD_GRACEFUL_SCANNER_OLD, SESSION_LOAD_GRACEFUL_SCANNER_NEW],
     [SESSION_LOAD_GRACEFUL_WRITE_OLD, SESSION_LOAD_GRACEFUL_WRITE_NEW],
-    // catch 体两条变体都登记：在野副本带 LEGACY（v1），全新应用产出 NEW（v2）；
-    // 循环只剥存在的那一条，因此两个世界都能还原。
+    // catch 体三条变体全部登记：在野副本带 LEGACY（v1）或 CATCH_V2（v2），全新
+    // 应用产出 NEW（v3）；三者在字节上互不包含，循环只剥存在的那一条，三个世代
+    // 的副本都能还原。
     [SESSION_LOAD_GRACEFUL_CATCH_OLD, SESSION_LOAD_GRACEFUL_CATCH_NEW],
+    [SESSION_LOAD_GRACEFUL_CATCH_OLD, SESSION_LOAD_GRACEFUL_CATCH_V2],
     [SESSION_LOAD_GRACEFUL_CATCH_OLD, SESSION_LOAD_GRACEFUL_CATCH_LEGACY],
   ],
 };
@@ -2405,9 +2486,10 @@ const PRISTINE_FAMILIES = {
 };
 
 // 首部整行 marker 注入（区别于行内替换，split/join 碰不到“只存在一次的文件头
-// 前置行”）：按成员登记，还原时从文件头剥掉。
+// 前置行”）：按成员登记，还原时从文件头剥掉。值可为字符串或字符串数组
+// （torn-tail 头行在 rc.1 换为扁平契约的 V2 形态，两世代都要剥得动）。
 const PRISTINE_HEAD_INJECTIONS = {
-  'persistence-torn-tail': PERSISTENCE_TORN_HEAD,
+  'persistence-torn-tail': [PERSISTENCE_TORN_HEAD, PERSISTENCE_TORN_HEAD_V2],
 };
 
 const toCrlf = (text) => text.split('\n').join('\r\n');
@@ -2428,10 +2510,12 @@ function revertPristineMember(key, src) {
   }
   const head = PRISTINE_HEAD_INJECTIONS[key];
   if (head) {
-    for (const variant of [head, toCrlf(head)]) {
-      if (!out.startsWith(variant)) continue;
-      out = out.slice(variant.length);
-      break;
+    for (const headLine of Array.isArray(head) ? head : [head]) {
+      for (const variant of [headLine, toCrlf(headLine)]) {
+        if (!out.startsWith(variant)) continue;
+        out = out.slice(variant.length);
+        break;
+      }
     }
   }
   return out;
@@ -2452,21 +2536,34 @@ function toPristineSource(key, src) {
 // pi-ai 4xx 请求落盘（独立脚本实现，registry 经此引用保持单一收口）。
 const { transform4xxDump: transformPiAi4xxDump, MARKER: PI_AI_4XX_DUMP_MARKER } = require('../patch-pi-ai-4xx-dump');
 const { transformToolSchemaSanitize: transformPiAiToolSchemaSanitize, MARKER: PI_AI_TOOL_SCHEMA_SANITIZE_MARKER } = require('../patch-pi-ai-tool-schema-sanitize');
+// pi-ai Responses 路径工具名净化（姊妹补丁，靶 openai-responses-shared.js）：
+// completions 那条不覆盖 Responses 三条路由共用的工具序列化/槽位构造。
+const { transformResponsesToolNameSanitize: transformPiAiResponsesToolNameSanitize, MARKER: PI_AI_RESPONSES_TOOL_NAME_SANITIZE_MARKER } = require('../patch-pi-ai-responses-tool-name-sanitize');
+// pi-ai 适配层工具名 wire 中央收口（一处覆盖 completions/responses/azure/codex/bedrock/
+// google/mistral 全部 provider）：出站 toolsOf 洗名，回程两处 tool-call 还原原名。
+const { transformPiAiToolNameWire, MARKER: PI_AI_TOOL_NAME_WIRE_MARKER } = require('../patch-pi-ai-tool-name-wire');
+// pi-ai 配额耗尽不得重试（姊妹补丁，靶 @earendil-works/pi-ai/dist/utils/provider-retry.js）：
+// isRetryableProviderError 把 429 一律当可重试，而 OpenAI 兼容渠道的 insufficient_quota
+// 同为 429 却是终态 → 白等若干轮退避。判定顺序：x-should-retry 头优先，其后配额特征。
+const { transformPiAiQuotaNotRetryable, MARKER: PI_AI_QUOTA_NOT_RETRYABLE_MARKER } = require('../patch-pi-ai-quota-not-retryable');
 const { transformDsToolSchemaSanitize, MARKER: DS_TOOL_SCHEMA_SANITIZE_MARKER } = require('../patch-ds-tool-schema-sanitize');
 
 // ---------------------------------------------------------------------------
 // 跨版本 session 日志未知事件类型兜底（0.6.3 第二案；用户降级/换装后老对话
-// 整个打不开的兜底）。上游 assertEventsSupported 对「未知且未标 ignorable」的
-// 事件 fail-closed：一条未来类型事件（如新版 harness 写入的 slice/digest）就让
-// 整个 observe 拒载（SessionFormatUnsupportedError → 历史加载失败）。历史会话
-// 以读为主，打不开比渲染有缺口更糟。修法：整方法替换为「收集未知事件 + 跳过 +
-// 固定前缀 [dsh-unknown-event-tolerance] 一次性告警（列类型@seq，诚实说明若含
-// 语义事件渲染可能有缺口）」；assertVersion 的格式版本拒绝仍 fail-closed（真正
-// 不兼容的日志照旧拒载）。跳过在每次读取时一致发生，重建语义自洽。
+// 整个打不开的兜底）。上游 validateStoredEvents（旧版名 assertEventsSupported）
+// 对「未知且未标 ignorable」的事件 fail-closed：一条未来类型事件（如新版
+// harness 写入的 slice/digest）就让整个 observe 拒载（SessionFormatUnsupportedError
+// → 历史加载失败）。历史会话以读为主，打不开比渲染有缺口更糟。修法：未知事件
+// 改为「收集 + 跳过 + 固定前缀 [dsh-unknown-event-tolerance] 一次性告警（列
+// 类型@seq，诚实说明若含语义事件渲染可能有缺口）」；assertVersion 的格式版本
+// 拒绝仍 fail-closed（真正不兼容的日志照旧拒载）。跳过在每次读取时一致发生，
+// 重建语义自洽。request/header 的 legacy fallback 拒绝保持原样。
 // ---------------------------------------------------------------------------
 const SESSION_UNKNOWN_EVENT_TOLERANCE_MARKER = 'dsh-desktop fix: tolerate unknown session event types (load instead of refuse)';
-const SESSION_UNKNOWN_EVENT_FROM = 'assertEventsSupported(meta, events) {\n\t\tfor (const event of events) {\n\t\t\tif (KNOWN_SESSION_EVENT_TYPES.has(event.type) || event.ignorable === true) continue;\n\t\t\tthrow this.unsupported(meta, `session "${meta.id}" contains event type "${event.type}" (seq ${event.seq}) unknown to this harness and not marked ignorable; refusing to interpret the log — it was likely written by a newer harness`);\n\t\t}'
-const SESSION_UNKNOWN_EVENT_TO = 'assertEventsSupported(meta, events) {\n\t\t// dsh-desktop fix: tolerate unknown session event types (load instead of refuse) —\n\t\t// a single future-typed event (e.g. "slice/digest" from a newer harness) used to\n\t\t// fail the whole observe, so the session was unopenable after a downgrade.\n\t\t// Skip + one-shot warn with a fixed prefix keeps gaps observable; the format\n\t\t// version refusal in assertVersion still fail-closes incompatible logs.\n\t\tconst dshUnknown = [];\n\t\tfor (const event of events) {\n\t\t\tif (KNOWN_SESSION_EVENT_TYPES.has(event.type) || event.ignorable === true) continue;\n\t\t\tdshUnknown.push(`${event.type}@${event.seq}`);\n\t\t}\n\t\tif (dshUnknown.length !== 0) console.warn(`[dsh-unknown-event-tolerance] session "${meta.id}": skipping ${dshUnknown.length} unknown event(s) (${dshUnknown.slice(0, 5).join(", ")}${dshUnknown.length > 5 ? " …" : ""}) instead of refusing to load — the session may render with gaps if a newer harness wrote semantic events.`);'
+// 0.1.5-rc.1 重锚：方法改名 validateStoredEvents 且新增 location 形参、
+// unsupported 由方法调用改为模块级函数（this.unsupported → unsupported）。
+const SESSION_UNKNOWN_EVENT_FROM = 'function validateStoredEvents(meta, events, location) {\n\tfor (const event of events) {\n\t\tif (!KNOWN_SESSION_EVENT_TYPES.has(event.type) && event.ignorable !== true) throw unsupported(`session "${meta.id}" contains event type "${event.type}" (seq ${event.seq}) unknown to this harness and not marked ignorable; refusing to interpret the log — it was likely written by a newer harness`, location);\n\t\tif (event.type === "request/header") {\n\t\t\tconst data = event.data;\n\t\t\tif (typeof data === "object" && data !== null && data["reason"] === "fallback") throw unsupported(`session "${meta.id}" contains a request/header event (seq ${event.seq}) with the unsupported legacy reason "fallback"; refusing to interpret the log — it was written by a retired pre-release harness`, location);\n\t\t}\n\t}'
+const SESSION_UNKNOWN_EVENT_TO = 'function validateStoredEvents(meta, events, location) {\n\t// dsh-desktop fix: tolerate unknown session event types (load instead of refuse) —\n\t// a single future-typed event (e.g. "slice/digest" from a newer harness) used to\n\t// fail the whole observe, so the session was unopenable after a downgrade.\n\t// Skip + one-shot warn with a fixed prefix keeps gaps observable; the format\n\t// version refusal in assertVersion still fail-closes incompatible logs.\n\tconst dshUnknown = [];\n\tfor (const event of events) {\n\t\tif (!KNOWN_SESSION_EVENT_TYPES.has(event.type) && event.ignorable !== true) {\n\t\t\tdshUnknown.push(`${event.type}@${event.seq}`);\n\t\t\tcontinue;\n\t\t}\n\t\tif (event.type === "request/header") {\n\t\t\tconst data = event.data;\n\t\t\tif (typeof data === "object" && data !== null && data["reason"] === "fallback") throw unsupported(`session "${meta.id}" contains a request/header event (seq ${event.seq}) with the unsupported legacy reason "fallback"; refusing to interpret the log — it was written by a retired pre-release harness`, location);\n\t\t}\n\t}\n\tif (dshUnknown.length !== 0) console.warn(`[dsh-unknown-event-tolerance] session "${meta.id}": skipping ${dshUnknown.length} unknown event(s) (${dshUnknown.slice(0, 5).join(", ")}${dshUnknown.length > 5 ? " …" : ""}) instead of refusing to load — the session may render with gaps if a newer harness wrote semantic events.`);'
 
 function transformSessionUnknownEventTolerance(src, file) {
   if (src.includes(SESSION_UNKNOWN_EVENT_TOLERANCE_MARKER)) return { status: 'already' };
@@ -2484,12 +2581,13 @@ function transformSessionUnknownEventTolerance(src, file) {
 // 后两者叠加，折叠行宽度被算成 0px，只剩一条 24px 高的空白；展开态该规则不
 // 适用故展开正常。修法：去掉清空宽度的 size containment、保留 layout，显式
 // height 继续锁折叠高度——无主题用户零可感知差异（DOM 实测折叠行宽 0px →
-// 614.8px、标题/摘要恢复可见）。锚点含 CSS modules 哈希类（.t2QtNG_root）：
+// 614.8px、标题/摘要恢复可见）。锚点含 CSS modules 哈希类（0.1.5-rc.1 为
+// .lcKema_root，旧内核为 .t2QtNG_root）：
 // 靶是 compat-pin 锁版 vendored 固定字节，哈希即稳定锚；全文件唯一出现（探针实测）。
 // ---------------------------------------------------------------------------
 const REASONING_ROW_COLLAPSE_MARKER = 'dsh-desktop fix: reasoning row collapse width (contain:size removed)';
-const REASONING_ROW_COLLAPSE_FROM = '.t2QtNG_root:not([data-expanded]){contain:size layout;height:calc(24px + var(--dsh-content-font-delta,0px))}';
-const REASONING_ROW_COLLAPSE_TO = '.t2QtNG_root:not([data-expanded]){contain:layout;/* dsh-desktop fix: reasoning row collapse width (contain:size removed) */height:calc(24px + var(--dsh-content-font-delta,0px))}';
+const REASONING_ROW_COLLAPSE_FROM = '.lcKema_root:not([data-expanded]){contain:size layout;height:calc(24px + var(--dsh-content-font-delta,0px))}';
+const REASONING_ROW_COLLAPSE_TO = '.lcKema_root:not([data-expanded]){contain:layout;/* dsh-desktop fix: reasoning row collapse width (contain:size removed) */height:calc(24px + var(--dsh-content-font-delta,0px))}';
 
 function transformReasoningRowCollapseWidth(src, file) {
   if (src.includes(REASONING_ROW_COLLAPSE_MARKER)) return { status: 'already' };
@@ -2508,10 +2606,17 @@ module.exports = {
   PI_AI_4XX_DUMP_MARKER,
   PI_AI_TOOL_SCHEMA_SANITIZE_MARKER,
   transformPiAiToolSchemaSanitize,
+  PI_AI_RESPONSES_TOOL_NAME_SANITIZE_MARKER,
+  transformPiAiResponsesToolNameSanitize,
+  PI_AI_TOOL_NAME_WIRE_MARKER,
+  transformPiAiToolNameWire,
+  PI_AI_QUOTA_NOT_RETRYABLE_MARKER,
+  transformPiAiQuotaNotRetryable,
   DS_TOOL_SCHEMA_SANITIZE_MARKER,
   transformDsToolSchemaSanitize,
   transformFlashFix,
   transformPersistenceAll,
+  transformReleasedV0KeysTolerance,
   transformLegacySlotKey,
   transformSlotUnkeyedCompat,
   transformSlotErrorIsolation,
@@ -2579,7 +2684,6 @@ module.exports = {
     patchMenuViewport,
     patchOpenProjectDir,
     patchWorkspacePin,
-    patchPresetSeat,
     patchSessionPersistence,
     patchSessionManage,
     patchToolSourceCompat,
@@ -2587,7 +2691,6 @@ module.exports = {
     patchPiAiCredits,
     patchPiAiReasoningDefaults,
     patchPiAiOverflowMessage,
-    patchTokenMeterClamp,
     patchAtomicWriteOrphanLock,
     patchSettingsModelsResilience,
     patchModelImageInput,
@@ -2603,6 +2706,9 @@ module.exports = {
     IMAGE_SEND_MARKER,
   DS_TOOL_SCHEMA_SANITIZE_MARKER,
   PI_AI_TOOL_SCHEMA_SANITIZE_MARKER,
+  PI_AI_RESPONSES_TOOL_NAME_SANITIZE_MARKER,
+  PI_AI_TOOL_NAME_WIRE_MARKER,
+  PI_AI_QUOTA_NOT_RETRYABLE_MARKER,
     SLOT_KEY_COMPAT_MARKER,
     SLOT_UNKEYED_COMPAT_MARKER,
     SLOT_ERROR_ISOLATE_MARKER,
@@ -2625,8 +2731,10 @@ module.exports = {
     ADAPTER_PREPARE_CALL_GUARD_MARKER,
     CONTENT_HAS_IMAGE_GUARD_MARKER,
     SESSION_HEADER_SCAN_MARKER,
+    RELEASED_V0_HISTORY_MARKER,
     SESSION_LOAD_GRACEFUL_MARKER,
     SESSION_LOAD_GRACEFUL_MARKER_V2,
+    SESSION_LOAD_GRACEFUL_MARKER_V3,
     MANUAL_SORT_DRAG_MARKER,
     CODEX_LOCAL_BIN_MARKER,
     CLAUDE_LOCAL_BIN_MARKER,

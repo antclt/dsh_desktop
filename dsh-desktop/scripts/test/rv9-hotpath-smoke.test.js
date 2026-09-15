@@ -6,13 +6,23 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const test = require('node:test');
+const assert = require('node:assert/strict');
 const ROOT = path.join(__dirname, '..', '..');
 const DSH_TAURI = path.join(ROOT, '..', 'dsh-tauri');
 
 let pass = 0, fail = 0;
+// failures 记录 FAIL 名（+可选 detail），供文件尾 test() 断言把具体名字冒到
+// node --test 的 failing-tests 块里 —— 此前 process.exit 让整份聚合塌成
+// 一句 "test failed"，谁红了都要靠肉眼扫 stdout。
+const failures = [];
 function check(name, cond, detail) {
   if (cond) { pass++; console.log(`  ok  ${name}`); }
-  else { fail++; console.log(`  FAIL ${name}${detail ? ' :: ' + detail : ''}`); }
+  else {
+    fail++;
+    failures.push(`${name}${detail ? ' :: ' + detail : ''}`);
+    console.log(`  FAIL ${name}${detail ? ' :: ' + detail : ''}`);
+  }
 }
 function read(p) { return fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n'); }
 
@@ -46,7 +56,17 @@ function read(p) { return fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n'); }
   const src = read(path.join(DSH_TAURI, 'src-tauri/src/app/src/commands/updater_client.rs'));
   check('meta/dl client OnceLock 复用（每启动仅建一次）', src.includes('static CLIENT: OnceLock<reqwest::Client>') && (src.match(/OnceLock<reqwest::Client>/g) || []).length === 2);
   const lib = read(path.join(DSH_TAURI, 'src-tauri/src/app/src/lib.rs'));
-  check('启动检查一次性（15s 后单次，无循环）', /std::thread::sleep\(std::time::Duration::from_secs\(15\)\)[\s\S]{0,600}?check_latest/.test(lib) && !/loop \{[\s\S]{0,400}?check_latest/.test(lib));
+  // v0.6.3 起 dsh-tauri lib.rs 把「启动一次性查一次」升级为「有界周期重检」
+  //（见 lib.rs:500 注释：常年挂机用户当天也要被新版本敲门）。rv9 冒烟守的是「热路径
+  // 无重启/紧循环风暴」这一不变量，判据随之升级：loop 存在合法，但必须
+  //   (a) 保留 loop 前的 15s 首查延迟（避免启动打点即出网），
+  //   (b) loop 内 check_latest 之后有 thread::sleep 分隔（若日后误改成裸紧循环，
+  //       (b) 直接失配、本项重新变红）。
+  const hasInitialDelay = /std::thread::sleep\(std::time::Duration::from_secs\(15\)\)[\s\S]{0,400}?loop \{/.test(lib);
+  const loopSleepsBetweenChecks = /loop \{[\s\S]{0,2000}?check_latest[\s\S]{0,1500}?std::thread::sleep\(std::time::Duration::from_secs\(\d+\)\)/.test(lib);
+  check('启动 15s 首查 + v0.6.3 有界周期重检（loop 内 sleep 分隔、非紧循环风暴）',
+    hasInitialDelay && loopSleepsBetweenChecks,
+    `hasInitialDelay=${hasInitialDelay}, loopSleepsBetweenChecks=${loopSleepsBetweenChecks}`);
   const menu = read(path.join(DSH_TAURI, 'src-tauri/src/app/src/commands/menu.rs'));
   check('进度事件经 download 回调发出（无独立轮询线程）', menu.includes('"client-update-progress"') && menu.includes('download_to_temp(&asset, move |received'));
 }
@@ -174,4 +194,11 @@ function read(p) { return fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n'); }
 }
 
 console.log(`\nrv9 冒烟：${pass} ok, ${fail} FAIL`);
-process.exit(fail ? 1 : 0);
+// 把 fail 计数收进一个真正的 node:test 用例：让 `node --test` 在 failing-tests
+// 块里点名每一条 FAIL（此前 process.exit 让整份聚合塌成一句 "test failed"，
+// 谁红了都得靠肉眼扫 stdout）。直接 node 运行时该 test 也会执行并决定退出码。
+test(`rv9 冒烟汇总：${pass} ok / ${fail} FAIL`, () => {
+  assert.equal(fail, 0, failures.length
+    ? `以下 ${failures.length} 项 FAIL：\n  ${failures.join('\n  ')}`
+    : '无失败项');
+});

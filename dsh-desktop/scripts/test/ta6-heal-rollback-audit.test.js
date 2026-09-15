@@ -42,7 +42,7 @@ const IMPL_SOURCES = [
 // 桌面壳独有依赖）。过去这里自己抄了一份 .tmp-rc2-stage 路径且用裸 readdirSync：
 // 该一次性装配树被清理后，本文件不是「诚实报错」而是直接 ENOENT 崩掉，
 // 把整份回滚审计报告一起吞了。
-const { findPristineTarget, describePristineRoots } = require('../lib/pristine-kernel-roots');
+const { findPristineTarget, describePristineRoots, specTargetVendored, specVendoredSkipReason } = require('../lib/pristine-kernel-roots');
 
 function firstTargetFile(spec) {
   return findPristineTarget(spec);
@@ -84,13 +84,44 @@ const MULTI_SITE = new Set([
   'content-has-image-guard',  // 多靶：dsh-llm contentHasImage + dsh-tools result.content.some
   'shell-description-compat',  // 多点：shell(pwsh/bash) + run_code(dsh-tools) 各 schema 删 required:true + validate 兜底
   'chat-scroll-autoload-older', // 双注入：ChatView 内 useRef+useEffect(IO) + flow column 哨兵 div
+  'pi-ai-responses-tool-name-sanitize', // 六点注入：出站 grammar/function 分支 + 回放两处 + 入站两处槽位
+  'pi-ai-tool-name-wire', // 三点注入：toolsOf 出站洗名 + 回程两处 case "tool-call" 还原
 ]);
 
 const fileSpecs = PATCH_SPECS.filter((s) => s.kind === 'file');
 const rootSpecs = PATCH_SPECS.filter((s) => s.kind === 'root');
 
-test('审计 1：分类覆盖全部 43 个 file transform（无回滚盲区）', () => {
-  assert.equal(fileSpecs.length, 43);
+// 靶包不在 vendor/dsh-kernel 离线内核闭包内的 marker transform：其 pristine 源在离线解包
+// 树里天然不存在（cordis-plugin-loader 是 @deepseek-ai scope 的 registry 发布包；@openai/codex
+// 与 @earendil-works/pi-ai 是宿主可选依赖）。审计 2 对它们诚实跳过（无源可依），并集中在此
+// 断言集合恰为这 6 条，防止误扩成「整组静默停摆」。
+// 第 5 条来源：pi-ai-responses-tool-name-sanitize（靶 openai-responses-shared.js，
+// 与同包 completions 净化补丁一样落在离线内核闭包之外）。
+// 第 6 条来源：pi-ai-quota-not-retryable（靶 @earendil-works/pi-ai/dist/utils/
+// provider-retry.js，同包第三条非闭包靶）。
+const EXPECTED_NON_VENDORED = [
+  'loader-tree-isolation',
+  'codex-local-bin-fallback',
+  'pi-ai-4xx-dump',
+  'pi-ai-tool-schema-sanitize',
+  'pi-ai-responses-tool-name-sanitize',
+  'pi-ai-quota-not-retryable',
+];
+
+// 44 = 43（上一基线）+ 1 项新增（released-v0-history-recovery：靶 dsh-session-format-v0-to-v1
+// 的 released-v0 准入清单扩容，带 RELEASED_V0_HISTORY_MARKER → 回滚策略 marker-excise，
+// 且属 npm-ci 可恢复的 node_modules 内文件，不引入回滚盲区）。
+// 45 = 44 + 1 项新增（pi-ai-responses-tool-name-sanitize：靶 @earendil-works/pi-ai 的
+// openai-responses-shared.js，带 marker → 同为 marker-excise 回滚 + npm-ci 可恢复，
+// 多点注入（6 落点）故列入 MULTI_SITE）。
+// 46 = 45 + 1 项新增（pi-ai-tool-name-wire：靶 @deepseek-ai/dsh-llm-pi-ai/lib/index.js
+// 的工具名 wire 中央收口，带 marker → marker-excise 回滚 + npm-ci 可恢复，三处注入
+// （toolsOf 出站 + 回程两处 tool-call）故列入 MULTI_SITE）。
+// 47 = 46 + 1 项新增（pi-ai-quota-not-retryable：靶 @earendil-works/pi-ai/dist/utils/
+// provider-retry.js 的 isRetryableProviderError，注入 helper + 配额判定，
+// 带 marker → marker-excise 回滚 + npm-ci 可恢复）。
+test('审计 1：分类覆盖全部 47 个 file transform（无回滚盲区）', () => {
+  assert.equal(fileSpecs.length, 47);
   const report = [];
   for (const spec of fileSpecs) {
     const pair = INVERSE_PAIR_HINTS[spec.id];
@@ -111,8 +142,13 @@ test('审计 1：分类覆盖全部 43 个 file transform（无回滚盲区）',
 });
 
 test('审计 2：带 marker 的 transform，其 changed 产物含 marker（回滚定位点）', () => {
+  const honestSkip = [];
   for (const spec of fileSpecs) {
     if (!spec.marker) continue;
+    // 靶包不在离线内核闭包（registry/宿主可选依赖）：无 pristine 源 → 诚实跳过并点名，
+    // 既不为 loader-tree-isolation 硬红，也不让 codex/pi-ai 靠 dsh-desktop/node_modules
+    // 已补丁副本走 already 分支吞掉 marker 校验（假绿）。
+    if (!specTargetVendored(spec)) { honestSkip.push(`${spec.id} — ${specVendoredSkipReason(spec)}`); continue; }
     const file = firstTargetFile(spec);
     assert.ok(file, `${spec.id} 缺 pristine 目标（可用根：${describePristineRoots()}）`);
     const src = fs.readFileSync(file, 'utf8');
@@ -125,6 +161,15 @@ test('审计 2：带 marker 的 transform，其 changed 产物含 marker（回�
     }
     // already / anchor-missing（退役态）无产物，无回滚需求。
   }
+  console.log('[TA6 审计 2 诚实跳过：靶包不在离线内核闭包、无 pristine 源]');
+  for (const line of honestSkip) console.log('  SKIP ' + line);
+});
+
+test('审计 5：诚实跳过集合恰为已知 6 条非闭包 marker transform（防静默停摆）', () => {
+  const actual = fileSpecs.filter((s) => s.marker && !specTargetVendored(s)).map((s) => s.id).sort();
+  assert.deepEqual(actual, [...EXPECTED_NON_VENDORED].sort(),
+    `非闭包（诚实 SKIP）集合漂移：实际=[${actual}]，基线=[${EXPECTED_NON_VENDORED}]。`
+    + '扩大=有真·内核靶掉出闭包（查 patch-target-resolver / vendor / kernel-pin）；收缩=有 registry 包被塞进闭包');
 });
 
 test('审计 3：root 应用器只碰 node_modules（npm ci 整体可恢复）', () => {

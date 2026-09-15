@@ -64,8 +64,9 @@ const UI_PROJECT_BUTTON_ANCHOR = '"aria-label": t("actions.workspace.aria", { na
 const UI_PROJECT_BUTTON_INSERT = '"aria-label": t("actions.workspace.aria", { name: label }),\n\t\t\t\t\t\t\t\tonClick: (e) => {\n\t\t\t\t\t\t\t\t\te.stopPropagation();\n\t\t\t\t\t\t\t\t\tsetMenuRect(e.currentTarget.getBoundingClientRect());\n\t\t\t\t\t\t\t\t\tsetMenuOpen((v) => !v);\n\t\t\t\t\t\t\t\t},';
 
 // 2a. 会话行组件签名：新增 cwd prop（分组视图 group.cwd / 扁平视图反查 list.byId）。
-const UI_SESSION_SIG_ANCHOR = 'function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t }) {';
-const UI_SESSION_SIG_INSERT = 'function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t, cwd }) {';
+// 0.1.5-rc.1 重锚：上游新增 onReveal 形参（置于 onArchive 与 drag 之间）。
+const UI_SESSION_SIG_ANCHOR = 'function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t }) {';
+const UI_SESSION_SIG_INSERT = 'function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t, cwd }) {';
 
 // 2b. 会话行：右键锚点矩形 state。
 const UI_SESSION_STATE_ANCHOR = 'const showStatus = statuses[0].state !== "done" || row.completed;\n\t\t\tconst [menuOpen, setMenuOpen] = (0, react.useState)(false);';
@@ -96,8 +97,9 @@ const UI_GROUPED_CALL_ANCHOR = 'node,\n\t\t\t\t\t\t\t\t\t\t\tcurrentId: current,
 const UI_GROUPED_CALL_INSERT = 'node,\n\t\t\t\t\t\t\t\t\t\t\tcwd: group.cwd,\n\t\t\t\t\t\t\t\t\t\t\tcurrentId: current,\n\t\t\t\t\t\t\t\t\t\t\tnow,';
 
 // 3b. 扁平视图会话行调用点：从 list.byId 反查 cwd（孤儿会话为 undefined，项自动隐藏）。
-const UI_FLAT_CALL_ANCHOR = 'node,\n\t\t\t\t\t\t\tcurrentId: list.current,\n\t\t\t\t\t\t\tnow,';
-const UI_FLAT_CALL_INSERT = 'node,\n\t\t\t\t\t\t\tcwd: list.byId[node.id]?.cwd,\n\t\t\t\t\t\t\tcurrentId: list.current,\n\t\t\t\t\t\t\tnow,';
+// 0.1.5-rc.1 重锚：currentId 改为 panelActive ? void 0 : list.current 三元形态。
+const UI_FLAT_CALL_ANCHOR = 'node,\n\t\t\t\t\t\t\tcurrentId: panelActive ? void 0 : list.current,\n\t\t\t\t\t\t\tnow,';
+const UI_FLAT_CALL_INSERT = 'node,\n\t\t\t\t\t\t\tcwd: list.byId[node.id]?.cwd,\n\t\t\t\t\t\t\tcurrentId: panelActive ? void 0 : list.current,\n\t\t\t\t\t\t\tnow,';
 
 // 4. 翻译：zh / en（与 menu.archiveSession 等同一字典）。
 const UI_ZH_ANCHOR = '"menu.archiveSession": "归档会话",\n\t\t\t"menu.deleteSession": "删除对话",';

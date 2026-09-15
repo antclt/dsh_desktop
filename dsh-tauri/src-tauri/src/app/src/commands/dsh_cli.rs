@@ -15,6 +15,9 @@
 
 use std::path::PathBuf;
 
+#[cfg(windows)]
+use super::common::NoWindow;
+
 /// exe 所在目录（安装根）。便携版/NSIS currentUser/开发态各自成立；
 /// 开发态（debug）直接跳过，避免污染开发机 PATH。
 fn install_root() -> Option<PathBuf> {
@@ -57,6 +60,7 @@ fn append_user_path(dir: &std::path::Path) -> Result<(), String> {
     );
     let out = std::process::Command::new("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .creation_flags_no_window()
         .output()
         .map_err(|e| format!("spawn powershell: {e}"))?;
     if !out.status.success() {
@@ -77,6 +81,29 @@ fn append_user_path(_dir: &std::path::Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 形态锚点：启动路径上的 powershell 子进程必须带 CREATE_NO_WINDOW。
+    /// 0.6.3 引入本文件时漏了该旗——`ensure_dsh_cli_shim` 由 lib.rs 在 setup 期
+    /// 调用，注册表 PATH 已写但进程环境未刷新期间每次启动都闪一个终端窗。
+    #[test]
+    fn append_user_path_suppresses_console_window_shape() {
+        let src = include_str!("dsh_cli.rs");
+        let seg = src
+            .split("fn append_user_path")
+            .nth(1)
+            .and_then(|s| s.split("#[cfg(not(windows))]").next())
+            .expect("windows 版 append_user_path 函数体");
+        assert!(seg.contains("powershell"), "必须走 powershell 读写 HKCU Environment");
+        assert!(seg.contains("\"-NoProfile\""), "powershell 必须免 profile（避免用户 profile 干扰）");
+        assert!(
+            seg.contains("DoNotExpandEnvironmentNames"),
+            "读 PATH 必须保留未展开的 %VAR% 原文形态"
+        );
+        assert!(
+            seg.contains(".creation_flags_no_window()"),
+            "spawn 必须抑制终端窗（GUI 进程起 console 程序）"
+        );
+    }
 
     /// shim 内容形态：vendored node/bin 路径带引号、%* 透传参数、首行 @echo off。
     #[test]

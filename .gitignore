@@ -59,3 +59,6 @@ portable/
 
 # 内核升级过程旧版 tgz 暂存（alpha.4 激活时遗留，确认稳定后可整体删除）
 dsh-desktop/vendor-next/
+
+# 本地便携 LITE 组装目录（构建脚本产物，不入库）
+portable-lite/

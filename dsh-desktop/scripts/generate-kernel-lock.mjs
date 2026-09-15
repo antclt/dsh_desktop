@@ -29,8 +29,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TARBALLS = join(ROOT, 'vendor', 'dsh-kernel');
 const PKG_PATH = join(ROOT, 'package.json');
 const LOCK_PATH = join(ROOT, 'package-lock.json');
+const PIN_PATH = join(ROOT, 'scripts', 'compat', 'kernel-pin.json');
 const SHELL = process.platform === 'win32';
-const KERNEL_VERSION = '0.1.2-alpha.5';
+// 单一版本源 = kernel-pin.json（见文件头）。此前这里硬编码常数是第二处版本源：
+// 换代时漏同步会让下面的版本 sanity 对整棵家族报假红并拒绝写锁。
+const KERNEL_VERSION = JSON.parse(readFileSync(PIN_PATH, 'utf8'))?.kernel?.packageVersion;
+if (!KERNEL_VERSION) throw new Error(`generate-kernel-lock: ${PIN_PATH} 缺 kernel.packageVersion`);
 
 const realPkg = JSON.parse(readFileSync(PKG_PATH, 'utf8'));
 

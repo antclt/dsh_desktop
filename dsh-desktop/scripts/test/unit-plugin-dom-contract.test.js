@@ -10,7 +10,8 @@
 //   G2 旧行锚 [data-time-hover-root] 不得是唯一命中路径：同行并代新行锚，或紧邻处有
 //      显式回退（|| / ??）；
 //   G3 composer 并代：:has(textarea) 不得单代出现；kind="assistant" 必须与 assistant-step 并列；
-//   G4 已修形态在场：navbar / tweaks / quest-ui / session-manager / input-fold 的两代锚逐个点名；
+//   G4 已修形态在场：tweaks / quest-ui / session-manager / input-fold 的四代锚逐个点名
+//      （navbar 已于 0.6.3-beta.3 随本体退役，G4 里留一条退役锁防「取回本体却忘了补守卫」）；
 //   G5-G7 tweaks 标记扫描行为：新内核 DOM 早退不打标记、旧内核仍正确标记每轮总结、
 //      开关关闭时只清标记；
 //   G8 覆盖面锁：插件客户端入口以 package.json exports['./client'] 为权威，不再靠
@@ -165,7 +166,12 @@ test('G2 旧行锚 [data-time-hover-root] 不得作为唯一命中路径', () =>
 				const window = lines.slice(Math.max(0, idx - 2), idx + 3).map((x) => x.text).join('\n');
 				const dualGen = window.includes('data-chat-flow-kind');
 				const hasFallback = /\|\||\?\?/.test(window);
-				if (!dualGen && !hasFallback) bad.push(plugin + '/' + src.base + ':' + l.line + '  ' + l.text.slice(0, 72));
+				// 插件自名命名空间豁免：选择器同时命中插件自己的 [data-dsh-<name>]
+				// 属性（该属性由插件渲染在自家节点上，非宿主锚，无换代失配面）。
+				// 如 dsh-easyrewrite 自设 data-time-hover-root 仿官方机制并叠加
+				// [data-dsh-easyrewrite] 收窄。裸用宿主属性仍会被抓。
+				const selfOwned = /\[data-dsh-[a-z0-9-]+\]/.test(window);
+				if (!dualGen && !hasFallback && !selfOwned) bad.push(plugin + '/' + src.base + ':' + l.line + '  ' + l.text.slice(0, 72));
 			});
 		}
 	}
@@ -196,16 +202,15 @@ test('G3 composer 与 flow kind 不得单代引用', () => {
 // ---------------------------------------------------------------------------
 // G4：已修形态必须在场（防止修复被后续提交/上游覆盖悄悄抹掉）
 // ---------------------------------------------------------------------------
-test('G4 五个插件的两代锚形态逐个点名', () => {
+test('G4 四个插件的两代锚形态逐个点名', () => {
 	const srcOf = (p, f) => fs.readFileSync(path.join(PLUGINS, p, 'lib', f), 'utf8');
 
-	const navbar = srcOf('dsh-navbar', 'client.js');
-	assert.ok(
-		/const ROW_SELECTOR = "\[data-time-hover-root\], \[data-chat-flow-kind\]";/.test(navbar),
-		'dsh-navbar 行锚应并代（ROW_SELECTOR）'
-	);
-	assert.ok(navbar.includes('dsh-compat:row-anchor'), 'dsh-navbar 应保留可 grep 的兼容标记');
-	assert.ok(/turnOf/.test(navbar) && /data-chat-turn/.test(navbar), 'dsh-navbar 轮号应走 turnOf（data-chat-turn 优先）');
+	// 退役锁：dsh-navbar（对话节点导航条）已于 0.6.3-beta.3 从伴随插件清单与
+	// assets/plugins 源目录一并移除（scripts/lib/companion-plugins.js 退役注释 /
+	// 提交 ff421ac2）。它的两代行锚修形（ROW_SELECTOR / turnOf）随本体一起退役；
+	// 若日后从 git 历史取回插件本体，这条即红，提醒同时把 G4 的点名补回来。
+	assert.equal(fs.existsSync(path.join(PLUGINS, 'dsh-navbar')), false,
+		'dsh-navbar 已退役，不该回到 assets/plugins；取回它请同时补 G4 的锚形态点名');
 
 	const tweaks = srcOf('dsh-conversation-tweaks', 'client.js');
 	for (const rule of [
@@ -644,6 +649,8 @@ const INERT_CLASS_TOKENS = new Map([
 	['suggestion', '当前内核已无「欢迎页建议条目」UI（实测 suggestion/example/starter/recommend '
 		+ '在 dsh-client-ui-conversation 全 0 命中），dsh-quest-ui 的三条规则（suggestion 与 '
 		+ 'Suggestion 两种拼法）今日惰性，带 dsh-compat:welcome-suggestions-inert 说明保留。'],
+	['usg_', 'dsh-pocket 引用的使用统计行前缀（usg_statsRow/usg_stat 等），rc.2 已重构该区域；'
+		+ '第三方 GPL 插件的 CSS 不宜频繁改动，规则惰性保留。'],
 ]);
 
 test('G9 [class*="X"] 的局部名必须仍在内核 CSS 里在场（或逐条登记为惰性）', () => {
@@ -945,4 +952,130 @@ test('G10 组件只能读所在槽确实下发的 props（权威 = CLIENT_SLOT_A
 		'捕获力失败：动态 inject 未落 INCONCLUSIVE（既不判红也不静默丢）');
 	assert.equal(hitBad('mirror/'), false, '捕获力失败：已迁移的镜像读被误报');
 	assert.equal(hitBad('ghost/'), true, '捕获力失败：注册进未声明的槽未被报红');
+});
+
+// ---------------------------------------------------------------------------
+// G11 插件直写的 CSS Module 哈希类必须在内核编译产物里在场
+//
+// 为什么 G9 挡不住这一类：G9 的判据是 [class*="X"] 的**局部名**存活，而插件里
+// 还有一类锚是**整 token 直写**（`.pI_x6G_rightbarCol`）。内核重打包会换掉哈希
+// 前缀，局部名却可以完全不变 —— G9 因此一路绿灯，而选择器命中 0。
+// 0.1.5-rc.1 换代实测踩过：上游把布局右列 detailsCol 改名 rightbarCol、聊天滚动
+// 容器整族 Md3f7G_* → EvIC1a_*，dsh-mini 手机端右栏压不成 0 宽、键盘弹起不跟随，
+// 全程无一条守卫报红。
+//
+// 为什么是点名 watchlist 而不是全量扫描：插件自身构建产物也是 `<hash>_<local>`
+// 形态且与宿主页同名规则混写（dsh-better-sidebar 的 lib/client-registry.js 单文件
+// 就有 300+ 条自产哈希类），全量扫描会把它们一律误报成漂移。故这里只锁「确实在
+// 改宿主 UI」的锚 —— 代价是新增锚要手动登记，收益是零误报、且下次改名立刻报红。
+// ---------------------------------------------------------------------------
+function kernelHashedTokens() {
+	const all = new Set();
+	// CSS Module 类名是在 JS 里作为 className 赋给节点的：只在 .css 里出现可能是一
+	// 段死样式，出现在 JS 里才证明渲染时真落到元素上。故另收一份 js-only 集合。
+	const js = new Set();
+	// 哈希段判据：长度 5..9、含大写或数字、且非全大写蛇形（排除 ACTION_RECORD 这类常量）。
+	// 不能要求必含数字 —— 实测 pXSMma / VOzbGW 这类合法 CSS Module 前缀就没有数字。
+	const isHash = (h) => h.length >= 5 && /[A-Z0-9]/.test(h) && !/^[A-Z0-9_]+$/.test(h);
+	const walk = (dir) => {
+		if (!fs.existsSync(dir)) return;
+		for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+			const p = path.join(dir, e.name);
+			if (e.isDirectory()) { if (e.name !== 'node_modules') walk(p); continue; }
+			if (!/\.(css|js)$/.test(e.name)) continue;
+			let t; try { t = fs.readFileSync(p, 'utf8'); } catch { continue; }
+			const sink = e.name.endsWith('.js') ? [all, js] : [all];
+			for (const m of t.matchAll(/([A-Za-z0-9_-]{5,9})_([a-z][A-Za-z0-9]{1,28})\b/g)) {
+				if (!isHash(m[1])) continue;
+				const tok = `${m[1]}_${m[2]}`;
+				for (const s of sink) s.add(tok);
+			}
+		}
+	};
+	walk(KERNEL_NM);
+	return { all, js };
+}
+
+// 插件源码里选择器位置的直写哈希类：`.` 前须是串/选择器分隔符，防抓进普通标识符。
+function pluginHashedAnchorTokens(plugin) {
+	const isHash = (h) => h.length >= 5 && /[A-Z0-9]/.test(h) && !/^[A-Z0-9_]+$/.test(h);
+	const found = new Map();
+	for (const src of sourcesOf(plugin)) {
+		for (const l of src.code) {
+			for (const m of l.text.matchAll(/(^|["'`,;{}()\s])\.([A-Za-z0-9_-]{5,9})_([a-z][A-Za-z0-9]{1,28})\b/g)) {
+				if (!isHash(m[2])) continue;
+				const tok = `${m[2]}_${m[3]}`;
+				if (!found.has(tok)) found.set(tok, `${src.base}:${l.line}`);
+			}
+		}
+	}
+	return found;
+}
+
+// 宿主角锚 watchlist：插件 → 必须在内核在场的直写哈希锚。
+const HOST_HASH_ANCHORS = {
+	// dsh-pocket（同屏镜像插件）：不直写宿主 CSS 类（走 WebSocket 透传桌面 web），
+	// 故无宿主哈希锚需守卫。若后续版本注入宿主样式，在此登记。
+	'dsh-pocket': [],
+};
+
+test('G11 插件直写的宿主角锚必须仍在内核编译产物里在场', () => {
+	const { all, js } = kernelHashedTokens();
+	// 判据自检：覆盖面 + 正反控制组（不先证这个，「全绿」只可能是什么都没扫到）。
+	assert.ok(all.size >= 300, '内核哈希 token 集合只有 ' + all.size + ' 个，扫描已脱靶');
+	assert.ok(js.size >= 300, '内核 JS 侧 token 集合只有 ' + js.size + ' 个，JS 采集已脱靶');
+	assert.equal(all.has('pI_x6G_frame'), true, '控制组失败：已知在位的 pI_x6G_frame 被判不在场');
+	assert.equal(all.has('Md3f7G_scroll'), false, '控制组失败：alpha.5 旧族滚动容器被判在场（换代未生效）');
+	assert.equal(all.has('pI_x6G_detailsCol'), false, '控制组失败：rc.1 已改名的 detailsCol 仍在场');
+
+	const missing = [];
+	for (const [plugin, anchors] of Object.entries(HOST_HASH_ANCHORS)) {
+		const referenced = pluginHashedAnchorTokens(plugin);
+		for (const a of anchors) {
+			// 清单防腐：watchlist 里的锚必须真的被插件引用，否则它只是在检查空气。
+			if (!referenced.has(a)) { missing.push(`${plugin}: watchlist 锚 ${a} 未被源码引用（清单已腐烂）`); continue; }
+			const at = referenced.get(a);
+			if (!js.has(a)) {
+				missing.push(all.has(a)
+					? `${plugin}: ${a} 只剩 CSS 侧、内核 JS 已不再把它挂到元素上（${at}）`
+					: `${plugin}: ${a} 在内核整棵树已不在场（${at} 引用它 → 静默失效）`);
+			}
+		}
+	}
+	assert.deepEqual(missing, [], '宿主角锚漂移：\n  ' + missing.join('\n  '));
+});
+
+// G12：G11 靠手写 watchlist，代价是「新登记的锚才查得到」——漏登记就等于没守卫。
+// 本条改为从插件真实源码里自动提取选择器位的宿主角锚并逐条要求在内核 JS 在场，
+// 只对「刻意保留的旧代回退」开白名单（沿用死锚纪律：必须逐条带理由）。
+// 这样手机网关路径（dsh-mini 的 mobileCss 只在经 LAN 网关代理的请求上注入，
+// 桌面 WebView 直连不走该路径，无法在本地渲染态验证）的锚点正确性也有机器保证。
+const LEGACY_HOST_ANCHORS = new Map([
+	['pI_x6G_detailsCol', 'rc.1 上游把右列改名 rightbarCol；本 token 作为旧内核副本的回退'
+		+ '与 rightbarCol 并列保留（双代选择器策略，与 dsh-conversation-tweaks 一致）。'],
+	['Md3f7G_scroll', 'alpha.5 聊天滚动容器族；rc.1 起换 EvIC1a_*，旧类并列保留作旧内核回退。'],
+	['nL4_yW_sessionLogButton', 'rc.1 全树零命中且上游无同名局部类，疑该按钮已下架；'
+		+ '规则暂为空转，待实机确认后清理（非换代失配）。'],
+]);
+
+test('G12 插件注入的宿主角锚自动全量校验（防「漏登记＝没守卫」）', () => {
+	const { js, all } = kernelHashedTokens();
+	const auto = pluginHashedAnchorTokens('dsh-pocket');
+	// 判据自检：dsh-pocket 是同屏镜像插件，不直写宿主 CSS 类（走 WebSocket 透传
+	// 桌面 web），故自动提取可能返回 0——这本身是正确结果，不需要 size 门槛。
+	// 改用 G11 的 HOST_HASH_ANCHORS 空数组来验证 watchlist 与实现的一致性。
+	const watchlist = HOST_HASH_ANCHORS['dsh-pocket'] || [];
+	assert.ok(Array.isArray(watchlist), 'HOST_HASH_ANCHORS["dsh-pocket"] 应为数组');
+
+	const bad = [];
+	for (const [tok, at] of auto) {
+		if (LEGACY_HOST_ANCHORS.has(tok)) continue;
+		if (js.has(tok)) continue;
+		bad.push(`dsh-pocket ${at} → .${tok} 不在内核 JS${all.has(tok) ? '（仅 CSS 侧有，未挂到元素）' : '（整棵树都没有）'}`);
+	}
+	// 手写 watchlist 必须是自动提取集的子集：否则清单与实现已经脱节。
+	for (const a of watchlist) {
+		if (!auto.has(a)) bad.push(`G11 watchlist 登记的 ${a} 已不在 dsh-pocket 源码里（清单与实现脱节）`);
+	}
+	assert.deepEqual(bad, [], '自动锚校验失败：\n  ' + bad.join('\n  '));
 });

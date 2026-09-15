@@ -79,9 +79,17 @@ const SLOT_UNKEYED_COMPAT_NEW = [
 // prefix.  The patch below lets only the final complete frame go through the
 // existing torn-tail repair path.
 const PERSISTENCE_TORN_MARKER = 'dsh-desktop compat: recover complete zstd frame torn JSONL tail';
+// v2（本文件当前形态）：torn-tail 返回体对齐 0.1.5-rc.1 的扁平契约。rc.1 消费端
+// 只读 `state.tornTruncateTo`（驱动 truncateTornTail 截盘）与 `state.recoveredTail`
+// （驱动 persistBatch 回灌），rc.1 pristine 全文 `tornMarker` 出现 0 次 —— v1 注入体
+// 因此在 rc.1 上完全不生效（降级只落在内存里，损坏尾既不截盘也不回灌）。
+// 本补丁以「首行前置 marker + includes 短路」幂等，若不升代，已带 v1 marker 的副本
+// （含本机 dev 树与各 profile/overlay 常驻副本）会永久锁死在死代码形态。
+const PERSISTENCE_TORN_MARKER_V2 = PERSISTENCE_TORN_MARKER + ' (v2: rc.1 flat tornTruncateTo)';
 // 首部 marker 行（torn-tail 以「整行前置」方式打标）。逆运算还原 pristine 时需要
 // 剥掉它，故收口成单一常量而不是在两处各写一遍拼接。
 const PERSISTENCE_TORN_HEAD = '// ' + PERSISTENCE_TORN_MARKER + '\n';
+const PERSISTENCE_TORN_HEAD_V2 = '// ' + PERSISTENCE_TORN_MARKER_V2 + '\n';
 const PERSISTENCE_FRAME_LOOP_OLD = 'let remainingFrames = frames.length - 1;\n\t\t\tfor (const plaintext of decodedFrames) {';
 const PERSISTENCE_FRAME_LOOP_NEW = [
   'let remainingFrames = frames.length - 1;',
@@ -105,9 +113,8 @@ const PERSISTENCE_WRITE_NEW = [
   '\t\t\t\tframeIndex += 1;',
 ].join('\n');
 const PERSISTENCE_COMPLETE_CHECK = '\t\t\tif (complete.committedBytes !== complete.inputBytes) throw new Error("corrupt Zstandard session log: complete frame contains a torn JSONL record");';
-const PERSISTENCE_COMPLETE_CHECK_NEW = [
-  '\t\t\tif (tornCompleteFrameStart !== void 0) {',
-  '\t\t\t\tconst prefix = scanner.finish();',
+// torn-tail 返回块两代形态：v1 = alpha.5 嵌套契约（在野副本），v2 = rc.1 扁平契约。
+const PERSISTENCE_TORN_RETURN_V1 = [
   '\t\t\t\treturn {',
   '\t\t\t\t\tmeta: prefix.meta,',
   '\t\t\t\t\tevents: prefix.events,',
@@ -116,6 +123,28 @@ const PERSISTENCE_COMPLETE_CHECK_NEW = [
   '\t\t\t\t\t\trecoveredEvents: prefix.events.slice(tornCompleteEventCount)',
   '\t\t\t\t\t}',
   '\t\t\t\t};',
+].join('\n');
+const PERSISTENCE_TORN_RETURN_V2 = [
+  '\t\t\t\treturn {',
+  '\t\t\t\t\tmeta: prefix.meta,',
+  '\t\t\t\t\tinheritedEventCount: prefix.inheritedEventCount,',
+  '\t\t\t\t\tevents: prefix.events,',
+  '\t\t\t\t\ttornTruncateTo: tornCompleteFrameStart,',
+  '\t\t\t\t\trecoveredTail: prefix.events.slice(tornCompleteEventCount)',
+  '\t\t\t\t};',
+].join('\n');
+// v1 完整注入体（历史形态）：仅作就地升级的替换源，不再用于新装。
+const PERSISTENCE_COMPLETE_CHECK_V1 = [
+  '\t\t\tif (tornCompleteFrameStart !== void 0) {',
+  '\t\t\t\tconst prefix = scanner.finish();',
+  PERSISTENCE_TORN_RETURN_V1,
+  '\t\t\t}',
+  PERSISTENCE_COMPLETE_CHECK,
+].join('\n');
+const PERSISTENCE_COMPLETE_CHECK_NEW = [
+  '\t\t\tif (tornCompleteFrameStart !== void 0) {',
+  '\t\t\t\tconst prefix = scanner.finish();',
+  PERSISTENCE_TORN_RETURN_V2,
   '\t\t\t}',
   PERSISTENCE_COMPLETE_CHECK,
 ].join('\n');
@@ -174,7 +203,17 @@ function transformExposeFix(src, file) {
  * alongside a physically torn frame, remains a hard corruption error.
  */
 function transformPersistenceTornTail(src, file) {
-  if (src.includes(PERSISTENCE_TORN_MARKER)) return { status: 'already' };
+  if (src.includes(PERSISTENCE_TORN_MARKER_V2)) return { status: 'already' };
+  // 就地升级通道：已带 v1 首部 marker 的副本进不了下方 fresh-apply（锚点已被
+  // v1 注入体吃掉），而 v1 返回体在 rc.1 上是死代码。这里就地把 v1 补成 v2：
+  // 只换首行 marker 与 torn-tail 返回块两处，其余不动 —— 使升级产物与
+  // 「pristine 全新应用」逐字节相同（否则逆运算要面对第三种形态）。
+  if (src.includes(PERSISTENCE_TORN_HEAD) && src.includes(PERSISTENCE_COMPLETE_CHECK_V1)) {
+    const upgraded = src
+      .split(PERSISTENCE_TORN_HEAD).join(PERSISTENCE_TORN_HEAD_V2)
+      .split(PERSISTENCE_COMPLETE_CHECK_V1).join(PERSISTENCE_COMPLETE_CHECK_NEW);
+    return { status: 'changed', src: upgraded, note: 'v1-repair' };
+  }
   if (!src.includes(PERSISTENCE_FRAME_LOOP_OLD)
     || !src.includes(PERSISTENCE_WRITE_OLD)
     || !src.includes(PERSISTENCE_COMPLETE_CHECK)) {
@@ -186,7 +225,7 @@ function transformPersistenceTornTail(src, file) {
   let patched = src.replace(PERSISTENCE_FRAME_LOOP_OLD, PERSISTENCE_FRAME_LOOP_NEW);
   patched = patched.replace(PERSISTENCE_WRITE_OLD, PERSISTENCE_WRITE_NEW);
   patched = patched.replace(PERSISTENCE_COMPLETE_CHECK, PERSISTENCE_COMPLETE_CHECK_NEW);
-  patched = PERSISTENCE_TORN_HEAD + patched;
+  patched = PERSISTENCE_TORN_HEAD_V2 + patched;
   return { status: 'changed', src: patched };
 }
 
@@ -195,16 +234,16 @@ function transformPersistenceTornTail(src, file) {
 // 时跳过该会话并告警，而不是让整个 plugin tree 初始化崩溃（2026-08 事故：
 // 卷影恢复带回零填充头部的会话日志，导致应用整体无法启动）。
 const PERSISTENCE_CORRUPT_MARKER = 'dsh-desktop-corrupt-guard-v1';
+// 0.1.5-rc.1 重锚：上游读 header 改为 readGenerationHeader(selected) 统一入口（含
+// ENOENT 单独分支），listArtifacts 的 catch 只放过 SessionFormatUnsupportedError。
+// 语义不变：读首行失败（损坏 zstd 等）告警跳过该会话，不击穿启动扫描。
 const PERSISTENCE_CORRUPT_OLD =
-  'const first = this.compression === "zstd" ? await this.readFirstZstdLine(path, signal) : await this.readFirstLine(path, signal);';
+  '\t\t\t\t} catch (error) {\n\t\t\t\t\tif (error instanceof SessionFormatUnsupportedError) continue;\n\t\t\t\t\tthrow error;\n\t\t\t\t}';
 const PERSISTENCE_CORRUPT_NEW = [
-  'let first;',
-  '\t\t\t\ttry {',
+  '\t\t\t\t} catch (error) {',
+  '\t\t\t\t\tif (error instanceof SessionFormatUnsupportedError) continue;',
   '\t\t\t\t\t// ' + PERSISTENCE_CORRUPT_MARKER + ': 损坏会话日志告警跳过，不得击穿启动扫描。',
-  '\t\t\t\t\tfirst = this.compression === "zstd" ? await this.readFirstZstdLine(path, signal) : await this.readFirstLine(path, signal);',
-  '\t\t\t\t} catch (corruptError) {',
-  '\t\t\t\t\tsignal?.throwIfAborted();',
-  '\t\t\t\t\tconsole.warn(`[dsh-session-persistence] skipping corrupt session log: ${path} (${corruptError?.message ?? corruptError})`);',
+  '\t\t\t\t\tconsole.warn(`[dsh-session-persistence] skipping corrupt session log: ${selected.sourcePath} (${error?.message ?? error})`);',
   '\t\t\t\t\tcontinue;',
   '\t\t\t\t}',
 ].join('\n');
@@ -220,13 +259,112 @@ function transformPersistenceCorruptGuard(src, file) {
   return { status: 'changed', src: src.replace(PERSISTENCE_CORRUPT_OLD, PERSISTENCE_CORRUPT_NEW) };
 }
 
+// ---------------------------------------------------------------------------
+// 0.6.4 在野缺陷（现场诊断见 README「DSH 历史加载失败修复」）：v0→v1 迁移的
+// frozen released-v0 编解码器**冻结了第一方 v0 构建当时的载荷成员清单**，清单外
+// 成员一律 SessionFormatError 整条拒载（不丢弃、不降级），于是跨代留存的会话永久
+// 读不回 —— 界面表现为「历史加载失败：... has unexpected member "tier"」。
+// 实测三类（一台机器 54 会话中 19 个失败）：
+//   1) compaction/summary 多 tier/kernelBlockId/parentBlockIds/directMessageIds/
+//      effectiveMessageIds —— 由第三方压缩插件 billion-context-dsh(acp-kernel)
+//      自带的块账本写入；这些字段**必须原样活到 v3**，剥掉就等于丢插件语义，
+//      所以只能扩准入清单，不能剥离（本补丁早期版本犯过这个错）。
+//   2) permission/preset 多 origin:"default" —— 早期写入方的溯源信息。
+//   3) subagent/descriptor version:2 —— 字段集与 v3 完全相同；上游只在 v0 分支拒它
+//      （v1 分支直接 return 容忍），而下游 v2→v3 又硬要求 3，属单纯过度收紧。
+// 三处一律「只放宽准入、不放宽校验」：必填/类型/语义校验全部保留，
+// 第 3 类盖章后**继续落到原有严格形状校验**，非 2 的未知版本仍照拒。
+const RELEASED_V0_HISTORY_MARKER = 'dsh-desktop compat: released v0 history recovery';
+const RELEASED_V0_SUMMARY_OLD = [
+  '\t"compaction/summary": disposition([',
+  '\t\t"compactionId",',
+  '\t\t"summary",',
+  '\t\t"shadowedRange",',
+  '\t\t"shadowedSeqs",',
+  '\t\t"shadowedTokenCount",',
+  '\t\t"provider",',
+  '\t\t"model"',
+  '\t], [',
+  '\t\t"sourceCommandId",',
+  '\t\t"maxTokens",',
+  '\t\t"usage",',
+  '\t\t"rawOutput",',
+  '\t\t"llmStreamCall"',
+  '\t]),',
+].join('\n');
+const RELEASED_V0_SUMMARY_NEW = [
+  '\t"compaction/summary": disposition([',
+  '\t\t"compactionId",',
+  '\t\t"summary",',
+  '\t\t"shadowedRange",',
+  '\t\t"shadowedSeqs",',
+  '\t\t"shadowedTokenCount",',
+  '\t\t"provider",',
+  '\t\t"model"',
+  '\t], [',
+  '\t\t"sourceCommandId",',
+  '\t\t"maxTokens",',
+  '\t\t"usage",',
+  '\t\t"rawOutput",',
+  '\t\t"llmStreamCall",',
+  '\t\t/* ' + RELEASED_V0_HISTORY_MARKER + ' (1/3): 第三方压缩插件',
+  '\t\t   billion-context-dsh(acp-kernel) 的块账本字段。原样保留到 v3，',
+  '\t\t   不剥离、不重写 —— 剥掉会丢插件的 tier/块身份语义。 */',
+  '\t\t"tier",',
+  '\t\t"kernelBlockId",',
+  '\t\t"parentBlockIds",',
+  '\t\t"directMessageIds",',
+  '\t\t"effectiveMessageIds"',
+  '\t]),',
+].join('\n');
+const RELEASED_V0_PRESET_OLD = '\t"permission/preset": disposition(["preset"]),';
+const RELEASED_V0_PRESET_NEW = '\t/* ' + RELEASED_V0_HISTORY_MARKER + ' (2/3): 早期写入方的 origin 属展示/溯源信息，准入不影响语义。 */\n'
+  + '\t"permission/preset": disposition(["preset"], [\n\t\t"origin"\n\t]),';
+const RELEASED_V0_DESCRIPTOR_OLD = [
+  '\tif (event.type === "subagent/descriptor" && data["version"] !== 3) {',
+  '\t\tconst descriptorVersion = sessionFormatCount(data["version"], `${event.type} ${event.seq} version`);',
+  '\t\tif (version === 0) throw new SessionFormatUnsupportedMigrationError(`${event.type} ${event.seq} uses unsupported descriptor version ${descriptorVersion}`);',
+  '\t\treturn;',
+  '\t}',
+].join('\n');
+const RELEASED_V0_DESCRIPTOR_NEW = [
+  '\tif (event.type === "subagent/descriptor" && data["version"] !== 3) {',
+  '\t\tconst descriptorVersion = sessionFormatCount(data["version"], `${event.type} ${event.seq} version`);',
+  '\t\t/* ' + RELEASED_V0_HISTORY_MARKER + ' (3/3): v0 构建写过的 version:2 字段集是 v3 的',
+  '\t\t   子集，仅盖章为 3 后**继续走原有的严格形状校验**（不 return、不跳过校验）；',
+  '\t\t   其它未知版本仍照拒。v1 分支行为逐字不变。 */',
+  '\t\tif (version === 0 && descriptorVersion === 2) data["version"] = 3;',
+  '\t\telse if (version === 0) throw new SessionFormatUnsupportedMigrationError(`${event.type} ${event.seq} uses unsupported descriptor version ${descriptorVersion}`);',
+  '\t\telse return;',
+  '\t}',
+].join('\n');
+
+/** released-v0 历史恢复变换（目标 dsh-session-format-v0-to-v1/lib/index.js，三处一起成/一起不成）。 */
+function transformReleasedV0KeysTolerance(src, file) {
+  if (typeof src !== 'string') return { status: 'anchor-missing', detail: '非字符串源，跳过 ' + file };
+  if (src.includes(RELEASED_V0_HISTORY_MARKER)) return { status: 'already' };
+  const missing = [];
+  if (!src.includes(RELEASED_V0_SUMMARY_OLD)) missing.push('compaction/summary 准入清单');
+  if (!src.includes(RELEASED_V0_PRESET_OLD)) missing.push('permission/preset 准入清单');
+  if (!src.includes(RELEASED_V0_DESCRIPTOR_OLD)) missing.push('subagent/descriptor 版本分支');
+  if (missing.length > 0) {
+    return {
+      status: 'anchor-missing',
+      detail: '未找到 released-v0 历史恢复锚点（版本可能已变更），跳过 ' + file + '：' + missing.join(' / '),
+    };
+  }
+  let out = src.replace(RELEASED_V0_SUMMARY_OLD, RELEASED_V0_SUMMARY_NEW);
+  out = out.replace(RELEASED_V0_PRESET_OLD, RELEASED_V0_PRESET_NEW);
+  out = out.replace(RELEASED_V0_DESCRIPTOR_OLD, RELEASED_V0_DESCRIPTOR_NEW);
+  return { status: 'changed', src: out };
+}
 /** 会话持久化全部容错变换：尾部擕裂恢复 + 损坏会话跳过，依次应用。 */
 function transformPersistenceAll(src, file) {
   const torn = transformPersistenceTornTail(src, file);
   const afterTorn = torn.status === 'changed' ? torn.src : src;
   const guard = transformPersistenceCorruptGuard(afterTorn, file);
-  if (guard.status === 'changed') return { status: 'changed', src: guard.src };
-  if (torn.status === 'changed') return { status: 'changed', src: afterTorn };
+  if (guard.status === 'changed') return { status: 'changed', src: guard.src, note: guard.note };
+  if (torn.status === 'changed') return { status: 'changed', src: afterTorn, note: torn.note };
   if (torn.status === 'already' && guard.status === 'already') return { status: 'already' };
   return guard.status === 'anchor-missing' ? guard : torn;
 }
@@ -500,6 +638,12 @@ module.exports = {
   // pristine 逆运算按引用登记（patch-adapters.PRISTINE_INJECTIONS），杜绝
   // 「哨兵测试里再抄一份字面串」的复制漂移 —— 抄的那份会变成第二处漂移源。
   PERSISTENCE_TORN_HEAD,
+  // v2 世代（rc.1 扁平契约）：同样按引用登记，供逆运算表与哨兵单测取用。
+  PERSISTENCE_TORN_MARKER_V2,
+  PERSISTENCE_TORN_HEAD_V2,
+  PERSISTENCE_TORN_RETURN_V1,
+  PERSISTENCE_TORN_RETURN_V2,
+  PERSISTENCE_COMPLETE_CHECK_V1,
   PERSISTENCE_FRAME_LOOP_OLD,
   PERSISTENCE_FRAME_LOOP_NEW,
   PERSISTENCE_WRITE_OLD,
@@ -512,6 +656,8 @@ module.exports = {
   PERSISTENCE_CORRUPT_NEW,
   transformPersistenceCorruptGuard,
   transformPersistenceAll,
+  transformReleasedV0KeysTolerance,
+  RELEASED_V0_HISTORY_MARKER,
   SLOT_KEY_COMPAT_PKG_REL,
   SLOT_UNKEYED_COMPAT_PKG_REL,
   SLOT_COMPAT_PKG_RELS,

@@ -19,11 +19,15 @@ const crypto = require('node:crypto');
 
 const SNAP_REL = path.join('dsh-desktop', 'scripts', 'compat', 'patch-surface.snapshot.json');
 // 补丁标记家族：patch-*.js / patch-adapters.js 里统一以括号名（patch）、
-// 冒号名（fix: / compat:）三种声明形态携带「dsh-desktop 」前缀注入。
+// 冒号名（fix: / compat: / guard: / isolation:）五种声明形态携带「dsh-desktop 」
+// 前缀注入。guard:（profile-bundle-heal 的装配防护）与 isolation:（loader 隔离）
+// 曾是漏采家族——dsh-app-boot/lib/index.js 因此整份不进 surface，
+// 其补丁字节漂移对 verify 完全隐形（0.1.5-rc.1 的 loadProfileDirectory
+// 注入引用未定义 name 致启动 ReferenceError，即由此漏过门禁）。
 // 捕获组统一排除 `*` 引号（双引/单引/反引号）`;` `{` `}` `<` `>` 反斜杠
 // （字符串拼接里的 `\n` 转义尾巴）与换行，避免从单引号字符串注释里采出
 // 带尾巴的垃圾标记名；patch (...) 形式以右括号定界，仍用 [^)]+。
-const MARKER_RE = /dsh-desktop (?:patch \(([^)]+)\)|fix:? ([^*"'`;{}<>\n\\]+)|compat:? ([^*"'`;{}<>\n\\]+))/g;
+const MARKER_RE = /dsh-desktop (?:patch \(([^)]+)\)|fix:? ([^*"'`;{}<>\n\\]+)|compat:? ([^*"'`;{}<>\n\\]+)|guard:? ([^*"'`;{}<>\n\\]+)|isolation:? ([^*"'`;{}<>\n\\]+))/g;
 
 function sha(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
@@ -45,7 +49,7 @@ function collectMarkers(repoRoot) {
     for (const m of src.matchAll(MARKER_RE)) {
       // 「 — 解释文本」同行散文截断（fix:/compat: 注释常名字与说明同句），
       // 截断后与其它短名去重合并。
-      const name = ((m[1] || m[2] || m[3] || '').trim()).split(' — ')[0].trim();
+      const name = ((m[1] || m[2] || m[3] || m[4] || m[5] || '').trim()).split(' — ')[0].trim();
       if (name) markers.add(name);
     }
   }

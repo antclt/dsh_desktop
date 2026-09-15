@@ -325,6 +325,80 @@ function removeRetiredDshFloatWindowDir(profileDir, hooks = {}) {
   }
 }
 
+// dsh-mini 于 0.6.4 退役（手机同屏改由 dsh-pocket 承担，等位替代）。它已脱离
+// COMPANION_PLUGINS 清单，「源缺失配套插件」通用路径对清单外插件失明（0.6.4
+// 首轮实测：manifest bundles 与 node_modules/@deepseek-ai/dsh-mini 双残留，
+// 内核继续挂载旧图标栏）——故照 dshmarket 退役先例做全套清账：目录（内置装配
+// 特征门 dsh.bundle.patch）+ manifest（bundles/dependencies）+ patch 层登记行。
+const RETIRED_DSH_MINI_PACKAGE = '@deepseek-ai/dsh-mini';
+const RETIRED_DSH_MINI_LOADER_ID = 'dsh-mini';
+function removeRetiredDshMiniDir(profileDir, hooks = {}) {
+  const { log, fail, plan, dryRun = false } = hooks;
+  const pkgDir = path.join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-mini');
+  if (fs.existsSync(pkgDir)) {
+    let isBuiltin = false;
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+      isBuiltin = !!(p && p.name === RETIRED_DSH_MINI_PACKAGE && p.dsh && p.dsh.bundle && p.dsh.bundle.patch);
+    } catch { /* 目录残缺：也按可清理处理 */ isBuiltin = true; }
+    if (isBuiltin) {
+      if (dryRun) {
+        if (plan) plan('dry-run: 将移除已退役插件 ' + RETIRED_DSH_MINI_PACKAGE);
+      } else {
+        try {
+          fs.rmSync(pkgDir, { recursive: true, force: true });
+          if (log) log('已移除已退役插件: ' + RETIRED_DSH_MINI_PACKAGE + '（dsh-pocket 等位替代）');
+        } catch (err) {
+          if (fail) fail('移除已退役插件失败: ' + err.message);
+        }
+      }
+    }
+  }
+  const manifestFile = path.join(profileDir, 'package.json');
+  try {
+    const m = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+    if (m && typeof m === 'object') {
+      let changed = false;
+      if (m.dsh && m.dsh.profile && Array.isArray(m.dsh.profile.bundles)
+        && m.dsh.profile.bundles.includes(RETIRED_DSH_MINI_PACKAGE)) {
+        m.dsh.profile.bundles = m.dsh.profile.bundles.filter((n) => n !== RETIRED_DSH_MINI_PACKAGE);
+        changed = true;
+      }
+      if (m.dependencies && typeof m.dependencies === 'object'
+        && Object.prototype.hasOwnProperty.call(m.dependencies, RETIRED_DSH_MINI_PACKAGE)) {
+        delete m.dependencies[RETIRED_DSH_MINI_PACKAGE];
+        if (Object.keys(m.dependencies).length === 0) delete m.dependencies;
+        changed = true;
+      }
+      if (changed) {
+        if (dryRun) {
+          if (plan) plan('dry-run: 将从 profile manifest 移除 ' + RETIRED_DSH_MINI_PACKAGE + ' 登记（bundles/dependencies）');
+        } else {
+          writeFileAtomic(manifestFile, JSON.stringify(m, null, 2) + '\n');
+          if (log) log('已从 profile manifest 移除已退役登记: ' + RETIRED_DSH_MINI_PACKAGE);
+        }
+      }
+    }
+  } catch (err) {
+    if (fail) fail('清理 ' + RETIRED_DSH_MINI_PACKAGE + ' manifest 登记失败: ' + err.message);
+  }
+}
+
+/**
+ * 移除 patch 层已退役插件（loader id dsh-mini）的全部登记行（insert 内层
+ * 条目、纯 insert 块、顶层 id 块）。纯文本变换，由调用方在自己的 patch
+ * 快照上调用后统一落盘（syncCompanionFiles 不改写 patch 文件）。
+ * @param {string} patch cordis.patch.yml 原文
+ * @returns {{ patch: string, changed: boolean }}
+ */
+function removeRetiredDshMiniPatchRows(patch) {
+  const drop = dropBlocksByIds(String(patch || ''), [RETIRED_DSH_MINI_LOADER_ID]);
+  if (drop.removed.length > 0) {
+    return { patch: drop.text, changed: true };
+  }
+  return { patch, changed: false };
+}
+
 /**
  * 移除 patch 层已退役插件（loader id float-window）的全部登记行（insert 内层
  * 条目、纯 insert 块、name-only 顶层条目）。纯文本变换，由调用方在自己的 patch
@@ -429,6 +503,9 @@ function syncCompanionFiles(opts) {
   // dsh-float-window 退役：非 bundle 插件，仅目录清理（无 manifest 登记）；
   // patch 行由调用方对快照调用 removeRetiredDshFloatWindowPatchRows 清理。
   removeRetiredDshFloatWindowDir(profileDir, { log, fail, plan, dryRun });
+  // dsh-mini 退役（0.6.4，dsh-pocket 等位替代）：bundle 插件，manifest/patch 由
+  // 源缺失通用路径清账，这里补 scoped 目录清理。
+  removeRetiredDshMiniDir(profileDir, { log, fail, plan, dryRun });
 
   const bundleNames = new Set();
   for (const name of VENDOR_DEPS) {
@@ -580,6 +657,8 @@ module.exports = {
   removeRetiredThirdPartyThinkingPatchRows,
   removeRetiredDshFloatWindowDir,
   removeRetiredDshFloatWindowPatchRows,
+  removeRetiredDshMiniDir,
+  removeRetiredDshMiniPatchRows,
   removeLegacyMarketplacePatchLines,
   removedPluginIdsFromPatch,
   ensureDisabledPatchEntry,

@@ -294,8 +294,32 @@ function pricingSince() {
  * 不一致造成的费用估算跳变。
  * 返回全新对象（可安全展开赋值）。
  */
+/**
+ * 模型名 → 价目表规范键。
+ *
+ * 官方与聚合渠道常下发带日期/版本后缀的变体名（`deepseek-v4-pro-0813`、
+ * `deepseek-v4-flash-250610`、`deepseek-chat-V3` 等），而价目表只有 4 个规范键。
+ * 精确查表未命中会落回 DEFAULT_MODEL（pro），实测让 flash 变体按 pro 计价
+ * （空闲档 4.5/0.15/13.5 对应有的 1.5/0.05/4.5 → **高估 3 倍**），即「本轮费用
+ * 算错」的根因。解析顺序：精确命中 → 剥掉尾随日期/版本段 → 最长前缀命中 →
+ * 原值（保持未知模型的老行为）。
+ */
+function pricingKeyOf(model) {
+  const raw = String(model || '').trim();
+  if (!raw) return DEFAULT_MODEL;
+  if (PRICING_MODELS.includes(raw)) return raw;
+  const stripped = raw.replace(/-(?:\d{8}|\d{6}|\d{4}-\d{2}-\d{2}|v\d+(?:\.\d+)*)$/i, '');
+  if (stripped && PRICING_MODELS.includes(stripped)) return stripped;
+  const lower = raw.toLowerCase();
+  let best = '';
+  for (const m of PRICING_MODELS) {
+    if (lower.startsWith(m.toLowerCase() + '-') && m.length > best.length) best = m;
+  }
+  return best || raw;
+}
+
 function effectivePrice(model, date) {
-  const key = String(model || '').trim() || DEFAULT_MODEL;
+  const key = pricingKeyOf(model) || DEFAULT_MODEL;
   const now = date ? new Date(date) : new Date();
   if (now.getTime() < PEAK_PRICING_SINCE_UTC) {
     return { ...(LEGACY_PRICES[key] || LEGACY_PRICES[DEFAULT_MODEL]) };
@@ -682,6 +706,7 @@ module.exports = {
   // 定价/时刻（balance-scheduler.js 与客户端共用契约）
   readActiveModel,
   effectivePrice,
+  pricingKeyOf,
   isPeakHour,
   priceTable,
   // 峰谷增量计价契约（issue #168，新增字段语义见 docs/balance-architecture.md §2）

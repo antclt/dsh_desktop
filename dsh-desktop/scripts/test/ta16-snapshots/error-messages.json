@@ -104,64 +104,84 @@
       "text": "reqwest download client 构建"
     },
     {
-      "line": 502,
+      "line": 586,
       "text": "JSON 解析失败：{e}"
     },
     {
-      "line": 503,
+      "line": 587,
       "text": "响应缺 tag_name"
     },
     {
-      "line": 556,
+      "line": 640,
       "text": "{source}: 读体失败：{e}"
     },
     {
-      "line": 577,
+      "line": 661,
       "text": "探测任务失败：{e}"
     },
     {
-      "line": 619,
-      "text": "已查 {scanned:?}，均无 {os}/{arch} 可用安装包（Gitee 100MB 限可能缺席大资产）"
+      "line": 717,
+      "text": "已查 {scanned:?}，均无 {os}/{arch} 可用安装包（整资产与 .partN 分片形态均未发现）——请到 GitHub Releases 或 Gitee Releases（gitee.com/my-yang-yunfan/dsh_desktop）手动下载安装包；Gitee 分片资产可连同 .merge.bat 一并下载后双击合并"
     },
     {
-      "line": 658,
+      "line": 756,
       "text": "{}\\n…（已截断）"
     },
     {
-      "line": 686,
+      "line": 784,
       "text": "显式 sha256 形态非法（需 64 位 hex）: {s}"
     },
     {
-      "line": 709,
+      "line": 820,
       "text": "Gitee 源下载缺少可用的哈希锚点（GitHub digest/边车均不可达）——为防镜像投毒已拒绝自动下载；请稍后重试或到 GitHub Releases 手动下载"
     },
     {
-      "line": 741,
-      "text": "{e1}（双源均不符，疑似全面投毒/发布事故——主源实际={a1}；换源后实际={a2}）"
-    },
-    {
-      "line": 778,
+      "line": 858,
       "text": "下载 URL 非法：{url}"
     },
     {
-      "line": 786,
+      "line": 866,
       "text": "下载 URL 不在更新源白名单（https + github/gitee）：{url}"
     },
     {
-      "line": 801,
+      "line": 881,
       "text": "请求失败：{e}"
     },
     {
-      "line": 809,
+      "line": 889,
       "text": "流中断：{e}"
     },
     {
-      "line": 817,
+      "line": 897,
       "text": "下载不完整：收到 {received} B，元数据标注 {} B"
     },
     {
-      "line": 827,
+      "line": 907,
       "text": "安装包疑似损坏：{received} B 低于下限 {SETUP_SIZE_FLOOR} B（且无 sha256 可校验）"
+    },
+    {
+      "line": 944,
+      "text": "{e1}（双源均不符，疑似全面投毒/发布事故——主源实际={a1}；换源后实际={a2}）"
+    },
+    {
+      "line": 982,
+      "text": "分片 {} 请求失败：{e}"
+    },
+    {
+      "line": 984,
+      "text": "分片 {} HTTP {}"
+    },
+    {
+      "line": 989,
+      "text": "分片 {} 流中断：{e}"
+    },
+    {
+      "line": 1001,
+      "text": "分片拼接不完整：收到 {received} B，元数据合计 {} B"
+    },
+    {
+      "line": 1014,
+      "text": "安装包疑似损坏：分片拼接后 {received} B 低于下限 {SETUP_SIZE_FLOOR} B（且无 sha256 可校验）"
     }
   ],
   "wslRs": [
@@ -270,159 +290,171 @@
       "text": "<!doctype html><meta charset=\\\"utf-8\\\"><body style=\\\"font:14px system-ui;background:#0b1220;color:#d7dde4;display:flex;align-items:center;justify-content:center;height:100vh\\\"><div style=\\\"max-width:520px\\\">静态页服务启动失败，请查看日志目录：<br>{}<br>重启应用可重试。</div></body>"
     },
     {
-      "line": 399,
-      "text": "DSH Desktop 已在运行"
+      "line": 407,
+      "text": "[boot] 单实例二次启动：写唤起请求失败（不影响退出）: {e}"
     },
     {
-      "line": 445,
+      "line": 409,
+      "text": "[boot] 单实例二次启动：已请求唤起运行中实例的主窗，第二实例静默退出"
+    },
+    {
+      "line": 468,
       "text": "[boot] 内核装配失败（主窗转恢复页，不退出）: {e}"
     },
     {
-      "line": 455,
+      "line": 482,
       "text": "[tray] 初始化失败（不影响主窗）: {e}"
     },
     {
-      "line": 476,
+      "line": 511,
       "text": "[update] 检测到客户端新版本 {} → {}（{}，{}）"
     },
     {
-      "line": 482,
-      "text": "[update] 启动更新检查失败（静默忽略）：{e}"
+      "line": 520,
+      "text": "[update] 更新检查失败（静默忽略）：{e}"
     },
     {
-      "line": 516,
+      "line": 562,
       "text": "[route] 事件路由 panic（已隔离，继续处理后续事件）"
     },
     {
-      "line": 572,
+      "line": 618,
       "text": "[route] 内核 URL 变更（端口漂移），跳过渲染抑制直接换页（{url}）"
     },
     {
-      "line": 592,
+      "line": 638,
       "text": "[route] 重启风暴渲染抑制：距上次换页 <{KERNEL_NAV_SUPPRESS_WINDOW_MS}ms 且页面存活，跳过整页换页（{url}）"
     },
     {
-      "line": 594,
+      "line": 640,
       "text": "[route] 重启风暴渲染抑制：页面探针无响应，执行整页换页（{url}）"
     },
     {
-      "line": 612,
+      "line": 658,
       "text": "[route] 退出中，丢弃在飞 supervisor 事件（触窗动作已跳过）"
     },
     {
-      "line": 620,
+      "line": 666,
       "text": "[route] boot 步骤 {name} OK（{ms}ms）"
     },
     {
-      "line": 622,
+      "line": 668,
       "text": "[route] boot 步骤 {name} FAIL（{ms}ms）: {}"
     },
     {
-      "line": 622,
+      "line": 668,
       "text": "未知失败"
     },
     {
-      "line": 664,
+      "line": 710,
       "text": "[route] 内核退出 code={code:?}"
     },
     {
-      "line": 668,
+      "line": 714,
       "text": "[route] 崩溃环触发（累计 {crashes} 次），主窗转恢复页"
     },
     {
-      "line": 669,
+      "line": 715,
       "text": "内核反复异常退出"
     },
     {
-      "line": 676,
+      "line": 722,
       "text": "内核服务反复异常退出，已进入恢复模式"
     },
     {
-      "line": 680,
+      "line": 726,
       "text": "[route] 探活失败 ×{consecutive}"
     },
     {
-      "line": 684,
+      "line": 730,
       "text": "[route] 内核假死可疑 ×{consecutive}（端口通、HTTP 无响应）"
     },
     {
-      "line": 730,
+      "line": 776,
       "text": "DSH_TAURI_REPO_ROOT={root} 不含 dsh-desktop/vendor/node"
     },
     {
-      "line": 748,
+      "line": 794,
       "text": "未找到内核目录 dsh-desktop（开发检出与安装产物布局均未命中；可设 DSH_TAURI_REPO_ROOT 指定）"
     },
     {
-      "line": 777,
-      "text": "显示主窗口"
-    },
-    {
-      "line": 778,
-      "text": "打开日志"
-    },
-    {
-      "line": 779,
-      "text": "ACP 自检"
-    },
-    {
-      "line": 780,
-      "text": "ACP 配置（Zed）"
-    },
-    {
-      "line": 782,
-      "text": "一键重启"
-    },
-    {
-      "line": 783,
-      "text": "退出"
-    },
-    {
-      "line": 786,
-      "text": "无应用图标"
-    },
-    {
-      "line": 811,
-      "text": "[acp] supervisor 未就绪，自检取消"
-    },
-    {
-      "line": 814,
-      "text": "[acp] 自检开始：spawn --profile acp 做 initialize 握手"
-    },
-    {
-      "line": 817,
-      "text": "[acp] 自检通过：{summary}"
-    },
-    {
-      "line": 818,
-      "text": "ACP 服务就绪：{summary}"
-    },
-    {
-      "line": 821,
-      "text": "[acp] 自检失败：{e}"
-    },
-    {
-      "line": 822,
-      "text": "ACP 自检失败：{e}"
+      "line": 833,
+      "text": "[boot] 单实例唤起主窗 panic（已隔离，watcher 继续在岗）"
     },
     {
       "line": 835,
+      "text": "[boot] 单实例：已唤起主窗（第二实例请求）"
+    },
+    {
+      "line": 857,
+      "text": "显示主窗口"
+    },
+    {
+      "line": 858,
+      "text": "打开日志"
+    },
+    {
+      "line": 859,
+      "text": "ACP 自检"
+    },
+    {
+      "line": 860,
+      "text": "ACP 配置（Zed）"
+    },
+    {
+      "line": 862,
+      "text": "一键重启"
+    },
+    {
+      "line": 863,
+      "text": "退出"
+    },
+    {
+      "line": 866,
+      "text": "无应用图标"
+    },
+    {
+      "line": 891,
+      "text": "[acp] supervisor 未就绪，自检取消"
+    },
+    {
+      "line": 894,
+      "text": "[acp] 自检开始：spawn --profile acp 做 initialize 握手"
+    },
+    {
+      "line": 897,
+      "text": "[acp] 自检通过：{summary}"
+    },
+    {
+      "line": 898,
+      "text": "ACP 服务就绪：{summary}"
+    },
+    {
+      "line": 901,
+      "text": "[acp] 自检失败：{e}"
+    },
+    {
+      "line": 902,
+      "text": "ACP 自检失败：{e}"
+    },
+    {
+      "line": 915,
       "text": "[acp] supervisor 未就绪，导出取消"
     },
     {
-      "line": 840,
+      "line": 920,
       "text": "[acp] Zed 配置片段已导出：{}"
     },
     {
-      "line": 845,
+      "line": 925,
       "text": "配置片段已写入：{}（已打开目录，合并进 Zed 设置）"
     },
     {
-      "line": 848,
+      "line": 928,
       "text": "[acp] 配置导出失败：{e}"
     },
     {
-      "line": 850,
+      "line": 930,
       "text": "ACP 配置导出失败：{e}"
     }
   ],

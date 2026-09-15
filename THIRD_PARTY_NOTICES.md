@@ -63,6 +63,9 @@
 | dsh-hub | 1.1.2 | MIT | https://github.com/ARFCON/dsh-hub-DSH |
 | dshmarket | 1.11.1 | MIT | https://github.com/dsh-market/dsh-market |
 | graph-memory | 1.6.0-beta.1 | MIT | https://github.com/adoresever/graph-memory |
+| **dsh-pocket** | 2.10.6 | **GPL-2.0** ⚠️ | https://github.com/shaobeichen/dsh-pocket |
+| dsh-prompt-optimizer | 2.0.3 | MIT | https://github.com/WestFox-AwA/dsh-prompt-optimizer |
+| dsh-easyrewrite | 2.5.2 | MIT | https://github.com/Renzic-Stone/DSH-EasyRewrite |
 
 ### 2.2 DeepSeek 官方配套插件（@deepseek-ai/dsh-*，MIT）
 

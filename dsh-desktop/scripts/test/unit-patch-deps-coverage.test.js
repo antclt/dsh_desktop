@@ -5,8 +5,8 @@
 //
 // 背景：postinstall 管线缺口根因是「注册表登记 ↔ patch-deps 手写接线」双源
 // 漂移——patch-registry 里登记的 root 补丁（如 pi-ai-overflow-message /
-// token-meter-clamp / atomic-write-orphan-lock / settings-models-resilience）
-// 曾被 patch-deps 逐条 remember 式漏接，npm ci 重置 dev 树后干预静默消失。
+// atomic-write-orphan-lock / settings-models-resilience）曾被 patch-deps 逐条
+// remember 式漏接，npm ci 重置 dev 树后干预静默消失。
 // patch-deps.js 重构为注册表驱动（canonical applyAll 全链）后，本测试锁死
 // 该结构不变量，防止退回手写块：
 //   A. root 规格全集 ⊆ patch-deps 默认覆盖集（注册表驱动，天然无漏项）；
@@ -26,7 +26,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { gunzipSync } = require('node:zlib');
 
 const SCRIPTS = path.join(__dirname, '..');
 const DESKTOP = path.join(SCRIPTS, '..');
@@ -36,14 +36,14 @@ const { checkPatchClosure } = require('../lib/patch-closure');
 
 const { runDevTreePatch, buildDevCtx } = patchDeps;
 
-test('A：注册表全部 root 规格都在 patch-deps 默认覆盖集内（含历史漏接的 4 项）', () => {
+test('A：注册表全部 root 规格都在 patch-deps 默认覆盖集内（含历史漏接的 3 项）', () => {
   const rootIds = PATCH_SPECS.filter((s) => s.kind === 'root').map((s) => s.id);
   assert.ok(rootIds.length >= 16, `root 规格应 ≥16，实际 ${rootIds.length}`);
   // 默认覆盖集 = getSpecsByGroup() 全量（root + file）；漏接防线：root 全在。
   const covered = new Set(PATCH_SPECS.map((s) => s.id));
   for (const id of rootIds) assert.ok(covered.has(id), `root 规格 ${id} 不在覆盖集`);
   for (const id of [
-    'pi-ai-overflow-message', 'token-meter-clamp',
+    'pi-ai-overflow-message',
     'atomic-write-orphan-lock', 'settings-models-resilience',
   ]) {
     assert.ok(covered.has(id), `历史漏接项 ${id} 必须被注册表驱动覆盖`);
@@ -81,11 +81,80 @@ function vendorTarball(pkg) {
   return p;
 }
 
-/** 从 vendor tgz 提取指定包到临时树（npm pack 布局 package/ → <pkgDir>）。 */
+/**
+ * 从 vendor tgz 提取指定包到临时树（npm pack 布局 package/ → <pkgDir>）。
+ *
+ * 为什么不用 spawnSync('tar', ...)：Git-Bash/MSYS 下 PATH 上第一个 tar 是 GNU tar，
+ * 它把 `C:\...\x.tgz` 当 `host:path` 远程语义，报 `Cannot connect to C: resolve failed`
+ * ——这是 shell 环境的产物、与补丁链正确性无关。改成纯 Node 极简 ustar 读取器
+ * （语义与 scripts/install-pristine-kernel.mjs 的 readEntries/extractOne 对齐），
+ * 既保证跨平台，也让本测试与 pristine 内核树的装配机制走同一份解包语义。
+ */
+const BLOCK = 512;
+const PKG_PREFIX = 'package/';
+const cstr = (buf, start, len) => buf.toString('utf8', start, start + len).replace(/\0[\s\S]*$/, '');
+function parsePax(text) {
+  const out = {};
+  let i = 0;
+  while (i < text.length) {
+    const sp = text.indexOf(' ', i);
+    if (sp < 0) break;
+    const len = parseInt(text.slice(i, sp), 10);
+    if (!Number.isFinite(len) || len <= 0) break;
+    const rec = text.slice(i, i + len);
+    const eq = rec.indexOf('=');
+    if (eq > sp - i) out[rec.slice(sp - i, eq)] = rec.slice(eq + 1).replace(/\n$/, '');
+    i += len;
+  }
+  return out;
+}
+function readTarEntries(buf) {
+  const entries = [];
+  let off = 0;
+  let paxNext = {};
+  let gnuLongName = null;
+  while (off + BLOCK <= buf.length) {
+    const name = cstr(buf, off, 100);
+    if (!name) break;
+    const size = parseInt(cstr(buf, off + 124, 12).trim(), 8) || 0;
+    const type = String.fromCharCode(buf[off + 156]);
+    const prefix = cstr(buf, off + 345, 155);
+    const dataStart = off + BLOCK;
+    const dataEnd = dataStart + size;
+    if (type === 'x' || type === 'g') {
+      const recs = parsePax(buf.toString('utf8', dataStart, dataEnd));
+      if (type === 'x') paxNext = recs;
+    } else if (type === 'L') {
+      gnuLongName = buf.toString('utf8', dataStart, dataEnd).replace(/\0+$/, '');
+    } else {
+      let full = prefix ? `${prefix}/${name}` : name;
+      if (gnuLongName) { full = gnuLongName; gnuLongName = null; }
+      if (paxNext.path) full = paxNext.path;
+      paxNext = {};
+      entries.push({ path: full, type, dataStart, size });
+    }
+    off = dataStart + Math.ceil(size / BLOCK) * BLOCK;
+  }
+  return entries;
+}
 function extractPkg(tgz, pkgDir) {
+  const buf = gunzipSync(fs.readFileSync(tgz));
+  const entries = readTarEntries(buf);
   fs.mkdirSync(pkgDir, { recursive: true });
-  const r = spawnSync('tar', ['-xzf', tgz, '-C', pkgDir, '--strip-components', '1'], { encoding: 'utf8' });
-  assert.equal(r.status, 0, `tar 提取失败: ${r.stderr}`);
+  let files = 0;
+  for (const e of entries) {
+    if (!e.path.startsWith(PKG_PREFIX)) continue;
+    const rel = e.path.slice(PKG_PREFIX.length);
+    if (!rel) continue;
+    const target = path.join(pkgDir, ...rel.split('/'));
+    if (e.type === '5') { fs.mkdirSync(target, { recursive: true }); continue; }
+    if (e.type === '2' || e.type === '1') continue; // 符号/硬链接：临时树不需要
+    if (e.type !== '0' && e.type !== '\u0000') continue;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, buf.subarray(e.dataStart, e.dataStart + e.size));
+    files += 1;
+  }
+  assert.ok(files > 0, `tarball 解出 0 文件：${tgz}`);
 }
 
 test('D：临时树全链重放——落盘 / 幂等 / 锚点失配信号非零回流', () => {

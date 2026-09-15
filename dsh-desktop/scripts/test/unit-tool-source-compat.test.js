@@ -31,6 +31,11 @@ function badToolResultEvent(seq) {
     type: 'tool/result',
     seq,
     time: 1,
+    // rc.1 新增必填：surface-eligible 事件必须带 surfaceOp（'append' 或
+    // {op:'replace',startSeq,endSeq}），否则 adoptSessionEvent 在
+    // validateSurfaceMetadata 就抛 "requires a surfaceOp marker"，到不了被测的
+    // callId 容错逻辑。真实 rc.1 会话里新追加的工具结果即 append 语义。
+    surfaceOp: 'append',
     data: {
       turn: 0,
       step: 1,

@@ -53,7 +53,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TARBALLS = join(ROOT, 'vendor', 'dsh-kernel');
 const NODE_MODULES = join(ROOT, 'node_modules');
 const DSH_PACKAGE = join(NODE_MODULES, '@deepseek-ai', 'dsh', 'package.json');
-const KERNEL_VERSION = '0.1.2-alpha.5';
+const PIN_PATH = join(ROOT, 'scripts', 'compat', 'kernel-pin.json');
+// 单一版本源 = kernel-pin.json（见文件头）。硬编码常数是第二处版本源：rc.1→rc.2
+// 时快速幂等路径会拿旧常量比较，把仍装着 rc.1 的 node_modules 误判成「已就位」而跳过升级。
+const KERNEL_VERSION = JSON.parse(readFileSync(PIN_PATH, 'utf8'))?.kernel?.packageVersion;
+if (!KERNEL_VERSION) throw new Error(`install-kernel: ${PIN_PATH} 缺 kernel.packageVersion`);
 const SHELL = process.platform === 'win32';
 
 /** Read `package.json` out of a pnpm/npm pack tarball without extracting it. */

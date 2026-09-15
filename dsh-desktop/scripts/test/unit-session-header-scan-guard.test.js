@@ -16,7 +16,8 @@
 //      （被 listArtifacts 既有 corrupt-guard catch 后 warn 跳过，不击穿扫描）。
 //
 // 测试手法（与 unit-adapter-prepare-call-guard 同款）：
-//   1) 锚点命中 pristine 内核源（.tmp-rc2-stage），缺省回退最小 fixture；
+//   1) 锚点命中 pristine 内核源（.tmp-kernel/.consumer-<ver> 离线解包根，经
+//      pristine-kernel-roots.findPristineFile 跨根探测），缺省回退最小 fixture；
 //   2) transform 产物 node --check 语法合法；
 //   3) 幂等（二遍 already）/ 锚点缺失 anchor-missing 不改写；
 //   4) 行为（vm/动态 import 执行真实注入产物，非复述实现）：用自包含最小 ESM
@@ -109,23 +110,37 @@ const FIXTURE = [
   '\t\t}',
   '\t}',
   '\tasync listArtifacts(signal) {',
-  '\t\tconst path = "/unused/session.jsonl.zstd";',
-  '\t\tconst first = this.compression === "zstd" ? await this.readFirstZstdLine(path, signal) : await this.readFirstLine(path, signal);',
+  '\t\tconst selected = { sourcePath: "/unused/session.jsonl.zstd" };',
+  '\t\treturn await this.readGenerationHeader(selected, void 0, signal);',
+  '\t}',
+  // rc.1 形态：listArtifacts 的首行读取下沉进 readGenerationHeader(selected)，
+  // 读表达式按 selected.sourcePath 取径（alpha.5 直接在 listArtifacts 里用
+  // `path` 形参 —— 补丁锚点已随上游重锚，fixture 必须同形态才能自证）。
+  '\tasync readGenerationHeader(selected, expectedId, signal) {',
+  '\t\tlet first;',
+  '\t\ttry {',
+  '\t\t\tfirst = this.compression === "zstd" ? await this.readFirstZstdLine(selected.sourcePath, signal) : await this.readFirstLine(selected.sourcePath, signal);',
+  '\t\t} catch (error) {',
+  '\t\t\tsignal?.throwIfAborted();',
+  '\t\t\tif (isENOENT(error)) return void 0;',
+  '\t\t\tthrow error;',
+  '\t\t}',
   '\t\treturn first;',
   '\t}',
   '};',
   'export { JsonlSessionPersistence };',
 ].join('\n');
 
-// pristine 内核源（.tmp-rc2-stage），缺省回退 fixture。
+// pristine 内核源（由 scripts/install-pristine-kernel.mjs 离线解包的
+// .tmp-kernel/.consumer-<ver> 消费根，跨根探测走 pristine-kernel-roots 的
+// findPristineFile——上一代写死的 .tmp-rc2-stage 一次性暂存目录已随换版消失，
+// 当时静默回退 fixture，等于内容契约测试在自造字节上自证），缺省回退 fixture。
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
-const PRISTINE_FILE = path.join(
-  REPO_ROOT, '.tmp-rc2-stage',
-  'node_modules', '@deepseek-ai', 'dsh-session-persistence-jsonl', 'lib', 'index.js'
-);
+const { findPristineFile } = require('../lib/pristine-kernel-roots');
 
 function pristineSource() {
-  if (fs.existsSync(PRISTINE_FILE)) return fs.readFileSync(PRISTINE_FILE, 'utf8');
+  const hit = findPristineFile(PERSISTENCE_PKG_REL);
+  if (hit && fs.existsSync(hit)) return fs.readFileSync(hit, 'utf8');
   return FIXTURE;
 }
 
@@ -164,7 +179,7 @@ test('锚点命中 pristine 内核源 → changed，含 marker/缓存/helper/读
   assert.ok(r.src.includes('function sessionHeaderScanCacheGet('), '应含缓存 get');
   assert.ok(r.src.includes('function sessionHeaderScanCacheSet('), '应含缓存 set');
   assert.ok(r.src.includes('async readHeaderLineCached(path, signal) {'), '应注入 helper 方法');
-  assert.ok(r.src.includes('await this.readHeaderLineCached(path, signal)'), 'listArtifacts 读行应改走 helper');
+  assert.ok(r.src.includes('first = await this.readHeaderLineCached(selected.sourcePath, signal);'), 'rc.1 读行点（readGenerationHeader）应改走 helper');
   assert.ok(r.src.includes('content.length > ZSTD_HEADER_SCAN_MAX_BYTES'), '应注入读上限判定');
   // 幂等：二遍 already。
   assert.equal(transformSessionHeaderScanGuard(r.src, 'index.js').status, 'already');
@@ -271,16 +286,24 @@ test('回归：corrupt-guard 损坏跳过 + warn 语义保留（叠加应用后 
   const r = transformSessionHeaderScanGuard(base, 'index.js');
   assert.equal(r.status, 'changed', 'corrupt-guard 形态上本补丁应命中');
   const out = r.src;
-  // corrupt-guard 语义三要素均在。
   assert.ok(out.includes('dsh-desktop-corrupt-guard-v1'), 'corrupt-guard marker 应保留');
-  assert.ok(out.includes('} catch (corruptError) {'), 'corrupt-guard catch 应保留');
   assert.ok(out.includes('skipping corrupt session log'), 'warn 跳过文案应保留');
-  // 读行走 helper 且仍在 try 内（读取上限/stat 抛错仍被 corrupt-guard 吸收）。
-  assert.ok(out.includes('first = await this.readHeaderLineCached(path, signal);'), 'corrupt-guard 形态读行应改走 helper');
-  const readIdx = out.indexOf('first = await this.readHeaderLineCached(path, signal);');
+  // rc.1 形态：corrupt-guard 不再另起 `catch (corruptError)`（alpha.5 形态），而是
+  // 就地改写 listArtifacts 包住 readGenerationHeader 调用的那个 catch(error)：
+  // 格式版本不兼容仍先行 continue，其余告警 + continue 跳过该会话。
+  assert.match(out,
+    /try \{\n\t+header = await this\.readGenerationHeader\(selected, void 0, signal\);\n\t+\} catch \(error\) \{\n\t+if \(error instanceof SessionFormatUnsupportedError\) continue;\n\t+\/\/ dsh-desktop-corrupt-guard-v1[^\n]*\n\t+console\.warn\(`\[dsh-session-persistence\] skipping corrupt session log: \$\{selected\.sourcePath\}[^\n]*\n\t+continue;\n\t+\}/,
+    'corrupt-guard 应包住 readGenerationHeader 调用并保留 版本continue/告警/continue 三要素');
+  // 读行走 helper 且仍在 try 内（helper 的 stat/读上限抛错经 readGenerationHeader
+  // 保留的重抛上抛，最终被 corrupt-guard 吸收，不击穿扫描）。
+  const READ_CALL = 'first = await this.readHeaderLineCached(selected.sourcePath, signal);';
+  const readIdx = out.indexOf(READ_CALL);
+  assert.ok(readIdx !== -1, 'corrupt-guard 形态读行应改走 helper');
   const tryIdx = out.lastIndexOf('try {', readIdx);
-  const catchIdx = out.indexOf('} catch (corruptError) {', readIdx);
-  assert.ok(tryIdx !== -1 && catchIdx !== -1 && tryIdx < readIdx && readIdx < catchIdx, 'helper 读行应位于 corrupt-guard try/catch 内');
+  const innerCatchIdx = out.indexOf('} catch (error) {', readIdx);
+  assert.ok(tryIdx !== -1 && innerCatchIdx > readIdx, 'helper 读行应位于 try/catch 内');
+  assert.ok(out.slice(innerCatchIdx, innerCatchIdx + 220).includes('throw error;'),
+    'readGenerationHeader 的 catch 应保留非 ENOENT 重抛（把损坏交给 corrupt-guard）');
 });
 
 // ---------------------------------------------------------------------------

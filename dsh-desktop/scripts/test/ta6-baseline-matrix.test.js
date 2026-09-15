@@ -1,7 +1,7 @@
 'use strict';
 
 // ---------------------------------------------------------------------------
-// TA6 元测试 6：53 补丁 × 双版本形态判定矩阵（基线快照，最有长期价值）。
+// TA6 元测试 6：64 补丁 × 双版本形态判定矩阵（基线快照，最有长期价值）。
 //
 // 对两个 pristine 内核源各跑一遍全部 transform（按 registry order）：
 //   - 形态 rc.2：.tmp-rc2-stage/node_modules（npm 闭包解包，未打任何补丁）；
@@ -133,6 +133,43 @@ function computeMatrix() {
 // rc.2 / rc.1 均不含该包 → 两形态 target-absent → 59 项基线。
 // session-unknown-event-tolerance 新增（0.6.3 第二案：未知 session 事件兜底）→ 靶
 // dsh-session-persistence，rc.2 / rc.1 均不含该包 → 两形态 target-absent → 60 项基线。
+// released-v0-history-recovery 新增（0.6.4：frozen released-v0 编解码器把准入清单外的
+// 载荷成员整条拒载 → 老会话读不回；只扩清单、成员原样保留、描述符盖章 v3 后仍走严格校验）
+// → 靶 dsh-session-format-v0-to-v1/lib/index.js。两形态按**真实 pristine 字节实跑**录入：
+// .tmp-kernel/.consumer-0.1.5-rc.1 与 .consumer-0.1.5-rc.2 的该文件 sha256 前缀相同
+// （15ae26b9…，104663B，未打补丁），三处锚点全命中 → 均 'changed'（产物含 marker）
+// → 61 项基线。
+// pi-ai-responses-tool-name-sanitize 新增（Responses 三条路由共用序列化的工具名清洗 +
+// 回映射，靶 @earendil-works/pi-ai/dist/api/openai-responses-shared.js）→ 该靶包不属
+// @deepseek-ai scope，本矩阵两形态的 joinUnder 口径都到不了它 → 均 target-absent
+// （与 pi-ai-4xx-dump / pi-ai-tool-schema-sanitize 同口径）→ 62 项基线。
+// pi-ai-tool-name-wire 新增（0.6.4 中央收口，order 336）：靶 @deepseek-ai/dsh-llm-pi-ai/
+// lib/index.js —— 内核把工具交给 pi-ai 前唯一出站收口 toolsOf() 与回程两处 case
+// "tool-call"，一处洗名一处还原，覆盖全部 provider（补上逐适配器两条之外的 Gemini /
+// Bedrock / Mistral 缺口）。此靶是 @deepseek-ai scope 且 pkgRel 自带完整作用域前缀，
+// 本矩阵 rc.2 joinUnder 把 pkgRel 再拼在 @deepseek-ai 下 → 双前缀命中不了，旧 stage 树
+// 在场时会以 target-absent 报漂移；故本行两形态值取自「对 .tmp-kernel/.consumer-
+// 0.1.5-rc.2 与 -rc.1 的该文件真跑 transformPiAiToolNameWire」——两代字节一致
+// （sha256 1f787eb5…，115270B，未打补丁），三锚点全命中 → 均 'changed'。若将来重建旧
+// stage 树并跑本矩阵，请以该树真实装配面复核，勿静默改值 → 63 项基线。
+// pi-ai-quota-not-retryable 新增（order 337，靶 @earendil-works/pi-ai/dist/utils/
+// provider-retry.js：isRetryableProviderError 把 429 一律当可重试，而 OpenAI 兼容渠道的
+// insufficient_quota 同为 429 却是终态 → 每次请求白等若干轮退避）。**两形态均为
+// target-absent**，依据是实测而非推断：本机可用的两代 pristine 闭包树
+// （.tmp-kernel/.consumer-0.1.5-rc.2 与 -rc.1 的 node_modules）里根本没有
+// @earendil-works/pi-ai 这个包（连包目录都不存在）—— pi-ai 是宿主可选依赖、不在
+// vendor/dsh-kernel 离线闭包内，install-pristine-kernel 不解包它。故按矩阵既有口径
+// （与同包 pi-ai-4xx-dump / pi-ai-tool-schema-sanitize / pi-ai-responses-tool-name-
+// sanitize 一致）记 target-absent：rc.2 的 joinUnder 会拼出
+// node_modules/@deepseek-ai/@earendil-works/pi-ai/...（双前缀，不存在），rc.1 的
+// joinUnder 只接受首段 'dsh' 的 pkgRel → 直接返回 null。另注：findPristineTarget
+// 的「桌面壳独有依赖」回退会落到 dsh-desktop/node_modules 的已打补丁副本，那是假绿
+// 来源，故本条在 ta6-transform-contract / ta6-heal-rollback-audit 按诚实 SKIP 处理
+// → 64 项基线。
+// 注意 rc.1 一行的口径：本矩阵 FORM_ROOTS 的 rc.1 形态是「dsh 主包解包树」，其 joinUnder
+// 只接受首段为 'dsh' 的 pkgRel（历史上该树未装配兄弟包 → 兄弟包靶一律 target-absent）；
+// 若将来重建出这株旧 stage 树，本行会以 target-absent 报漂移，届时按该树的真实装配面复核，
+// 不要静默改值。
 // 内核升级后 diff 此矩阵即知锚点漂移面：修改本常量 = 显式接受新基线。
 // ===========================================================================
 const BASELINE = {
@@ -164,14 +201,12 @@ const BASELINE = {
     'menu-viewport': 'root',
     'open-project-dir': 'root',
     'workspace-pin': 'root',
-    'preset-seat-fix': 'root',
     'session-persistence': 'root',
     'session-manage': 'root',
     'tool-source-compat': 'root',
     'pi-ai-opencode-go-models': 'root',
     'pi-ai-credits': 'root',
     'pi-ai-overflow-message': 'root',
-    'token-meter-clamp': 'root',
     'atomic-write-orphan-lock': 'root',
     'settings-models-resilience': 'root',
     'pi-ai-reasoning-defaults': 'root',
@@ -191,6 +226,11 @@ const BASELINE = {
     'skill-dirs-compat': 'changed',
     'pi-ai-4xx-dump': 'target-absent',
     'pi-ai-tool-schema-sanitize': 'target-absent',
+    // pi-ai-responses-tool-name-sanitize：靶 @earendil-works/pi-ai/dist/api/
+    // openai-responses-shared.js；本矩阵 rc.2 口径把 pkgRel 拼在 @deepseek-ai 下，
+    // 非 @deepseek-ai scope 的 pi-ai 靶恒 target-absent（与同包两条补丁同口径；
+    // 真实字节判定见 scripts/test/unit-pi-ai-responses-tool-name.test.js）。
+    'pi-ai-responses-tool-name-sanitize': 'target-absent',
     // cardian 双前缀修复后，ds-tool-schema-sanitize 的 pkgRel 收口到单前缀，
     // rc.2 pristine 树的 @deepseek-ai/dsh-llm-deepseek/lib/index.js 现可命中→
     // 补丁真正应用（旧基线 target-absent 是双前缀 bug 导致的 0 命中假象）。
@@ -212,6 +252,18 @@ const BASELINE = {
     // session-unknown-event-tolerance（0.6.3 第二案）：rc.2 / rc.1 均不含
     // dsh-session-persistence → 两形态 target-absent。
     'session-unknown-event-tolerance': 'target-absent',
+    // released-v0-history-recovery（0.6.4）：靶 dsh-session-format-v0-to-v1/lib/index.js，
+    // rc.2 pristine 闭包树（.tmp-kernel/.consumer-0.1.5-rc.2 未打补丁字节）实跑 → changed。
+    'released-v0-history-recovery': 'changed',
+    // pi-ai-tool-name-wire（0.6.4 中央收口，order 336）：靶 @deepseek-ai/dsh-llm-pi-ai/
+    // lib/index.js，toolsOf() 出站 + 回程两处 tool-call 三锚点直取真跑；与 rc.1 同源
+    // 字节（sha256 1f787eb5…，115270B）→ 'changed'（详见 BASELINE 头部对账注释）。
+    'pi-ai-tool-name-wire': 'changed',
+    // pi-ai-quota-not-retryable（order 337）：靶 @earendil-works/pi-ai/dist/utils/
+    // provider-retry.js，非 @deepseek-ai scope 且两代 pristine 闭包树连该包目录都
+    // 不存在（实测）→ 按矩阵既有口径 target-absent（与同包另三条 pi-ai 补丁一致；
+    // 真实字节三态与功能面判定见 scripts/test/unit-pi-ai-quota-not-retryable.test.js）。
+    'pi-ai-quota-not-retryable': 'target-absent',
   },
   'rc.1': {
     'slot-legacy-key': 'target-absent',
@@ -241,14 +293,12 @@ const BASELINE = {
     'menu-viewport': 'root',
     'open-project-dir': 'root',
     'workspace-pin': 'root',
-    'preset-seat-fix': 'root',
     'session-persistence': 'root',
     'session-manage': 'root',
     'tool-source-compat': 'root',
     'pi-ai-opencode-go-models': 'root',
     'pi-ai-credits': 'root',
     'pi-ai-overflow-message': 'root',
-    'token-meter-clamp': 'root',
     'atomic-write-orphan-lock': 'root',
     'settings-models-resilience': 'root',
     'pi-ai-reasoning-defaults': 'root',
@@ -268,6 +318,8 @@ const BASELINE = {
     'skill-dirs-compat': 'target-absent',
     'pi-ai-4xx-dump': 'target-absent',
     'pi-ai-tool-schema-sanitize': 'target-absent',
+    // rc.1 一行的 joinUnder 只接受首段 'dsh' 的 pkgRel → pi-ai 靶恒 target-absent。
+    'pi-ai-responses-tool-name-sanitize': 'target-absent',
     'ds-tool-schema-sanitize': 'target-absent',
     'workspace-chip-label-hold': 'target-absent',
     'history-page-size': 'target-absent',
@@ -284,10 +336,22 @@ const BASELINE = {
     // session-unknown-event-tolerance（0.6.3 第二案）：rc.2 / rc.1 均不含
     // dsh-session-persistence → 两形态 target-absent。
     'session-unknown-event-tolerance': 'target-absent',
+    // released-v0-history-recovery（0.6.4）：靶包在 rc.1 闭包树同样存在且与 rc.2
+    // 字节一致（sha256 15ae26b9…），pristine 实跑 → changed；旧 stage 树（仅 dsh
+    // 主包解包）口径见上方对账注释。
+    'released-v0-history-recovery': 'changed',
+    // pi-ai-tool-name-wire（0.6.4 中央收口，order 336）：靶 @deepseek-ai/dsh-llm-pi-ai/
+    // lib/index.js，rc.1 闭包树（.tmp-kernel/.consumer-0.1.5-rc.1 未打补丁字节）与
+    // rc.2 完全一致（sha256 1f787eb5…，115270B），三锚点全命中 → 'changed'。
+    'pi-ai-tool-name-wire': 'changed',
+    // pi-ai-quota-not-retryable（order 337）：靶 @earendil-works/pi-ai/dist/utils/
+    // provider-retry.js；本形态 joinUnder 只接受首段 'dsh' 的 pkgRel，且 rc.1 pristine
+    // 闭包树无 @earendil-works/pi-ai 包目录（实测）→ target-absent。
+    'pi-ai-quota-not-retryable': 'target-absent',
   },
 };
 
-test('62 补丁 × rc.2 / rc.1 双形态判定矩阵与基线快照一致（锚点漂移哨兵）', { skip: !formRoot('rc.2') ? 'pristine rc.2 stage 树不可用（.tmp-rc2-stage 缺失）' : false }, () => {
+test('64 补丁 × rc.2 / rc.1 双形态判定矩阵与基线快照一致（锚点漂移哨兵）', { skip: !formRoot('rc.2') ? 'pristine rc.2 stage 树不可用（.tmp-rc2-stage 缺失）' : false }, () => {
   const matrix = computeMatrix();
   // 打印当前矩阵（基线对照 / 升级 diff 材料）。
   console.log('[TA6 基线矩阵]');
@@ -310,11 +374,11 @@ test('62 补丁 × rc.2 / rc.1 双形态判定矩阵与基线快照一致（锚�
     `判定矩阵漂移（内核形态变化或锚点漂移；确认后更新 BASELINE 快照以显式接受新基线）：\n  ${drift.join('\n  ')}`);
 });
 
-test('基线快照自身完整性：两形态 × 62 id 全覆盖', () => {
+test('基线快照自身完整性：两形态 × 64 id 全覆盖', () => {
   const ids = new Set(PATCH_SPECS.map((s) => s.id));
-  assert.equal(ids.size, 62);
+  assert.equal(ids.size, 64);
   for (const form of Object.keys(BASELINE)) {
-    assert.equal(Object.keys(BASELINE[form]).length, 62, `${form} 基线应覆盖 62 项`);
+    assert.equal(Object.keys(BASELINE[form]).length, 64, `${form} 基线应覆盖 64 项`);
     for (const id of Object.keys(BASELINE[form])) assert.ok(ids.has(id), `${form} 基线含未知 id ${id}`);
   }
 });

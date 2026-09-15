@@ -22,12 +22,19 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const {
-  REASONING_ROW_COLLAPSE_MARKER,
-  REASONING_ROW_COLLAPSE_FROM,
-  transformReasoningRowCollapseWidth,
-} = require('../lib/patch-adapters');
+// 权威常量口径：patch-adapters 只把 marker 收在 `markers` 命名导出里
+// （顶层 REASONING_ROW_COLLAPSE_MARKER / _FROM 是模块私有，未曾导出）。
+// 直接按顶层名解构会得到 undefined，而 `String.includes(undefined)` 会把
+// undefined 强制成子串 "undefined" 恒真——判据就此空转（本文件曾中招）。
+// 故 marker 走 markers 命名空间 + typeof 哨兵；锚点串改由 pristine 字节正则定位。
+const { markers, transformReasoningRowCollapseWidth } = require('../lib/patch-adapters');
+const { PATCH_SPECS } = require('../lib/patch-registry');
 const { kernel } = require('../compat/kernel-pin.json');
+
+const REASONING_ROW_COLLAPSE_MARKER = markers.REASONING_ROW_COLLAPSE_MARKER;
+assert.equal(typeof REASONING_ROW_COLLAPSE_MARKER, 'string',
+  'marker 必须真是 patch-adapters markers 里的字符串（导出面漂移即红，不接受 undefined）');
+assert.ok(REASONING_ROW_COLLAPSE_MARKER.length > 10, 'marker 不得是空/占位串');
 
 // pristine 源：vendored tarball 解包（dev 树已被 patch-deps 打过，幂等判定统一
 // 在 pristine 上做——与 unit-patch-model-image-input 同口径）。
@@ -57,16 +64,40 @@ function readPristine() {
   return fs.readFileSync(CHAT_FILE, 'utf8');
 }
 
+/** pristine 字节里的整条折叠态规则（含 contain:size layout 的那一条）。 */
+const COLLAPSE_RULE_RE = /\.[A-Za-z0-9_]+_root:not\(\[data-expanded\]\)\{contain:size layout;[^}]*\}/g;
+function collapseRulesOf(src) {
+  return src.match(COLLAPSE_RULE_RE) || [];
+}
+
 test('pristine 锚点唯一性：contain:size layout 全文件一次且在折叠态选择器里', () => {
   const src = readPristine();
   const hits = src.split('contain:size layout').length - 1;
   assert.equal(hits, 1, `contain:size layout 应全文件唯一（实际 ${hits} 次）`);
-  assert.ok(src.includes(REASONING_ROW_COLLAPSE_FROM), '折叠态锚点串应在 pristine 在场');
-  assert.ok(src.includes('.t2QtNG_root:not([data-expanded])'), '折叠态选择器（哈希类）应在场');
+  // 折叠态选择器的 CSS Module 哈希类随内核换代而变：alpha 世代为 .t2QtNG_root，
+  // 0.1.5-rc.1（compat-pin 锁版的 vendored 字节）为 .lcKema_root。哈希即稳定锚，
+  // 换版必须在这里跟着更正——不更正就是「锚点已漂移」的红灯，而非静默失配。
+  assert.ok(src.includes('.lcKema_root:not([data-expanded])'), '折叠态选择器（哈希类）应在场');
+  const rules = collapseRulesOf(src);
+  assert.equal(rules.length, 1, `折叠态规则（含 contain:size layout）应整条唯一（实际 ${rules.length} 条）`);
+  assert.match(rules[0], /^\.[A-Za-z0-9_]{6,}_root:not\(\[data-expanded\]\)\{contain:size layout;/,
+    '折叠态规则应以哈希类 _root:not([data-expanded]) 选择器开头（锚点确实落在这个作用域里）');
+  assert.ok(
+    rules[0].includes('height:calc(24px + var(--dsh-content-font-delta,0px))'),
+    '折叠高度 calc 应在同一条规则里（补丁只去 size、不得丢高度）',
+  );
+  // 注册表装配同源：spec.marker 必须就是 patch-adapters 导出的那个 marker。
+  const spec = PATCH_SPECS.find((s) => s.id === 'reasoning-row-collapse-width');
+  assert.ok(spec, 'reasoning-row-collapse-width 应登记在注册表');
+  assert.equal(spec.marker, REASONING_ROW_COLLAPSE_MARKER, '注册表 marker 应与 patch-adapters 同源');
+  assert.match(String(spec.pkgRel || (spec.pkgRels || []).join()).replace(/\\/g, '/'),
+    /dsh-client-ui-chat\/lib\/client\.js$/, '靶应为 dsh-client-ui-chat/lib/client.js');
 });
 
 test('transform：changed 产物去 size 留 layout、marker 在位、折叠高度保留', () => {
   const src = readPristine();
+  const rule = collapseRulesOf(src)[0];
+  assert.ok(rule, 'pristine 折叠态规则应可定位（上一条已锁）');
   const r = transformReasoningRowCollapseWidth(src, 'chat/client.js');
   assert.equal(r.status, 'changed');
   assert.ok(r.src.includes(REASONING_ROW_COLLAPSE_MARKER), '产物应有 marker（幂等依据）');
@@ -76,6 +107,10 @@ test('transform：changed 产物去 size 留 layout、marker 在位、折叠高�
     r.src.includes('{contain:layout;/* dsh-desktop fix: reasoning row collapse width (contain:size removed) */height:calc(24px + var(--dsh-content-font-delta,0px))}'),
     '折叠高度 calc 应原样保留（去 size 不动 height；marker 注释插在声明之间）',
   );
+  // 单点改动锁：产物必须恰好等于「pristine 里那条折叠态规则被就地改写」，
+  // 全文其余字节一动不动（防止 replace 命中多处或顺手改了别处）。
+  const expected = rule.replace('contain:size layout;', 'contain:layout;/* ' + REASONING_ROW_COLLAPSE_MARKER + ' */');
+  assert.equal(r.src, src.replace(rule, expected), '产物应只改这一条规则、其余字节逐字不动');
 });
 
 test('幂等：changed 产物二遍 → already', () => {

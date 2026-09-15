@@ -87,6 +87,15 @@ function describePristineRoots() {
 // 重定位类补丁（dsh-api-session-controller / dsh-client-ui-slots 等）的目标包可能
 // 不在任何 npm 闭包树里 → 回退到 .tmp-kernel 工作区的 pristine 构建产物（built lib）。
 const DESKTOP_NM = path.join(REPO_ROOT, 'dsh-desktop', 'node_modules');
+
+// 离线 vendored 内核闭包：vendor/dsh-kernel/*.tgz 是唯一版本源（scripts/compat/kernel-pin.json
+// 钉死 kernel.packageVersion），install-pristine-kernel.mjs 仅解这些 tgz → pristine 树里
+// 天然只有这一批 @deepseek-ai/dsh-* 包。@deepseek-ai/cordis-plugin-loader / cordis / cosmokit
+// 与 @openai/codex / @earendil-works/pi-ai 等都是 registry 发布包（package-lock 里 resolved
+// 指向 registry.npmjs.org 而非 file:vendor/...），不在闭包内 —— 对它们做 pristine 校验无源可依。
+const DESKTOP_ROOT = path.join(REPO_ROOT, 'dsh-desktop');
+const VENDOR_KERNEL = path.join(DESKTOP_ROOT, 'vendor', 'dsh-kernel');
+const KERNEL_PIN = path.join(DESKTOP_ROOT, 'scripts', 'compat', 'kernel-pin.json');
 let kernelByName = null;
 function kernelBuiltFile(pkgRel) {
   if (typeof pkgRel !== 'string' || !pkgRel) return null;
@@ -133,6 +142,70 @@ function findPristineTarget(spec) {
   return null;
 }
 
+/**
+ * vendor/dsh-kernel/*.tgz 所构成的「离线内核闭包」包名集合（含 @deepseek-ai scope）。
+ * install-pristine-kernel.mjs 只解这批 tgz，故 pristine 树里出现且仅出现这些包。
+ * tgz 命名约定（见 scripts/generate-kernel-lock.mjs 与 install-pristine-kernel.mjs）：
+ *   deepseek-ai-<name>-<kernel.packageVersion>.tgz  →  @deepseek-ai/<name>
+ * 缓存在模块级：vendor 目录在测试期间静态，无需每 spec 重扫。
+ * @returns {Set<string>} 「@deepseek-ai/<name>」集合；vendor 目录缺失时为空集。
+ */
+let _vendoredSet = null;
+function vendoredKernelPackages() {
+  if (_vendoredSet) return _vendoredSet;
+  const set = new Set();
+  let ver = '';
+  try { ver = JSON.parse(fs.readFileSync(KERNEL_PIN, 'utf8')).kernel.packageVersion || ''; } catch { /* pin 读不到走正则兜底 */ }
+  let files = [];
+  try { files = fs.readdirSync(VENDOR_KERNEL).filter((f) => f.endsWith('.tgz')); } catch { _vendoredSet = set; return set; }
+  for (const f of files) {
+    let base = f.replace(/\.tgz$/, '');
+    if (ver && base.endsWith('-' + ver)) base = base.slice(0, -('-' + ver).length);
+    else base = base.replace(/-\d+\.\d+\.\d+.*$/, ''); // 兜底：无 pin 时按 semver 尾巴削
+    const name = base.replace(/^deepseek-ai-/, '');
+    if (name) set.add('@deepseek-ai/' + name);
+  }
+  _vendoredSet = set;
+  return set;
+}
+
+/** 从 pkgRel（可能带显式 @scope/ 前缀，或相对 @deepseek-ai 无 scope）取包名。 */
+function packageOf(pkgRel) {
+  const parts = String(pkgRel).split(/[\\/]/).filter(Boolean);
+  if (!parts.length) return null;
+  return parts[0].startsWith('@') ? parts.slice(0, 2).join('/') : '@deepseek-ai/' + parts[0];
+}
+
+/** 该 pkgRel 所属包是否在离线 vendored 内核闭包内。 */
+function isPackageVendored(pkgRel) {
+  const name = packageOf(pkgRel);
+  return name ? vendoredKernelPackages().has(name) : false;
+}
+
+/**
+ * file spec 的靶包是否落在离线内核闭包内（决定「pristine 有无源」）。
+ * pkgRels 任一在闭包即算真·内核靶（正常校验）；全不在 → 属 registry/宿主可选依赖，
+ * 离线解包树天然不含 → 守卫应诚实跳过，而非红（loader-tree-isolation）或以
+ * dsh-desktop/node_modules 的已补丁副本冒充 pristine（codex / pi-ai 的假绿）。
+ * vendor 集为空（内核未 vendor）时返回 true，把异常交回原有硬红路径暴露，不静默跳过。
+ */
+function specTargetVendored(spec) {
+  if (!spec || spec.kind !== 'file') return true;
+  const rels = (spec.pkgRels && spec.pkgRels.length ? spec.pkgRels : [spec.pkgRel]).filter(Boolean);
+  if (!rels.length) return true;
+  const vendored = vendoredKernelPackages();
+  if (vendored.size === 0) return true;
+  return rels.some(isPackageVendored);
+}
+
+/** 供守卫打印/断言用的跳过理由（点名是哪个包不在闭包）。 */
+function specVendoredSkipReason(spec) {
+  const rels = (spec && spec.pkgRels && spec.pkgRels.length ? spec.pkgRels : [(spec || {}).pkgRel]).filter(Boolean);
+  const names = rels.map(packageOf).filter(Boolean);
+  return `目标包 ${names.join(' / ') || '(未声明)'} 不在 vendor/dsh-kernel 离线内核闭包内`
+    + '（registry 发布包 / 宿主可选依赖，install-pristine-kernel 不解包 → 无 pristine 源）';
+}
+
 module.exports = {
   REPO_ROOT,
   pristineRoots,
@@ -141,4 +214,9 @@ module.exports = {
   findProfileBootLib,
   findPristineTarget,
   describePristineRoots,
+  vendoredKernelPackages,
+  packageOf,
+  isPackageVendored,
+  specTargetVendored,
+  specVendoredSkipReason,
 };

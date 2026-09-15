@@ -45,7 +45,7 @@ const {
   removeAcpBasicDisableBlock,
   ensureDisabledPatchEntry, removeLegacyMarketplacePatchLines,
   removeRetiredDshMarketPatchRows, removeRetiredThirdPartyThinkingPatchRows,
-  removeRetiredDshFloatWindowPatchRows,
+  removeRetiredDshFloatWindowPatchRows, removeRetiredDshMiniPatchRows,
   registerCompanionPatchEntries, syncCompanionFiles, removedPluginIdsFromPatch,
 } = require('./lib/companion-profile');
 
@@ -293,6 +293,16 @@ function syncPlugins(home, dryRun, dshPkgDir) {
   if (retiredFw.changed) {
     changed = true;
     log('已从 cordis.patch.yml 移除退役插件 dsh-float-window 条目');
+  }
+
+  // 已退役插件 dsh-mini（0.6.4，dsh-pocket 等位替代）：insert 内层 / 顶层块一次
+  // 性清理（幂等；目录与 manifest 登记在 syncCompanionFiles 内的
+  // removeRetiredDshMiniDir 已处理）。
+  const retiredMini = removeRetiredDshMiniPatchRows(patch);
+  patch = retiredMini.patch;
+  if (retiredMini.changed) {
+    changed = true;
+    log('已从 cordis.patch.yml 移除退役插件 dsh-mini 条目');
   }
 
   // billion-context-dsh（compaction-acp，模型驱动的 ACP 压缩后端）默认关闭：

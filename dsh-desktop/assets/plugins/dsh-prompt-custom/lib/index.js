@@ -14,7 +14,7 @@
 // system prompt 全文（只读），供客户端设置页「预览官方提示词」入口对照编辑自定义提示词。
 
 import z from "@deepseek-ai/schemastery";
-import { PERSONA_SECTION, renderPrompt } from "@deepseek-ai/dsh-system-prompt";
+import { PERSONA_PREFIX_SECTION, PERSONA_SUFFIX_SECTION, renderPrompt } from "@deepseek-ai/dsh-system-prompt";
 
 const name = "@deepseek-ai/dsh-prompt-custom";
 const inject = ["settings", "systemPrompt", "webServer"];
@@ -115,13 +115,19 @@ function apply(ctx, config) {
 		const cfg = liveConfig() || {};
 		if (!cfg.enabled || !String(cfg.text || "").trim()) return;
 		const text = String(cfg.text).trim();
-		// alpha.4 移除了 PERSONA_ORDER 导出（SECTION_ORDERS 内部化）；改经服务公开
-		// getter 取上游权威值，避免硬编码内部数值。
-		const personaOrder = agent.ctx.systemPrompt.getSectionOrder("DEPLOYMENT_PERSONA");
+		// rc.1 起官方把人设节拆成 prefix/suffix 两节，顺序键同步改名
+		// DEPLOYMENT_PERSONA_PREFIX / _SUFFIX（旧键 DEPLOYMENT_PERSONA 已不存在，
+		// 取不到值会让 order 变 NaN）。
+		const sp = agent.ctx.systemPrompt;
+		const prefixOrder = sp.getSectionOrder("DEPLOYMENT_PERSONA_PREFIX");
+		const suffixOrder = sp.getSectionOrder("DEPLOYMENT_PERSONA_SUFFIX");
 		if (cfg.mode === "replace") {
-			agent.ctx.systemPrompt.section({ name: PERSONA_SECTION, order: personaOrder, text });
+			// 官方以 `config.personaSuffix ?? ""` 注册该节，空文本明确合法 → 置空即等价
+			// alpha.5 的单节整段替换。
+			sp.section({ name: PERSONA_PREFIX_SECTION, order: prefixOrder, text });
+			sp.section({ name: PERSONA_SUFFIX_SECTION, order: suffixOrder, text: "" });
 		} else {
-			agent.ctx.systemPrompt.section({ name: "dsh:custom-prompt", order: personaOrder + 1, text });
+			sp.section({ name: "dsh:custom-prompt", order: suffixOrder + 1, text });
 		}
 	});
 

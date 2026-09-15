@@ -3,7 +3,8 @@
 // pi-ai-settings-heal 单元测试：settings.yaml 的 llm-pi-ai 非法供应商条目
 // 自愈（boot repair 步）。两条判定路径都覆盖：
 //   - 真内核路径：appDir 指向本仓 dsh-desktop，用安装根 @deepseek-ai/dsh-llm-pi-ai
-//     的真 apply() 判定（「目录外路由缺 api/baseURL」真实形态）；
+//     的真 apply() 判定（rc.1 仍 fail-loud 的标量校验形态，如 baseURL 空串；
+//     alpha.5 的「目录外路由缺 api/baseURL」形态已被上游 deferred，另有哨兵测试）；
 //   - 注桩路径：inject.probeApply 覆盖判定，覆盖防环 / 放弃 / 多轮收敛等
 //     内核真码难以稳定构造的分支。
 // 断言红线：绝不带着坏配置覆盖用户文件；零改动路径绝不写盘。
@@ -25,9 +26,14 @@ function makeHome(yamlText) {
   return home;
 }
 
-/** 非法供应商（目录外路由缺 api/baseURL——opencode-go 真实形态）。 */
+/** 非法供应商（rc.1 真内核仍 fail-loud 的标量校验形态：baseURL 显式配成空串）。
+ *  注：alpha.5 时代的「目录外路由缺 api/baseURL」形态在 rc.1 已被上游改为
+ *  deferred 诊断（apply 走 resolveProfiles(providers, "deferred")，PiAiCatalogError
+ *  收容进目录条目，不再击穿启动），见下方漂移哨兵测试；只有标量校验类错误
+ *  仍让整段 apply 抛错（一家不合法、全体陪葬的崩溃面在 rc.1 仍然存在）。 */
 const BAD_PROVIDER = [
   '    broken-relay:',
+  "      baseURL: ''",
   '      models:',
   '        - id: grok-4.5',
   '          name: Grok',
@@ -94,6 +100,31 @@ test('真内核: 非法供应商被移出，合法供应商与其它 section 原
   assert.equal(doc.errors.length, 0, '修复后应为合法 YAML');
   const piAi = await import('node:url').then((u) => import(u.pathToFileURL(path.join(repoRoot, 'node_modules', '@deepseek-ai', 'dsh-llm-pi-ai', 'lib', 'index.js')).href));
   assert.equal(probeWithKernel(piAi.apply, doc.toJS()['llm-pi-ai']).ok, true, '修复后内核判定应通过');
+});
+
+// 漂移哨兵：alpha.5 形态（目录外路由缺 api/baseURL）在 rc.1 已失去「击穿启动」的
+// 意义——上游把 apply 的目录校验改为 deferred（resolveProfiles(providers,
+// "deferred")：PiAiCatalogError 收容为 catalogError/modelErrors 随目录条目上报，
+// 坏路由可见但不 brick 其它供应商）。自愈必须不移植性删除内核已容忍的条目；
+// 若未来内核回到该形态 fail-loud，此守卫当场变红，强制重新武装 BAD 判定。
+test('真内核: 目录外路由缺 api/baseURL 已被 rc.1 deferred 容忍，不得移出', async () => {
+  const catalogMissing = [
+    '    old-shape-relay:',
+    '      models:',
+    '        - id: grok-4.5',
+    '          name: Grok',
+    '          contextWindow: 100000',
+    '          maxTokens: 8192',
+    '      apiKeyEnv: OLD_SHAPE_API_KEY',
+  ].join('\n');
+  const home = makeHome(settingsWith(catalogMissing + '\n' + GOOD_PROVIDER));
+  const file = path.join(home, 'settings.yaml');
+  const before = fs.readFileSync(file, 'utf8');
+  const r = await healPiAiSettings({ appDir: repoRoot, home, log: NOOP_LOG });
+  assert.equal(r.changed, false, 'rc.1 内核对该形态不抛错 → 自愈必须零写: ' + JSON.stringify(r));
+  assert.deepEqual(r.removed, []);
+  assert.equal(r.backup, null);
+  assert.equal(fs.readFileSync(file, 'utf8'), before, '文件必须原样保留');
 });
 
 test('真内核: 全合法配置零写盘（changed:false 且文件未动）', async () => {

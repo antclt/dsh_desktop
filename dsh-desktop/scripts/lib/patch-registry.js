@@ -28,14 +28,14 @@
 //              供 preflight 只读体检复用；
 //   requires   宿主能力依赖（见 host-capabilities.js）；
 //   cli        CLI 同步期（sync-companion-plugins.js --with-patches）是否也应用；
-//              cli:true 现共 25 项（HEAD 原有 8 个 + slot-error-isolation +
+//              cli:true 现共 26 项（HEAD 原有 8 个 + slot-error-isolation +
 //              session-persistence + tool-source-compat / pi-ai-opencode-go-models
 //              / pi-ai-credits / pi-ai-reasoning-defaults 四个数据完整性补丁
 //              + bundle-arrival-retry / agent-loop-scheduler-guard 两个内核
 //              韧性补丁 + pi-ai-overflow-message / token-meter-clamp /
 //              atomic-write-orphan-lock / settings-models-resilience /
 //              empty-tool-name-guidance + codex/claude 本地二进制回落 +
-//              skill-dirs-compat + pi-ai 系 4xx 落盘/schema 净化 +
+//              skill-dirs-compat + pi-ai 系 4xx 落盘/schema 净化/Responses 名字净化 +
 //              workspace-chip-label-hold）；计数哨兵见
 //              ta6-registry-invariants.test.js F 与 unit-patch-registry.test.js；
 //              image-send/vision-key 与 guard 组为 false，仅桌面壳运行时应用；
@@ -49,6 +49,12 @@
 //              doneLog/failLog/donePrefix）；
 //   successLog / failLog  kind='root' 的顶层日志字段（successLog(root) /
 //              failLog(root, err)，与 logs 不同，属 root 应用器专用）。
+//   退役说明（0.1.5-rc.1 重靶期）：preset-seat-fix / token-meter-clamp 已由
+//              上游原生修复，从 PATCH_SPECS 摘除（patch 脚本保留休眠）；
+//              其余失配项已重锚（image-send / profile 系 / menu-viewport
+//              #182 / open-project-dir / session-persistence corrupt /
+//              wsl-picker / header-scan / ds-tool / conversation-assembly /
+//              reasoning-row / unknown-event）。
 // ---------------------------------------------------------------------------
 
 const path = require('node:path');
@@ -59,6 +65,7 @@ const {
   GATEWAY_CLIENT_PKG_REL,
   UI_CHAT_CLIENT_PKG_REL,
   SESSION_PERSISTENCE_CORE_PKG_REL,
+  SESSION_FORMAT_V0_TO_V1_PKG_REL,
   CONVERSATION_PKG_REL,
   API_SETTINGS_CONTROLLER_PKG_REL,
   WORKSPACE_PKG_REL,
@@ -81,6 +88,9 @@ const {
   CODEX_BIN_PKG_REL,
   CLAUDE_SUBAGENT_PKG_REL,
   PI_AI_COMPLETIONS_PKG_REL,
+  PI_AI_RESPONSES_SHARED_PKG_REL,
+  PI_AI_PROVIDER_RETRY_PKG_REL,
+  DSH_LLM_PIAI_PKG_REL,
   DS_LLM_DEEPSEEK_PKG_REL,
   SKILL_FS_PKG_REL,
 } = require('./patch-target-resolver');
@@ -99,6 +109,7 @@ const {
   transformChatAutoLoadOlder,
   transformReasoningRowCollapseWidth,
   transformSessionUnknownEventTolerance,
+  transformReleasedV0KeysTolerance,
   transformConversationAssemblyResilience,
   transformProfilePatchGuard,
   transformProfileBundleAppBoot,
@@ -130,6 +141,9 @@ const {
   transformClaudeLocalBinFallback,
   transformPiAi4xxDump,
   transformPiAiToolSchemaSanitize,
+  transformPiAiResponsesToolNameSanitize,
+  transformPiAiToolNameWire,
+  transformPiAiQuotaNotRetryable,
   transformDsToolSchemaSanitize,
   transformSkillDirsCompat,
   // 选择工作文件夹时 chip/输入框闪回「选择工作区」（workspace 投影缺口帧）。
@@ -161,9 +175,10 @@ const {
   ADAPTER_PREPARE_CALL_GUARD_MARKER,
   CONTENT_HAS_IMAGE_GUARD_MARKER,
   SESSION_HEADER_SCAN_MARKER,
-  // K6 幂等判定用 v2 marker（末帧守卫形态）；v1 marker 仍由 transform 的升级
-  // 通道引用，不作为 spec.marker（否则在野 v1 副本会被 already 短路、永不升级）。
-  SESSION_LOAD_GRACEFUL_MARKER_V2,
+  // K6 幂等判定用 v3 marker（rc.1 扁平 torn-tail 契约）；v1/v2 marker 仍由
+  // transform 的升级通道引用，不作为 spec.marker（否则在野旧副本会被 already
+  // 短路、永不升级）。
+  SESSION_LOAD_GRACEFUL_MARKER_V3,
   LOADER_TREE_ISOLATION_MARKER,
   LOADER_ACTIVATION_ISOLATION_MARKER,
   FAIL_LOUD_ISOLATION_MARKER,
@@ -172,6 +187,9 @@ const {
   PI_AI_4XX_DUMP_MARKER,
   PI_AI_TOOL_SCHEMA_SANITIZE_MARKER,
   DS_TOOL_SCHEMA_SANITIZE_MARKER,
+  PI_AI_RESPONSES_TOOL_NAME_SANITIZE_MARKER,
+  PI_AI_TOOL_NAME_WIRE_MARKER,
+  PI_AI_QUOTA_NOT_RETRYABLE_MARKER,
   SKILL_DIRS_COMPAT_MARKER,
   WORKSPACE_CHIP_LABEL_MARKER,
   HISTORY_PAGE_MARKER,
@@ -179,6 +197,7 @@ const {
   CHAT_AUTOLOAD_MARKER,
   REASONING_ROW_COLLAPSE_MARKER,
   SESSION_UNKNOWN_EVENT_TOLERANCE_MARKER,
+  RELEASED_V0_HISTORY_MARKER,
   ASSEMBLY_RESILIENCE_MARKER,
 } = require('./patch-adapters').markers;
 
@@ -825,25 +844,13 @@ const PATCH_SPECS = [
     successLog: (root) => '工作区置顶补丁: 已应用到 ' + root,
     failLog: (root, err) => '工作区置顶补丁失败(' + root + '): ' + err.message,
   },
-  {
-    // 模式选择 chip 锁死修复（v0.6.3-beta.4）：内核 AgentPresetSeatController.apply()
-    // 内 this.remotePresets(ctx) 双重错误（模块级函数误加 this + ctx 应为 this.ctx）
-    // → 首次选择即抛 TypeError，busy 卡 true，chip 永久 disabled（用户实报：
-    // 新建对话后选一次模式按钮按不动）。
-    id: 'preset-seat-fix',
-    group: 'package',
-    order: 216,
-    kind: 'root',
-    layout: 'nm-roots',
-    wslLayout: 'nm-roots',
-    apply: rootAppliers.patchPresetSeat,
-    marker: null,
-    requires: [],
-    failPolicy: 'warn',
-    cli: false,
-    successLog: (root) => '模式 chip 锁死补丁: 已应用到 ' + root,
-    failLog: (root, err) => '模式 chip 锁死补丁失败(' + root + '): ' + err.message,
-  },
+  // -------------------------------------------------------------------------
+  // preset-seat-fix 已退役（0.1.5-rc.1 重靶期）：上游 AgentPresetSeatController
+  // 已把 this.remotePresets(ctx) 双重错误（模块级函数误加 this + ctx 应为
+  // this.ctx）改为 this.ctx.remote.agentPresets.select(...)，且 select 返回
+  // { ok, error } 结果对象（!result.ok 分支复位 busy）——busy 卡死根因已原生
+  // 修复，补丁无增量。patch-preset-seat.js 保留（休眠，参照 vision-key-fix 先例）。
+  // -------------------------------------------------------------------------
   {
     id: 'session-persistence',
     group: 'package',
@@ -947,38 +954,13 @@ const PATCH_SPECS = [
     failLog: (root, err) => 'pi-ai 超限文案补丁失败(' + root + '): ' + err.message,
   },
   // -------------------------------------------------------------------------
-  // dsh-token-meter messageTokens 下限夹取补丁（内核 accounting 边界 bug）：
-  // contextBreakdownProjectionDefinition.apply 用
-  //   messageTokens: state.messageTokens + fold.deltaTokens,
-  // 而 foldSurfaceProjection 在消息被压缩/替换（surfaceOp === "replace"）时
-  // 返回 deltaTokens = tokens - claim.tokens（可为负）。负 delta 绝对值大于已
-  // 累计 state.messageTokens 时 messageTokens 变负 → stateSchema 的 tokenCount
-  // = z.number().int().nonnegative() 校验失败（"Too small: expected number to
-  // be >= 0"）→ 本轮运行失败。补丁分两层（写端杜绝新负值 + 读端作废旧脏行）：
-  //   [写端] 把该行夹到 Math.max(0, …)——新负值不再被产生/落盘；
-  //   [读端] 把 contextBreakdown 的 stateVersion 2→3——投影 checkpoint 落盘且
-  //          restore() 见 row.ver===stateVersion 就 stateSchema.parse(row.val)，
-  //          0.5.6 遗留的 ver=2 负值行升级后仍会被直接 parse 抛错（issue #172 历史
-  //          加载失败）；bump 使 ver 失配 → restoreFloor 拉到 seq 0 用已夹取 apply
-  //          重折自愈。该值仅用于「上下文构成」估算展示/计量，夹 0 不影响真实请求。
-  //          版本锚点带 key 前缀，只 bump contextBreakdown，不误伤同值 2 的 tokenUsage。
-  // 锚点失配自动退役。见 scripts/patch-token-meter-clamp.js。
+  // token-meter-clamp 已退役（0.1.5-rc.1 重靶期）：上游 contextBreakdown 的
+  // apply 重构为「systemTokens = findLast(system) + messageTokens = system +
+  // message + delta - system」——新公式恒非负（message 为全部非 tools 节点
+  // 新 token 总和减去单个 system 节点，非负性天然成立），写端负值 bug 已原生
+  // 修复；stateVersion 亦已演进到 4（0.5.6 的 ver=2 负值行经 restoreFloor
+  // 自然作废）。两层子补丁均无增量。patch-token-meter-clamp.js 保留（休眠）。
   // -------------------------------------------------------------------------
-  {
-    id: 'token-meter-clamp',
-    group: 'package',
-    order: 233,
-    kind: 'root',
-    layout: 'nm-roots',
-    wslLayout: 'nm-roots',
-    apply: rootAppliers.patchTokenMeterClamp,
-    marker: null,
-    requires: [],
-    failPolicy: 'warn',
-    cli: true,
-    successLog: (root) => 'token-meter 夹取补丁: 已应用到 ' + root,
-    failLog: (root, err) => 'token-meter 夹取补丁失败(' + root + '): ' + err.message,
-  },
   // -------------------------------------------------------------------------
   // 设置写入韧性补丁（PR5，v0.5.2「添加供应商没反应/灰」两层根治）：
   //   1) 孤儿锁自愈（dsh-atomic-write）——内核持锁窗口内被强杀留下
@@ -1399,7 +1381,7 @@ const PATCH_SPECS = [
     wslLayout: 'wsl',
     pkgRel: PERSISTENCE_PKG_REL,
     transform: transformSessionLoadGraceful,
-    marker: SESSION_LOAD_GRACEFUL_MARKER_V2,
+    marker: SESSION_LOAD_GRACEFUL_MARKER_V3,
     requires: [],
     failPolicy: 'warn',
     cli: false,
@@ -1520,6 +1502,102 @@ const PATCH_SPECS = [
       alreadyLog: alreadySkip,
       doneLog: (file) => '已注入 schema 净化+名字规范化/回映射到 ' + file,
       failLog: (file, err) => 'pi-ai 工具净化补丁失败(' + file + '): ' + err.message,
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // pi-ai Responses 路径工具名净化补丁（pi-ai-responses-tool-name-sanitize）：
+  // 上面那条只清洗 Chat Completions 序列化（openai-completions.js），而
+  // openai-responses / azure-openai-responses / openai-codex-responses 三条路由
+  // 共用 openai-responses-shared.js 的 convertResponsesTools + 流式槽位构造，
+  // 全程零清洗 → dsh-cardian 的 `cardian.*` 带点号工具名直上 wire，被 OpenAI
+  // 兼容网关按 pattern ^[a-zA-Z0-9_-]+$ 拒为 400 invalid_value（在野整轮失败，
+  // 报文 "OpenAI API error (400): Invalid 'tools[1].name'"）。6 落点：出站
+  // grammar/function 两分支 name + 历史回放两处 name（回放的必须也是 wire 名）、
+  // 入站 function_call/custom_tool_call 槽位 name 还原原名分发。规则与回映射
+  // 语义同 completions 补丁，但两文件属不同模块作用域、映射表各自独立。cli:true。
+  // -------------------------------------------------------------------------
+  {
+    id: 'pi-ai-responses-tool-name-sanitize',
+    group: 'runtime',
+    order: 335,
+    kind: 'file',
+    layout: 'runtime-local-nm',
+    wslLayout: 'runtime-local-nm',
+    pkgRel: PI_AI_RESPONSES_SHARED_PKG_REL,
+    transform: transformPiAiResponsesToolNameSanitize,
+    marker: PI_AI_RESPONSES_TOOL_NAME_SANITIZE_MARKER,
+    requires: [],
+    failPolicy: 'warn',
+    cli: true,
+    logs: {
+      prefix: 'pi-ai Responses 工具名净化补丁',
+      alreadyLog: alreadySkip,
+      doneLog: (file) => '已注入 Responses 路径名字规范化/回映射到 ' + file,
+      failLog: (file, err) => 'pi-ai Responses 工具名净化补丁失败(' + file + '): ' + err.message,
+    },
+  },
+  // -------------------------------------------------------------------------
+  // pi-ai 适配层工具名 wire 中央收口（一处覆盖全部 provider）。
+  // 为什么还要一条：completions 与 Responses 两条逐适配器补丁只盖住 OpenAI 家族，而
+  // anthropic-messages / google / bedrock / mistral 同样把 name 原样塞进请求，且这四家
+  // 的函数名规则都不收点号（Anthropic 是 ^[a-zA-Z0-9_-]{1,64}$）—— dsh-cardian 的
+  // cardian.backlinks 一类名字在任一家的请求里都会 400。逐适配器打补丁等于长期追上游
+  // 尾巴，故在内核与 pi-ai 的唯一交界处收口。与两条逐适配器补丁可并存：清洗幂等
+  // （wire 名再洗不变），还原按映射表命中才改。cli:true。
+  // -------------------------------------------------------------------------
+  {
+    id: 'pi-ai-tool-name-wire',
+    group: 'runtime',
+    order: 336,
+    kind: 'file',
+    layout: 'runtime-local-nm',
+    wslLayout: 'runtime-local-nm',
+    pkgRel: DSH_LLM_PIAI_PKG_REL,
+    transform: transformPiAiToolNameWire,
+    marker: PI_AI_TOOL_NAME_WIRE_MARKER,
+    requires: [],
+    failPolicy: 'warn',
+    cli: true,
+    logs: {
+      prefix: 'pi-ai 工具名 wire 中央收口补丁',
+      alreadyLog: alreadySkip,
+      doneLog: (file) => '已注入工具名 wire 规范化/回程还原到 ' + file,
+      failLog: (file, err) => 'pi-ai 工具名 wire 中央收口补丁失败(' + file + '): ' + err.message,
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // pi-ai 配额耗尽不得重试补丁（pi-ai-quota-not-retryable）：OpenAI 兼容渠道的
+  // 配额/余额耗尽与限流同为 429 —— provider-retry.js 的 isRetryableProviderError
+  // 把 429 一律判可重试（对**限流**是对的），于是
+  // {"message":"Allocated quota exceeded...","type":"insufficient_quota",
+  //  "code":"insufficient_quota"} 这类终态错误每次请求都先白等若干轮退避
+  // （单轮上限 60s），最后才交上层。上游分类本已正确（@deepseek-ai/dsh-llm 的
+  // isQuotaExceededError 覆盖 insufficient_quota / quota exceeded，dsh-llm-pi-ai
+  // 的 QUOTA 判定排在 429→RATE_LIMIT 之前），故本条**不动分类、只改可重试性**：
+  // 识别为配额耗尽即立即返回不可重试，让用户马上看到配额/余额提示。判定顺序：
+  // 显式 x-should-retry 头优先（运维可覆盖），其后才看配额特征；纯限流文案
+  // （rate limit / too many requests）不命中，仍走正常退避重试。cli:true。
+  // -------------------------------------------------------------------------
+  {
+    id: 'pi-ai-quota-not-retryable',
+    group: 'runtime',
+    order: 337,
+    kind: 'file',
+    layout: 'runtime-local-nm',
+    wslLayout: 'runtime-local-nm',
+    pkgRel: PI_AI_PROVIDER_RETRY_PKG_REL,
+    transform: transformPiAiQuotaNotRetryable,
+    marker: PI_AI_QUOTA_NOT_RETRYABLE_MARKER,
+    requires: [],
+    failPolicy: 'warn',
+    cli: true,
+    logs: {
+      prefix: 'pi-ai 配额不重试补丁',
+      alreadyLog: alreadySkip,
+      doneLog: (file) => '已注入配额耗尽不可重试判定到 ' + file,
+      failLog: (file, err) => 'pi-ai 配额不重试补丁失败(' + file + '): ' + err.message,
     },
   },
 
@@ -1788,6 +1866,35 @@ const PATCH_SPECS = [
       alreadyLog: alreadySkip,
       doneLog: (file) => '已把未知 session 事件从拒载改为跳过+告警 ' + file,
       failLog: (file, err) => '未知事件容忍补丁失败(' + file + '): ' + err.message,
+    },
+  },
+  // -------------------------------------------------------------------------
+  // 0.6.4 在野缺陷（现场诊断：一台机器 54 会话 19 个读不回）：frozen released-v0
+  // 编解码器冻结了第一方 v0 构建当时的载荷成员清单，清单外一律整条拒载。三类实测：
+  // compaction/summary 的第三方块账本字段（billion-context-dsh/acp-kernel 写的
+  // tier、kernelBlockId、parentBlockIds、directMessageIds、effectiveMessageIds）、
+  // permission/preset.origin、subagent/descriptor 的 version:2。
+  // 修法是**只扩准入清单、成员原样保留到 v3**（剥离会丢插件语义），必填/类型/形状
+  // 校验一律不放宽；描述符仅盖章版本后继续走原有严格校验。cli:false（同族容忍补丁）。
+  // -------------------------------------------------------------------------
+  {
+    id: 'released-v0-history-recovery',
+    group: 'runtime',
+    order: 402,
+    kind: 'file',
+    layout: 'runtime-local',
+    wslLayout: 'wsl',
+    pkgRel: SESSION_FORMAT_V0_TO_V1_PKG_REL,
+    transform: transformReleasedV0KeysTolerance,
+    marker: RELEASED_V0_HISTORY_MARKER,
+    requires: [],
+    failPolicy: 'warn',
+    cli: false,
+    logs: {
+      prefix: 'released-v0 历史恢复补丁',
+      alreadyLog: alreadySkip,
+      doneLog: (file) => '已扩 released-v0 准入清单（块账本/origin/描述符 v2 盖章），成员原样保留 ' + file,
+      failLog: (file, err) => 'released-v0 历史恢复补丁失败(' + file + '): ' + err.message,
     },
   },
 ];

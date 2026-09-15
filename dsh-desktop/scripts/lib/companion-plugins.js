@@ -64,10 +64,12 @@ const COMPANION_PLUGINS = [
   // 启停/卸载/启动自检修复）+ 全局记忆 + graph-memory / dsh-market 挂载 +
   // 自身更新检查；原生适配 Gitee 版客户端版本双源对比。
   { id: 'dsh-hub', name: 'dsh-hub', shipsNodeModules: true },
-  // 手机桥（hzhz314159/dsh-mini，MIT）：从手机浏览器/App 驱动 DSH agent 会话
-  // （收发文字/图片/文件、切换模型、平衡度环、局域网网关二维码配对）。
-  // 随包附带手机 App 安装包 DSH-Mobile-v1.4.2.apk（assets/plugins/dsh-mini/）。
-  { id: 'dsh-mini', name: '@deepseek-ai/dsh-mini' },
+  // 手机同屏（shaobeichen/dsh-pocket，GPL-2.0）：手机扫码实时同屏操控桌面 web
+  // （WebSocket 全透传 + cloudflared 公网隧道内置 + 二维码配对）。
+  // 0.6.4 摘除 dsh-mini 改用本插件：dsh-mini 自建移动 UI 的 CSS Module 哈希锚
+  // 随内核换代反复静默失配（0.1.5-rc.1 实测 detailsCol→rightbarCol 等三处），
+  // 且自建 UI 功能面窄；dsh-pocket 同屏路线功能即桌面全集，无换代失配问题。
+  { id: 'dsh-pocket', name: 'dsh-pocket', shipsNodeModules: true },
   // IM 桥（hzhz314159/openclaw-dsh-bridge，MIT）：微信/飞书官方频道桥接入 DSH
   // agent 会话（消息分片回写、通道适配器、去重限流）；QQ 由官方插件
   // @tencent-connect/dsh-qqbot 提供，不在本插件范围。
@@ -80,8 +82,10 @@ const COMPANION_PLUGINS = [
   { id: 'input-history', name: 'dsh-input-history' },
   // 图片粘贴发送：Ctrl/Cmd+V 粘贴图片存临时目录后注入路径提示。
   { id: 'image-paste', name: 'dsh-image-paste' },
-  // 对话回退：消息 hover 出「编辑并回退」，按上一回合分叉新会话重发。
-  { id: 'message-rewind', name: 'dsh-message-rewind' },
+  // 消息撤回/重编辑（Renzic-Stone/DSH-EasyRewrite，MIT）：消息 hover 撤回与
+  // 再编辑，原版体验。0.6.4 起取代本仓库自带的 dsh-message-rewind（功能同域，
+  // 上游维护更活跃、rc.2 适配无漂移）。
+  { id: 'dsh-easyrewrite', name: 'dsh-easyrewrite' },
   // AI 变更审核：审查模型刚做的改动（正确性/安全性/一致性）。
   { id: 'change-review', name: 'dsh-change-review' },
   // 自动压缩：接近上下文上限时自动发送 /compact。
@@ -119,6 +123,12 @@ const COMPANION_PLUGINS = [
   // 知识中心（myYangyunfan/dsh_cardian，MIT）：RepoWiki / 知识卡片 / 记忆三区知识库；
   // 0.6.3 曾短暂内置卸载，实测后恢复（用户决定保留）。
   { id: 'cardian', name: 'dsh-cardian' },
+  // prompt 润色优化（WestFox-AwA/dsh-prompt-optimizer）：输入框一键把草稿润色为
+  // 更清晰、更结构化的高质量 prompt；默认用当前会话模型（零配置 SSE 流式），
+  // 也支持自配 OpenAI 兼容 API。零外部运行时依赖，纯客户端。
+  // id 必须与其 bundle 层 cordis.patch.yml 声明的 loader id（prompt-optimizer）
+  // 一致——写成包名会步 super-injector 的后尘（自愈 dropBlocksByIds 永不命中）。
+  { id: 'prompt-optimizer', name: 'dsh-prompt-optimizer' },
 ];
 
 /** 包名 → assets/plugins 下的目录名（去 scope 前缀）。 */

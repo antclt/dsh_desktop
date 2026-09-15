@@ -52,5 +52,5 @@
       "恢复默认图标失败："
     ]
   ],
-  "singleInstanceDialog": "DSH Desktop 已在运行"
+  "singleInstanceDialog": null
 }

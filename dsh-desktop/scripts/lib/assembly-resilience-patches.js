@@ -30,6 +30,7 @@
 const ASSEMBLY_RESILIENCE_MARKER = 'dsh-desktop compat: recover swallowed conversation assembly fault';
 
 // 原 accept(window) 方法体（产物内 3 tab 缩进、LF 行尾）。
+// 0.1.5-rc.1 重锚：append 分支末尾新增 return，且新增 settle-assistant 分支。
 const ACCEPT_OLD = [
   '\t\t\taccept(window) {',
   '\t\t\t\tif (window.revision === this.revision) return;',
@@ -49,12 +50,17 @@ const ACCEPT_OLD = [
   '\t\t\t\t\t\t\tif (next === "immediate" || publication === "none") publication = next;',
   '\t\t\t\t\t\t}',
   '\t\t\t\t\t\tthis.publish(publication);',
+  '\t\t\t\t\t\treturn;',
   '\t\t\t\t\t}',
+  '\t\t\t\t\tcase "settle-assistant":',
+  '\t\t\t\t\t\tthis.publish(this.assembler.settleAssistant(window.change.attemptId, window.change.entry));',
+  '\t\t\t\t\t\treturn;',
   '\t\t\t\t}',
   '\t\t\t}',
 ].join('\n');
 
-// 加固版：非连续/replace 分支走 dshSafeRebuild；增量分支包 try/catch；新增自愈重建方法。
+// 加固版：非连续/replace 分支走 dshSafeRebuild；增量分支包 try/catch（含新
+// settle-assistant 分支）；新增自愈重建方法。
 const ACCEPT_NEW = [
   '\t\t\taccept(window) {',
   '\t\t\t\tif (window.revision === this.revision) return;',
@@ -75,7 +81,11 @@ const ACCEPT_NEW = [
   '\t\t\t\t\t\t\t\tif (next === "immediate" || publication === "none") publication = next;',
   '\t\t\t\t\t\t\t}',
   '\t\t\t\t\t\t\tthis.publish(publication);',
+  '\t\t\t\t\t\t\treturn;',
   '\t\t\t\t\t\t}',
+  '\t\t\t\t\t\tcase "settle-assistant":',
+  '\t\t\t\t\t\t\tthis.publish(this.assembler.settleAssistant(window.change.attemptId, window.change.entry));',
+  '\t\t\t\t\t\t\treturn;',
   '\t\t\t\t\t}',
   '\t\t\t\t} catch (error) {',
   '\t\t\t\t\tthis.dshSafeRebuild(window, error);',

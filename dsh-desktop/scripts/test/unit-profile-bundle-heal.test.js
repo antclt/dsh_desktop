@@ -203,8 +203,9 @@ test('recoverManifestBundles: 追加缺失登记并补回 dependencies，保留�
 });
 
 // 变换锚点合成源（必须与 profile-bundle-heal.js 内的锚点字节一致）。
-// 0.1.2-alpha.1：`normalizeShippedProfile(...)` 结果先落入 `manifest` 常量，
-// `bundles` 单独声明后再 `.map(...)`（patchReload 校验插入其间），锚点按新形态改写。
+// 0.1.5-rc.1：逐个 bundle 严格装配的 `bundles.map(...)` 块从 loadProfile 移进
+// loadProfileDirectory(binName, dir, installAnchor, options)——该函数签名不再
+// 有 name 形参（上游以 basename(dir) 派生 profile 名），合成源按新宿主包裹。
 const SYNTHETIC_APP_LAYERS = [
   '\tconst layers = bundles.map((packageName) => {',
   '\t\tconst packageDir = resolveBundleDir(binName, packageName, installAnchor, dir);',
@@ -222,12 +223,27 @@ const SYNTHETIC_APP_LAYERS = [
 const SYNTHETIC_APP_INSERT = 'function composeEntries(layers, warn = () => {}) {';
 
 test('applyAppBootBundleGuard: 合成源命中锚点并替换', () => {
-  const src = 'export const x = 1;\n' + SYNTHETIC_APP_LAYERS + '\n' + SYNTHETIC_APP_INSERT + '\n  return null;\n}';
+  // rc.1 宿主：调用点在 loadProfileDirectory(binName, dir, installAnchor, options) 内，
+  // 作用域没有 name 形参——注入的调用点必须传 basename(dir)，引用裸 name 会抛
+  // ReferenceError（每次启动崩溃，全仓最高优先级的真实回归）。
+  const src = [
+    'export const x = 1;',
+    'function loadProfileDirectory(binName, dir, installAnchor, options = {}) {',
+    '\tconst manifest = readProfileManifest(binName, dir);',
+    '\tconst bundles = manifest.dsh?.profile?.bundles ?? [];',
+    SYNTHETIC_APP_LAYERS,
+    '\treturn { name: basename(dir), dir, layers };',
+    '}',
+    SYNTHETIC_APP_INSERT,
+    '\treturn null;',
+    '}',
+  ].join('\n');
   const out = applyAppBootBundleGuard(src);
   assert.equal(out.changed, true);
   assert.ok(out.src.includes(PROFILE_BUNDLE_GUARD_MARKER), '应写入幂等标记');
   assert.ok(out.src.includes('function loadProfileLayers(binName, name, dir, installAnchor)'), '应注入自愈装配');
-  assert.ok(out.src.includes('\tconst layers = loadProfileLayers(binName, name, dir, installAnchor);'), '调用点应替换');
+  assert.ok(out.src.includes('\tconst layers = loadProfileLayers(binName, basename(dir), dir, installAnchor);'), '调用点应替换（rc.1 宿主无 name 形参，以 basename(dir) 派生）');
+  assert.ok(!out.src.includes('const layers = loadProfileLayers(binName, name,'), '调用点不得引用裸 name（loadProfileDirectory 作用域内未定义）');
   assert.ok(!out.src.includes(SYNTHETIC_APP_LAYERS), '严格装配代码块应整体移除');
   const again = applyAppBootBundleGuard(out.src);
   assert.equal(again.changed, false, '二次应用应为幂等空操作');
@@ -258,23 +274,26 @@ test('applyAppBootBundleGuard: 真实 vendored 文件（两种状态均成立）
 });
 
 test('applyProfileBootBundleGuard: 合成源命中全部调用点并替换', () => {
+  // 0.1.5-rc.1 合成源（与 profile-boot-Dk-7KqJc.js 逐字一致）：node:fs import 已
+  // 含 existsSync/mkdirSync/rmSync，export 别名重排并新增 initializeProfileFromDefault；
+  // 家级/profile 三处 loadOptionalPatches 调用点与 alpha.5 同字节。
   const src = [
-    'import { writeFileSync } from "node:fs";',
+    'import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";',
     'const NAME = "dsh";',
     '\tconst homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? [];',
     '\t\t...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],',
     '\t\t...loadOptionalPatches(NAME, homePatchPath()) ?? [],',
-    'export { resolveTelemetryPatch as a, prepareProfile as i, PROFILE_ROOT_FILENAME as n, runProfile as o, homePatchPath as r, INSTALL_ANCHOR as t };',
+    'export { prepareProfile as a, initializeProfileFromDefault as i, PROFILE_ROOT_FILENAME as n, resolveTelemetryPatch as o, homePatchPath as r, runProfile as s, INSTALL_ANCHOR as t };',
   ].join('\n');
   const out = applyProfileBootBundleGuard(src);
   assert.equal(out.changed, true);
   assert.ok(out.src.includes(PROFILE_BOOT_GUARD_MARKER), '应写入幂等标记');
   assert.ok(out.src.includes('function loadUserPatchLayerSafe(binName, file)'), '应注入自愈加载');
-  assert.ok(out.src.includes('import { readFileSync, writeFileSync } from "node:fs";'), 'import 应扩展');
+  assert.ok(out.src.includes('import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";'), 'import 应扩充 readFileSync');
   assert.ok(out.src.includes('\tconst homePatches = loadUserPatchLayerSafe(NAME, homePatchPath());'), 'composeProfile 调用点应替换');
   assert.ok(out.src.includes('\t\t...loadUserPatchLayerSafe(NAME, composed.profile.patchPath),'), 'HMR profile 层调用点应替换');
   assert.ok(out.src.includes('\t\t...loadUserPatchLayerSafe(NAME, homePatchPath()),'), 'HMR 家级层调用点应替换');
-  assert.ok(out.src.includes('export { resolveTelemetryPatch as a, prepareProfile as i, PROFILE_ROOT_FILENAME as n, runProfile as o, homePatchPath as r, INSTALL_ANCHOR as t };'), '原导出应保留');
+  assert.ok(out.src.includes('export { prepareProfile as a, initializeProfileFromDefault as i, PROFILE_ROOT_FILENAME as n, resolveTelemetryPatch as o, homePatchPath as r, runProfile as s, INSTALL_ANCHOR as t };'), '原导出应保留');
   assert.ok(!out.src.includes('loadOptionalPatches(NAME, homePatchPath()) ?? []'), '严格加载应移除');
   assert.equal(applyProfileBootBundleGuard(out.src).changed, false, '二次应用应为幂等空操作');
 });
@@ -301,10 +320,18 @@ test('applyProfileBootBundleGuard: 真实 vendored 文件（两种状态均成�
 
 
 test('applyProfileBootHealGuard: 合成源命中 heal 调用并替换', () => {
-  const src = 'function prepareProfile(name) {\n\thealProfilesModuleFallback(INSTALL_ANCHOR);\n\treturn name;\n}';
+  // 0.1.5-rc.1 形态：composeProfile 内 await healProfilesModuleFallback({ installAnchor, profile })
+  // 四行调用（profile-boot-Dk-7KqJc.js:234 逐字一致），不再是 alpha.5 的单行直调。
+  const src = 'async function composeProfile(name) {\n'
+    + '\tawait healProfilesModuleFallback({\n'
+    + '\t\tinstallAnchor: INSTALL_ANCHOR,\n'
+    + '\t\tprofile\n'
+    + '\t});\n'
+    + '\treturn name;\n}';
   const out = applyProfileBootHealGuard(src);
   assert.equal(out.changed, true, 'heal 调用锚点应命中');
   assert.ok(out.src.includes("try {"), '调用应包进 try/catch');
+  assert.ok(out.src.includes('\tawait healProfilesModuleFallback({'), 'try 块内应保留原 await 四行调用');
   assert.ok(out.src.includes(PROFILE_BOOT_HEAL_MARKER), '幂等标记应写入');
   assert.equal(applyProfileBootHealGuard(out.src).changed, false, '二次应用应为幂等空操作');
 });
@@ -321,8 +348,8 @@ test('applyProfileBootHealGuard: 真实 vendored 文件（两种状态均成立�
   if (src.includes(PROFILE_BOOT_HEAL_MARKER)) {
     assert.equal(out.changed, false);
     assert.equal(out.src, src);
-  } else if (!src.includes('\thealProfilesModuleFallback(INSTALL_ANCHOR);')) {
-    assert.equal(out.changed, false, '入口 bundle 无 heal 调用应静默');
+  } else if (!src.includes('\tawait healProfilesModuleFallback({')) {
+    assert.equal(out.changed, false, '入口 bundle 无 heal 调用应静默（rc.1 四行 await 形态）');
   } else {
     assert.equal(out.changed, true, 'vendored profile-boot heal 锚点应命中（dsh 版本变更时需同步更新锚点）');
     assert.ok(out.src.includes(PROFILE_BOOT_HEAL_MARKER));

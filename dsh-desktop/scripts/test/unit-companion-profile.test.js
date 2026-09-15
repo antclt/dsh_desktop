@@ -77,3 +77,76 @@ test('registerCompanionPatchEntries: 精确 id 已存在时改名生效但不误
   assert.ok(out.patch.includes("name: '@deepseek-ai/dsh-terminal'"), '精确 id 的 name 应就地改名');
   assert.ok(out.patch.includes("name: '@deepseek-ai/dsh-terminal-tab'"), '前缀兄弟条目 name 不得被误改');
 });
+// ---------------------------------------------------------------------------
+// dsh-mini 退役清理（0.6.4，dsh-pocket 等位替代）：目录 + manifest + patch 行全套
+
+const { removeRetiredDshMiniDir, removeRetiredDshMiniPatchRows } = require('../lib/companion-profile');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+function mkProfileWithMini(pkg, manifest) {
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mini-retired-'));
+  const dir = path.join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-mini');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg));
+  fs.writeFileSync(path.join(dir, 'lib.js'), 'x');
+  if (manifest) fs.writeFileSync(path.join(profileDir, 'package.json'), JSON.stringify(manifest, null, 2));
+  return { profileDir, dir };
+}
+
+const BUILTIN_MINI_PKG = {
+  name: '@deepseek-ai/dsh-mini', version: '1.4.2',
+  dsh: { bundle: { patch: './cordis.patch.yml' } },
+};
+
+test('removeRetiredDshMiniDir: 内置装配副本被移除 + manifest bundles/dependencies 清账', () => {
+  const { profileDir, dir } = mkProfileWithMini(BUILTIN_MINI_PKG, {
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-mini'] } },
+    dependencies: { '@deepseek-ai/dsh-mini': 'file:../../assets/plugins/dsh-mini' },
+  });
+  const logs = [];
+  removeRetiredDshMiniDir(profileDir, { log: (m) => logs.push(m) });
+  assert.strictEqual(fs.existsSync(dir), false, '内置副本必须被移除');
+  const m = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'));
+  assert.ok(!m.dsh.profile.bundles.includes('@deepseek-ai/dsh-mini'), 'manifest bundles 必须摘除 mini');
+  assert.ok(m.dsh.profile.bundles.includes('@deepseek-ai/dsh-base'), '核心 bundle 不得误伤');
+  assert.ok(!m.dependencies || !m.dependencies['@deepseek-ai/dsh-mini'], 'dependencies 必须摘除 mini');
+  assert.ok(logs.some((x) => x.includes('dsh-mini')), '应留下清理日志');
+});
+
+test('removeRetiredDshMiniDir: 无 dsh.bundle.patch 特征的同名包（用户 npm 自装）不得误删', () => {
+  const { profileDir, dir } = mkProfileWithMini({ name: '@deepseek-ai/dsh-mini', version: '9.9.9' });
+  removeRetiredDshMiniDir(profileDir, {});
+  assert.strictEqual(fs.existsSync(dir), true, '非内置特征的同名包必须保留');
+});
+
+test('removeRetiredDshMiniDir: 残缺目录（无 package.json）按可清理处理', () => {
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mini-broken-'));
+  const dir = path.join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-mini');
+  fs.mkdirSync(dir, { recursive: true });
+  removeRetiredDshMiniDir(profileDir, {});
+  assert.strictEqual(fs.existsSync(dir), false, '残缺目录应被清理');
+});
+
+test('removeRetiredDshMiniDir: 目录不存在时零动作（不创建文件）', () => {
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mini-absent-'));
+  removeRetiredDshMiniDir(profileDir, {});
+  assert.strictEqual(fs.existsSync(path.join(profileDir, 'package.json')), false, '不得凭空创建 manifest');
+});
+
+test('removeRetiredDshMiniPatchRows: patch 层 dsh-mini 登记行被整块摘除', () => {
+  const patch = [
+    '- insert:',
+    '    - id: dsh-mini',
+    "      name: '@deepseek-ai/dsh-mini'",
+    '      config: {}',
+    '- insert:',
+    '    - id: dsh-keep',
+    "      name: dsh-keep",
+  ].join('\n');
+  const r = removeRetiredDshMiniPatchRows(patch);
+  assert.strictEqual(r.changed, true);
+  assert.ok(!r.patch.includes('dsh-mini'), 'mini 行必须被摘除');
+  assert.ok(r.patch.includes('dsh-keep'), '保留行不得误伤');
+});

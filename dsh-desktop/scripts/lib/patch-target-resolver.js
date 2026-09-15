@@ -54,6 +54,8 @@ const EXPOSE_PKG_REL = path.join('dsh-host-apiproxy', 'lib', 'index.js');
 const PERSISTENCE_PKG_REL = path.join('dsh-session-persistence-jsonl', 'lib', 'index.js');
 // 核心持久层（assertEventsSupported 所在；jsonl 是其后端实现，两者不同包）。
 const SESSION_PERSISTENCE_CORE_PKG_REL = path.join('dsh-session-persistence', 'lib', 'index.js');
+// released-v0 校验器与 v0→v1 迁移所在包（第三个不同包，勿与前两者混用）。
+const SESSION_FORMAT_V0_TO_V1_PKG_REL = path.join('dsh-session-format-v0-to-v1', 'lib', 'index.js');
 const SLOT_KEY_COMPAT_PKG_REL = path.join('dsh-client-ui-slots', 'lib', 'index.js');
 const SLOT_UNKEYED_COMPAT_PKG_REL = path.join('dsh-cordis-client-runner', 'lib', 'client.js');
 const SLOT_COMPAT_PKG_RELS = [SLOT_KEY_COMPAT_PKG_REL, SLOT_UNKEYED_COMPAT_PKG_REL];
@@ -106,6 +108,21 @@ const PICKER_AUTO_PKG_REL = path.join('dsh-host-directory-picker-auto', 'lib', '
 const CODEX_BIN_PKG_REL = path.join('@openai', 'codex', 'bin', 'codex.js');
 // pi-ai openai-completions 路由（4xx 诊断落盘补丁目标；scope-agnostic 布局）。
 const PI_AI_COMPLETIONS_PKG_REL = path.join('@earendil-works', 'pi-ai', 'dist', 'api', 'openai-completions.js');
+// pi-ai Responses 系三条路由（openai-responses / azure-openai-responses /
+// openai-codex-responses）共用的工具序列化 + 流式槽位构造模块，Responses 工具名
+// 净化补丁（pi-ai-responses-tool-name-sanitize）目标；同 PI_AI_COMPLETIONS_PKG_REL
+// 的 scope-agnostic（runtime-local-nm）布局。
+const PI_AI_RESPONSES_SHARED_PKG_REL = path.join('@earendil-works', 'pi-ai', 'dist', 'api', 'openai-responses-shared.js');
+// pi-ai 重试判定工具模块（provider-retry.js）：配额耗尽不得重试补丁
+// （pi-ai-quota-not-retryable）的目标——isRetryableProviderError 把 429 一律
+// 当可重试，而 OpenAI 兼容渠道的 insufficient_quota 同为 429 却是终态。同
+// PI_AI_COMPLETIONS_PKG_REL 的 scope-agnostic（runtime-local-nm）布局。
+const PI_AI_PROVIDER_RETRY_PKG_REL = path.join('@earendil-works', 'pi-ai', 'dist', 'utils', 'provider-retry.js');
+// dsh-llm-pi-ai 适配层：工具名 wire 中央收口补丁的目标（内核把工具交给 pi-ai 前
+// 唯一的出站出口 toolsOf() 与回程两处 tool-call 转换都在此文件，一处覆盖全部 provider）。
+// 布局口径：本条走 runtime-local-nm，其 pkgRel 相对 node_modules/ 直接拼接（同
+// PI_AI_* 两条），故必须带 @deepseek-ai 作用域；只相对 @deepseek-ai 的是 mkAi 系布局。
+const DSH_LLM_PIAI_PKG_REL = path.join('@deepseek-ai', 'dsh-llm-pi-ai', 'lib', 'index.js');
 // 官方 DeepSeek API 适配器（deepseek-official 路由，不走 pi-ai）。@deepseek-ai
 // scope 布局：pkgRel 相对 @deepseek-ai（与 CLAUDE_SUBAGENT_PKG_REL 等一致），
 // 由 mkAi 的 runtime-local/guard/wsl 布局补 scope 前缀。曾误含 '@deepseek-ai'
@@ -293,6 +310,7 @@ module.exports = {
   EXPOSE_PKG_REL,
   PERSISTENCE_PKG_REL,
   SESSION_PERSISTENCE_CORE_PKG_REL,
+  SESSION_FORMAT_V0_TO_V1_PKG_REL,
   SLOT_KEY_COMPAT_PKG_REL,
   SLOT_UNKEYED_COMPAT_PKG_REL,
   SLOT_COMPAT_PKG_RELS,
@@ -315,6 +333,9 @@ module.exports = {
   PICKER_AUTO_PKG_REL,
   CODEX_BIN_PKG_REL,
   PI_AI_COMPLETIONS_PKG_REL,
+  PI_AI_RESPONSES_SHARED_PKG_REL,
+  PI_AI_PROVIDER_RETRY_PKG_REL,
+  DSH_LLM_PIAI_PKG_REL,
   DS_LLM_DEEPSEEK_PKG_REL,
   CLAUDE_SUBAGENT_PKG_REL,
   SKILL_FS_PKG_REL,

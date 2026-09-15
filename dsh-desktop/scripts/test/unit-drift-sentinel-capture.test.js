@@ -32,7 +32,7 @@ const {
 const { PATCH_SPECS } = require('../lib/patch-registry');
 const {
   transformPersistenceTornTail, transformPersistenceCorruptGuard,
-  PERSISTENCE_PKG_REL, PERSISTENCE_TORN_HEAD, PERSISTENCE_TORN_MARKER, PERSISTENCE_CORRUPT_MARKER,
+  PERSISTENCE_PKG_REL, PERSISTENCE_TORN_HEAD, PERSISTENCE_TORN_HEAD_V2, PERSISTENCE_TORN_MARKER, PERSISTENCE_CORRUPT_MARKER,
 } = require('../lib/runtime-patches');
 const {
   DS_LLM_DEEPSEEK_PKG_REL, KERNEL_WEB_INDEX_REL, WORKSPACE_PKG_REL,
@@ -145,7 +145,7 @@ const pickTarget = (s) => s.candidates.find((f) => fs.existsSync(f)) || null;
 const GUARD_TEXT = 'loadFrameIndex >= frames.length - 1';
 const PERSISTENCE_MARKERS = [
   PERSISTENCE_TORN_MARKER, PERSISTENCE_CORRUPT_MARKER,
-  markers.SESSION_HEADER_SCAN_MARKER, markers.SESSION_LOAD_GRACEFUL_MARKER_V2,
+  markers.SESSION_HEADER_SCAN_MARKER, markers.SESSION_LOAD_GRACEFUL_MARKER_V3,
 ];
 const persistenceCopies = () => persistenceTargets().filter((f) => fs.existsSync(f)).map((f) => fs.readFileSync(f, 'utf8'));
 
@@ -220,8 +220,8 @@ test('持久化族 pristine：四个 marker 与首部注入行都必须剥净（
   const copies = persistenceCopies();
   assert.ok(copies.length > 0, '找不到会话持久化靶文件');
   const pristine = toPristineSource('session-persistence-family', copies[0]);
-  assert.ok(!pristine.startsWith(PERSISTENCE_TORN_HEAD),
-    '首部 torn-tail marker 行没被剥掉 —— 基准仍是补丁态，changed 断言会退化成 already 假红');
+  assert.ok(!pristine.startsWith(PERSISTENCE_TORN_HEAD) && !pristine.startsWith(PERSISTENCE_TORN_HEAD_V2),
+    '首部 torn-tail marker 行（含 rc.1 扁平契约的 V2 头行）没被剥掉 —— 基准仍是补丁态，changed 断言会退化成 already 假红');
   for (const marker of PERSISTENCE_MARKERS) {
     assert.ok(!pristine.includes(marker), 'pristine 仍含 ' + marker + '（族逆运算漏剥）');
   }
@@ -254,15 +254,29 @@ test('K6 的 LEGACY 注入体：必须是「缺末帧守卫」那一版，且有
   assert.ok(!SESSION_LOAD_GRACEFUL_CATCH_LEGACY.includes(GUARD_TEXT),
     'LEGACY 不得含末帧守卫 —— 缺守卫才是它要还原的那个缺陷本体');
   assert.ok(pairs.some((to) => to !== SESSION_LOAD_GRACEFUL_CATCH_LEGACY && to.includes(GUARD_TEXT)),
-    '必须同时登记含末帧守卫的 v2 变体，否则升级后的副本无法还原');
+    '必须同时登记含末帧守卫的新世代变体，否则升级后的副本无法还原');
 
   const copies = persistenceCopies();
+  // 世代识别必须排除所有更新世代的 marker：基础 marker 是 v2/v3 的字面前缀，
+  // 只用 !includes(MARKER_V2) 会把 v3 副本误判成在野 v1。
   const v1 = copies.filter((c) => c.includes(markers.SESSION_LOAD_GRACEFUL_MARKER)
-    && !c.includes(markers.SESSION_LOAD_GRACEFUL_MARKER_V2));
+    && !c.includes(markers.SESSION_LOAD_GRACEFUL_MARKER_V2)
+    && !c.includes(markers.SESSION_LOAD_GRACEFUL_MARKER_V3));
   if (v1.length === 0) {
     t.diagnostic('当前磁盘上已无 v1 形态副本（都已升级），LEGACY 真实性改由升级通道用例的逐字节对账兜住');
-    return;
+  } else {
+    assert.ok(v1.every((c) => c.includes(SESSION_LOAD_GRACEFUL_CATCH_LEGACY)),
+      'LEGACY 常量与在野 v1 副本字节不符 —— 它是抄错了的历史');
   }
-  assert.ok(v1.every((c) => c.includes(SESSION_LOAD_GRACEFUL_CATCH_LEGACY)),
-    'LEGACY 常量与在野 v1 副本字节不符 —— 它是抄错了的历史');
+  // v2 世代佐证：在野 v2 副本（0.6.2~0.6.3 随 alpha.5 写盘）必须逐字包含登记的
+  // CATCH_V2 逆运算变体——与 v1 的 LEGACY 佐证同款的「按世代分别对照」历史保真锁。
+  const catchV2 = pairs.find((to) => to.includes(markers.SESSION_LOAD_GRACEFUL_MARKER_V2));
+  assert.ok(catchV2, '登记表必须含 v2 世代变体（在野 v2 副本的逆运算依据）');
+  const v2 = copies.filter((c) => c.includes(markers.SESSION_LOAD_GRACEFUL_MARKER_V2));
+  if (v2.length === 0) {
+    t.diagnostic('当前磁盘上已无 v2 形态副本（都已升级），CATCH_V2 真实性由 HEAD 换代字节交叉核对兜住');
+  } else {
+    assert.ok(v2.every((c) => c.includes(catchV2)),
+      'CATCH_V2 常量与在野 v2 副本字节不符 —— 换代派生破坏了历史字节');
+  }
 });
