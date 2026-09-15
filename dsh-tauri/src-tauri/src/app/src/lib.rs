@@ -1110,15 +1110,24 @@ mod tray_behavior_shape {
         let restart = restart.split("\"quit\" =>").next().expect("restart 分支收尾");
         let gate = restart.find("EXITING.store(true").expect("restart 必须置位退出闸门");
         let shutdown = restart.find("sv.shutdown()").expect("restart 必须收尾 supervisor");
-        let delay_spawn = restart.find("\"start\", \"\"").expect("restart 必须经 cmd 延迟拉起");
+        // 0.6.4 重构：延迟拉起抽为 relaunch_detached()（Windows 专属 CommandExt
+        // 需 cfg 门禁，否则 Linux/macOS 构建全灭）。restart 分支只须调它。
+        let delay_spawn = restart.find("relaunch_detached()").expect("restart 必须经游离进程延迟拉起");
         let exit = restart.find("app.exit(0)").expect("restart 必须 exit(0) 收尾");
         assert!(gate < shutdown, "EXITING 置位必须先于 shutdown（先关竞态窗口）");
         assert!(shutdown < delay_spawn && delay_spawn < exit, "shutdown 杀内核必须先于延迟拉起与 exit");
         assert!(!restart.contains("app.restart()"), "不得回退到会被 single-instance 拦截的 app.restart()");
-        // beta.2 勘误锚点：复合命令禁止作为单一参数（MSVCRT 转义会污染 start 的
-        // 空标题引号，cmd 不认转义，路径被污染实测「找不到文件」弹窗），
-        // 必须原子 args。标志物：复合串必含 ">nul & start" 连续片段。
-        assert!(!restart.contains(">nul & start"), "复合命令不得作为单一参数（须原子 args 传裸空标题）");
+        // 游离拉起函数的契约随迁：Windows 臂仍须原子 args 传裸空标题（beta.2
+        // 勘误锚点迁移），复合命令不得作为单一参数。窗口必须截止于函数区之后
+        // （切到文件尾会把本测试源码里的字面量框进来，自指必挂——0.6.4 实测）。
+        let detached_at = src.find("fn relaunch_detached()").expect("relaunch_detached 必须在场");
+        let arm_end = detached_at + src[detached_at..].find("/// 保存主窗状态").expect("relaunch_detached 区块收尾注释");
+        let win_arm = &src[detached_at..arm_end];
+        assert!(win_arm.contains("\"start\", \"\""), "Windows 臂必须原子 args 传裸空标题（游离拉起）");
+        assert!(
+            !win_arm.contains(">nul & start"),
+            "复合命令不得作为单一参数（须原子 args 传裸空标题）"
+        );
     }
 
     /// 退出竞态闸门（tao Destroyed panic 实测修复）：托盘「退出」必须先置位
