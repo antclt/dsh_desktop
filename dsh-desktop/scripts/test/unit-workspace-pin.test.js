@@ -89,10 +89,11 @@ test('幂等：二遍 changed=0（marker 命中即跳过）', () => {
 test('锚点缺失：整文件跳过、绝不落盘半截', () => {
   const sb = makeSandbox();
   try {
-    // 抽掉一个锚（排序锚的 "Derive the flat" 后文），applyReplacements 应在
-    // 该锚前回滚（前面锚点的替换只发生在内存 src，未落盘）。
+    // 抽掉一个锚（排序锚的 "Keep navigation presentation" 尾注释，0.1.6 重锚
+    // 后的后文标记），applyReplacements 应在该锚前回滚（前面锚点的替换只发生
+    // 在内存 src，未落盘）。
     let fixture = buildUiFixture();
-    fixture = fixture.replace('* Derive the flat session list', '* GONE');
+    fixture = fixture.replace('* Keep navigation presentation independent', '* GONE');
     fs.writeFileSync(sb.file, fixture, 'utf8');
     const stats = { anchorMissing: 0 };
     const n = patchWorkspacePin(sb.dir, () => {}, stats);

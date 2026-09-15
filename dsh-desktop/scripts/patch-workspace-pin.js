@@ -105,6 +105,7 @@ const UI_CORE_ANCHOR = '		function ProjectRowItem({ group, onToggle, onCreate, a
 const UI_CORE_INSERT = CORE + '\n' + UI_CORE_ANCHOR;
 
 // 1b. 项目行 hooks 区：订阅版本号 + 读取置顶态（无条件 hook，Rules of Hooks 安全）。
+// menuRect state 经字节级实测在场（勿凭单次读数收窄锚点）。
 const UI_HOOKS_ANCHOR = [
 	'			const [menuOpen, setMenuOpen] = (0, react.useState)(false);',
 	'			const [menuRect, setMenuRect] = (0, react.useState)(null);',
@@ -184,19 +185,18 @@ const UI_TITLE_INSERT = [
 	'					}),',
 ].join('\n');
 
-// 2a. deriveGroups 尾：分组产出经置顶重排（带后文锚，区分 groupByWorkspace 的同名 return）。
+// 2a. deriveGroups 尾：分组产出经置顶重排。0.1.6 重锚：尾部注释改为
+// "Keep navigation presentation..."（原 "Derive the flat session list" 已被上游删除）。
 const UI_SORT_ANCHOR = [
 	'			return groups;',
 	'		}',
-	'		/**',
-	'		* Derive the flat session list',
+	'		/** Keep navigation presentation independent from domain-owned interaction objects. */',
 ].join('\n');
 const UI_SORT_INSERT = [
 	'			// dsh-desktop patch (workspace pin): 置顶分组压顶（pinMillis 降序），其余保原序。',
 	'			return dshApplyWorkspacePins(groups);',
 	'		}',
-	'		/**',
-	'		* Derive the flat session list',
+	'		/** Keep navigation presentation independent from domain-owned interaction objects. */',
 ].join('\n');
 
 // 2b. SessionTree：版本号进作用域（两组行联合锚——useSessions 单行出现 3 次）。
@@ -212,24 +212,26 @@ const UI_TREE_INSERT = [
 ].join('\n');
 
 // 2c. groups useMemo deps：追加版本号（唯一锚；否则置顶切换被 memo 缓存吞掉）。
+// 0.1.6 重锚：deps 集合变为 list/workspaces/archivedSessionIds/pendingInteractions/
+// expandedGroups/ungroupedSessionIds（deriveGroups 抽为独立函数，view 入参化）。
 const UI_DEPS_ANCHOR = [
 	'			}), [',
 	'				list,',
-	'				orderedWorkspaces,',
+	'				workspaces,',
 	'				archivedSessionIds,',
 	'				pendingInteractions,',
 	'				expandedGroups,',
-	'				sessionOrderByAccount',
+	'				ungroupedSessionIds',
 	'			]);',
 ].join('\n');
 const UI_DEPS_INSERT = [
 	'			}), [',
 	'				list,',
-	'				orderedWorkspaces,',
+	'				workspaces,',
 	'				archivedSessionIds,',
 	'				pendingInteractions,',
 	'				expandedGroups,',
-	'				sessionOrderByAccount,',
+	'				ungroupedSessionIds,',
 	'				dshWsPinVersion',
 	'			]);',
 ].join('\n');

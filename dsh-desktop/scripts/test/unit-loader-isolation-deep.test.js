@@ -48,7 +48,7 @@ const LOADER_HELPERS_ANCHOR = 'function updateError(stage, options, cause) {';
 const APP_BOOT_BOOT_CALL_OLD = [
   '\t\tawait ctx.get("loader")?.await();',
   '\t\tif (ctx.get("loader") === void 0) return ctx;',
-  '\t\tawait assertEntriesActivated(ctx, binName);',
+  '\t\tawait auditStartupEntries(ctx, binName);',
 ].join('\n');
 
 const APP_BOOT_INSERT_ANCHOR = 'function composeEntries(layers, warn = () => {}) {';

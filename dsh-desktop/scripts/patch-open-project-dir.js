@@ -68,9 +68,10 @@ const UI_PROJECT_BUTTON_INSERT = '"aria-label": t("actions.workspace.aria", { na
 const UI_SESSION_SIG_ANCHOR = 'function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t }) {';
 const UI_SESSION_SIG_INSERT = 'function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t, cwd }) {';
 
-// 2b. 会话行：右键锚点矩形 state。
-const UI_SESSION_STATE_ANCHOR = 'const showStatus = statuses[0].state !== "done" || row.completed;\n\t\t\tconst [menuOpen, setMenuOpen] = (0, react.useState)(false);';
-const UI_SESSION_STATE_INSERT = 'const showStatus = statuses[0].state !== "done" || row.completed;\n\t\t\tconst [menuOpen, setMenuOpen] = (0, react.useState)(false);\n\t\t\tconst [menuRect, setMenuRect] = (0, react.useState)(null);';
+// 2b. 会话行：右键锚点矩形 state。0.1.6 在 showStatus 与 menuOpen 之间新增
+// draggable 行，锚点随之扩一行。
+const UI_SESSION_STATE_ANCHOR = 'const showStatus = statuses[0].state !== "done" || row.completed;\n\t\t\tconst draggable = drag !== void 0 && !row.blank;\n\t\t\tconst [menuOpen, setMenuOpen] = (0, react.useState)(false);';
+const UI_SESSION_STATE_INSERT = 'const showStatus = statuses[0].state !== "done" || row.completed;\n\t\t\tconst draggable = drag !== void 0 && !row.blank;\n\t\t\tconst [menuOpen, setMenuOpen] = (0, react.useState)(false);\n\t\t\tconst [menuRect, setMenuRect] = (0, react.useState)(null);';
 
 // 2c. 会话行菜单项数组：delete 项后按需追加 open-folder（无 cwd 不显示）。
 const UI_SESSION_ITEMS_ANCHOR = '// dsh-desktop patch (session manage): 归档下方增加删除。\n\t\t\t\t// 桥 window.__dshSessionManager 由 dsh-session-manager 插件提供；桥缺失\n\t\t\t\t// 时隐藏「删除对话」项（显式降级，而非可选链静默无反应）。\n\t\t\t\t...(window.__dshSessionManager && typeof window.__dshSessionManager.deleteSession === "function" ? [{\n\t\t\t\t\tid: "delete",\n\t\t\t\t\tlabel: t("menu.deleteSession")\n\t\t\t\t}] : [])\n\t\t\t];';

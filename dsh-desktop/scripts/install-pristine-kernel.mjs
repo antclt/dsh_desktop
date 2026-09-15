@@ -159,9 +159,17 @@ function main() {
   let total = 0;
   for (const f of files) {
     const r = extractOne(join(TARBALLS, f), consumerDir);
-    if (r.version !== version) {
+    // 0.1.6 起收编族（cordis/cosmokit/schemastery/node-addon-system）版本线与
+    // 内核 pin 不同——校验改为「文件名内嵌版本 ↔ manifest 自洽」；仅 dsh-* 内核
+    // 家族仍强等 pin（离线内核不得混版的本意是防串版，收编族自有版本号合法）。
+    const stem = f.replace(/\.tgz$/, '');
+    const fm = stem.match(/^(.*)-((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?)$/);
+    const expected = fm ? fm[2] : version;
+    const isDshFamily = stem.startsWith('deepseek-ai-dsh-');
+    const want = isDshFamily ? version : expected;
+    if (r.version !== want) {
       throw new Error(
-        `install-pristine-kernel: ${f} 是 ${r.version}，pin 要求 ${version}（离线内核不得混版）`,
+        `install-pristine-kernel: ${f} 是 ${r.version}，期望 ${want}（离线内核不得混版）`,
       );
     }
     total += 1;

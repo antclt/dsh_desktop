@@ -44,9 +44,16 @@ if (files.length === 0) throw new Error(`no tarballs in ${TARBALLS}`);
 
 const fileDeps = {};
 const resolvedByName = {};
+const fileVersions = {};
 for (const file of files) {
-  const base = file.replace(/\.tgz$/, '').replace(`-${KERNEL_VERSION}`, '');
+  // 0.1.6 起收编族（cordis/cosmokit/schemastery/node-addon-system）版本线与
+  // 内核 pin 不同——版本必须取自文件名尾部的 semver，而非 KERNEL_VERSION。
+  const stem = file.replace(/\.tgz$/, '');
+  const m = stem.match(/^(.*)-((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?)$/);
+  if (!m) throw new Error(`generate-kernel-lock: 无法从文件名解析包名/版本: ${file}`);
+  const base = m[1];
   const name = `@deepseek-ai/${base.replace(/^deepseek-ai-/, '')}`;
+  fileVersions[name] = m[2];
   const rel = `file:vendor/dsh-kernel/${file}`;
   fileDeps[name] = rel;
   resolvedByName[name] = rel;
@@ -79,7 +86,9 @@ try {
 
   console.log(`generate-kernel-lock: resolving ${files.length} file: deps + ${Object.keys(nonDshDeps).length} registry deps ...`);
   const code = await new Promise((resolve) => {
-    const child = spawn('npm', ['install', '--package-lock-only', '--no-audit', '--no-fund'], {
+    // --force：0.1.6 起收编 node-addon-system 平台原生件（darwin/linux），在
+    // x64 Windows 上 cpu/os notsup 必拒——lock 生成只记录解析，不实际安装。
+    const child = spawn('npm', ['install', '--package-lock-only', '--no-audit', '--no-fund', '--force'], {
       cwd: tmp,
       shell: SHELL,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -135,7 +144,7 @@ try {
     const key = `node_modules/${name}`;
     const entry = tmpLock.packages[key];
     if (!entry) { console.error(`  MISSING lock entry: ${name}`); bad += 1; continue; }
-    if (entry.version !== KERNEL_VERSION) { console.error(`  WRONG version ${name}: ${entry.version}`); bad += 1; }
+    if (entry.version !== fileVersions[name]) { console.error(`  WRONG version ${name}: ${entry.version} (期望 ${fileVersions[name]})`); bad += 1; }
     const want = resolvedByName[name];
     if (entry.resolved !== want) {
       // normalize (npm may record the same path with a different file: form)

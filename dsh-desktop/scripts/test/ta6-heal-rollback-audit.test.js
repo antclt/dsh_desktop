@@ -99,13 +99,15 @@ const rootSpecs = PATCH_SPECS.filter((s) => s.kind === 'root');
 // 与同包 completions 净化补丁一样落在离线内核闭包之外）。
 // 第 6 条来源：pi-ai-quota-not-retryable（靶 @earendil-works/pi-ai/dist/utils/
 // provider-retry.js，同包第三条非闭包靶）。
+// 0.1.6 迁移（2026-09-15）：loader-tree-isolation 移出——其靶 cordis-plugin-loader
+// 已被上游收编进 vendor/dsh-kernel（@deepseek-ai/cordis-plugin-loader@1.0.3），
+// 转入离线闭包，故非闭包集合 6→5。
 const EXPECTED_NON_VENDORED = [
-  'loader-tree-isolation',
   'codex-local-bin-fallback',
   'pi-ai-4xx-dump',
-  'pi-ai-tool-schema-sanitize',
-  'pi-ai-responses-tool-name-sanitize',
   'pi-ai-quota-not-retryable',
+  'pi-ai-responses-tool-name-sanitize',
+  'pi-ai-tool-schema-sanitize',
 ];
 
 // 44 = 43（上一基线）+ 1 项新增（released-v0-history-recovery：靶 dsh-session-format-v0-to-v1

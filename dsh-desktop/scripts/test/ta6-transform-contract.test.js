@@ -184,15 +184,17 @@ test('契约面完整性：47 个 file transform 全部被本文件覆盖', () =
 // 与同包 completions 补丁一样不属离线内核闭包）。
 // 第 6 条来源：pi-ai-quota-not-retryable（靶 @earendil-works/pi-ai/dist/utils/
 // provider-retry.js，同包第三条非闭包靶）。
+// 0.1.6 迁移（2026-09-15）：loader-tree-isolation 移出——其靶 cordis-plugin-loader
+// 已被上游收编进 vendor/dsh-kernel（@deepseek-ai/cordis-plugin-loader@1.0.3），
+// 转入离线闭包，非闭包集合 6→5。
 const EXPECTED_NON_VENDORED = [
-  'loader-tree-isolation',      // @deepseek-ai/cordis-plugin-loader — registry 发布包
   'codex-local-bin-fallback',   // @openai/codex — 宿主可选依赖
   'pi-ai-4xx-dump',             // @earendil-works/pi-ai — 宿主可选依赖
   'pi-ai-tool-schema-sanitize', // @earendil-works/pi-ai — 宿主可选依赖
   'pi-ai-responses-tool-name-sanitize', // @earendil-works/pi-ai — 宿主可选依赖
   'pi-ai-quota-not-retryable',  // @earendil-works/pi-ai — 宿主可选依赖
 ];
-test('诚实跳过集合恰为已知 6 条非闭包目标（防静默停摆）', () => {
+test('诚实跳过集合恰为已知 5 条非闭包目标（防静默停摆）', () => {
   const actual = fileSpecs.filter((s) => !specTargetVendored(s)).map((s) => s.id).sort();
   assert.deepEqual(actual, [...EXPECTED_NON_VENDORED].sort(),
     `非闭包（诚实 SKIP）集合漂移：实际=[${actual}]，基线=[${EXPECTED_NON_VENDORED}]`);

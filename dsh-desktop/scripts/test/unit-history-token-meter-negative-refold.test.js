@@ -171,13 +171,13 @@ test('升级实态：旧版仅夹取已应用、version 仍 2 → changed，只�
 // 2. 真实已装 bundle 字节：fixed-point + 版本状态
 // ===========================================================================
 
-test('真实已装 bundle：0.1.5-rc.1 已原生化（ver4 节点式）→ 补丁退役 anchor-missing', () => {
+test('真实已装 bundle：0.1.5-rc.1 已原生化（0.1.6 升 ver5 节点式）→ 补丁退役 anchor-missing', () => {
   assert.ok(fs.existsSync(BUNDLE), `缺已装 bundle：${BUNDLE}`);
   const installed = fs.readFileSync(BUNDLE, 'utf8');
   const r = transformTokenMeterClamp(installed, 'index.js');
-  assert.equal(r.status, 'anchor-missing', '内核重写 contextBreakdown（ver4 节点式），旧夹取锚点已消失 → 补丁退役');
+  assert.equal(r.status, 'anchor-missing', '内核重写 contextBreakdown（ver5 节点式），旧夹取锚点已消失 → 补丁退役');
   assert.equal(r.src, undefined, '退役态不得改写真字节');
-  assert.equal(extractStateVersion(installed, 'contextBreakdown'), 4, '真字节 contextBreakdown 应为 ver4（上游原生修复）');
+  assert.equal(extractStateVersion(installed, 'contextBreakdown'), 5, '真字节 contextBreakdown 应为 ver5（0.1.6 再次升版）');
   assert.equal(extractStateVersion(installed, 'tokenUsage'), 2, '真字节 tokenUsage 应仍 ver2');
 });
 
@@ -270,9 +270,9 @@ test('对照·复现 #172：live stateVersion 仍为 2 时，restore 直接 pars
   );
 });
 
-test('修复生效：live contextBreakdown stateVersion=4（自真实 bundle 提取）→ ver 失配丢弃重折、非负、不抛', () => {
+test('修复生效：live contextBreakdown stateVersion=5（自真实 bundle 提取）→ ver 失配丢弃重折、非负、不抛', () => {
   const liveVersion = extractStateVersion(fs.readFileSync(BUNDLE, 'utf8'), 'contextBreakdown');
-  assert.equal(liveVersion, 4, '回归位：内核 contextBreakdown 版本（0.1.5-rc.1 已升 ver4）');
+  assert.equal(liveVersion, 5, '回归位：内核 contextBreakdown 版本（0.1.6 已升 ver5）');
   const defs = [makeContextBreakdownDef(liveVersion), TOKEN_USAGE_DEF];
   const baseSeq = restoreFloor(defs, DIRTY_CHECKPOINT);
   assert.equal(baseSeq, 0, 'contextBreakdown ver 失配 → restoreFloor 拉到 0（全量重折）');

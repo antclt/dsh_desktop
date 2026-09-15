@@ -120,7 +120,7 @@ function transformLoaderTreeIsolation(src, file) {
 const APP_BOOT_BOOT_CALL_OLD = [
   '\t\tawait ctx.get("loader")?.await();',
   '\t\tif (ctx.get("loader") === void 0) return ctx;',
-  '\t\tawait assertEntriesActivated(ctx, binName);',
+  '\t\tawait auditStartupEntries(ctx, binName);',
 ].join('\n');
 const APP_BOOT_BOOT_CALL_NEW = [
   '\t\tawait ctx.get("loader")?.await();',

@@ -89,9 +89,12 @@ function buildTarballDeps() {
     if (!manifest.name || !manifest.version) {
       throw new Error(`install-kernel: tarball ${file} has no name/version`);
     }
-    if (manifest.version !== KERNEL_VERSION) {
+    // 0.1.6 起收编族（cordis/cosmokit/schemastery/node-addon-system）版本线与
+    // 内核 pin 不同——只要 manifest 自洽（名字与文件名一致）即可，版本不再强等 pin。
+    const bare = manifest.name.replace(/^@/, '').replace('/', '-');
+    if (file !== `${bare}-${manifest.version}.tgz`) {
       throw new Error(
-        `install-kernel: tarball ${file} is ${manifest.version}, expected ${KERNEL_VERSION}`,
+        `install-kernel: tarball ${file} 与 manifest ${bare}-${manifest.version}.tgz 不符`,
       );
     }
     deps[manifest.name] = pathToFileURL(join(TARBALLS, file)).href;
