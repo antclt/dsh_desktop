@@ -20,7 +20,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { spawnSync } = require('node:child_process');
 
-const { patchWorkspacePin, MARKER, buildUiFixture, CORE, UI_REPLACEMENTS } = require('../patch-workspace-pin');
+const { patchWorkspacePin, MARKER, buildUiFixture, CORE, UI_REPLACEMENTS, verifyVersionScope } = require('../patch-workspace-pin');
 
 // 真实 vendored 产物（只读哨兵与语法验证基底；提前定义供下方注册期求值）。
 const VENDORED = path.join(__dirname, '..', '..', 'node_modules', '@deepseek-ai', 'dsh-client-ui-workspace', 'lib', 'client.js');
@@ -174,16 +174,69 @@ test('localStorage 损坏/畸形内容整体忽略（容错优先）', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. 真实 vendored 产物锚点命中（只读哨兵）
+// 3. 真实 vendored 产物锚点命中 + 作用域校验（只读哨兵）
 // ---------------------------------------------------------------------------
 
-test('现场 vendored 产物：全部锚点在位（内核形态漂移先于此报出）', { skip: !fs.existsSync(VENDORED) ? 'vendored dsh-client-ui-workspace 不在位' : false }, () => {
+test('现场 vendored 产物：全部锚点在位且声明与 deps 同作用域（内核形态漂移先于此报出）', { skip: !fs.existsSync(VENDORED) ? 'vendored dsh-client-ui-workspace 不在位' : false }, () => {
   const src = fs.readFileSync(VENDORED, 'utf8');
   if (src.includes(MARKER)) {
     assert.ok(src.includes('dshApplyWorkspacePins(groups)'), '已打补丁的现场应含排序接线');
+    // 0.6.5 实爆回归：已打补丁的现场也曾「看起来正常」（marker 在位、排序接线在位），
+    // 但声明被注进了 SearchResults、deps 留在 SessionTree —— SessionTree 首渲染
+    // ReferenceError → sidebar.workspaces 槽位崩溃 → 左侧会话栏空白。故此处不再
+    // 只看字符串在场，必须机器校验两者同作用域。
+    const scope = verifyVersionScope(src);
+    assert.ok(scope.ok, `已打补丁现场必须声明与 deps 同作用域: ${scope.why}`);
     return;
   }
   for (const { anchor } of UI_REPLACEMENTS) {
     assert.ok(src.includes(anchor), `锚点缺失（open-project-dir 是否已应用？）: ${anchor.split('\n')[0].slice(0, 70)}`);
+  }
+});
+
+test('作用域校验：声明落在别的函数里必须判红（0.6.5 左侧会话栏空白回归锁）', () => {
+  const drifted = [
+    'function SearchResults({ useSessions }) {',
+    '			const dshWsPinVersion = dshUseWorkspacePinVersion();',
+    '}',
+    'function SessionTree({ list }) {',
+    '			}), [',
+    '				list,',
+    '				dshWsPinVersion',
+    '			]);',
+    '}',
+  ].join('\n');
+  const bad = verifyVersionScope(drifted);
+  assert.equal(bad.ok, false, '跨函数作用域必须判红');
+  assert.equal(bad.fn, 'SearchResults', '应指出声明所在函数');
+  assert.equal(bad.deps, 'SessionTree', '应指出 deps 所在函数');
+
+  const good = [
+    'function SessionTree({ list }) {',
+    '			const dshWsPinVersion = dshUseWorkspacePinVersion();',
+    '			}), [',
+    '				list,',
+    '				dshWsPinVersion',
+    '			]);',
+    '}',
+  ].join('\n');
+  assert.equal(verifyVersionScope(good).ok, true, '同作用域应通过');
+});
+
+test('作用域校验失败时绝不落盘（锚点漂移 → 整文件跳过）', () => {
+  const sb = makeSandbox();
+  try {
+    // 在「声明锚」与「deps 锚」之间插一个函数头：注入后声明落在前面的函数、
+    // deps 落在后面的函数（正是 0.6.5 实爆的跨作用域形态），校验必须拦下。
+    const depsAnchor = UI_REPLACEMENTS.find((r) => r.insert.includes('dshWsPinVersion\n')).anchor;
+    assert.ok(depsAnchor, '应能定位 deps 锚');
+    fs.writeFileSync(sb.file, buildUiFixture().replace(depsAnchor, 'function Other() {\n' + depsAnchor), 'utf8');
+    const stats = { anchorMissing: 0 };
+    const n = patchWorkspacePin(sb.dir, () => {}, stats);
+    assert.equal(n, 0, '不得计入 changed');
+    assert.ok(stats.anchorMissing >= 1, '应计数为锚点/作用域失败');
+    assert.ok(!fs.readFileSync(sb.file, 'utf8').includes(MARKER), '校验失败不得落盘');
+  } finally {
+    fs.rmSync(sb.dir, { recursive: true, force: true });
   }
 });

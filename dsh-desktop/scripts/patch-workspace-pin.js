@@ -199,14 +199,22 @@ const UI_SORT_INSERT = [
 	'		/** Keep navigation presentation independent from domain-owned interaction objects. */',
 ].join('\n');
 
-// 2b. SessionTree：版本号进作用域（两组行联合锚——useSessions 单行出现 3 次）。
-const UI_TREE_ANCHOR = [
-	'			const list = useSessions((s) => s);',
-	'			const pendingInteractions = useSessionPendingInteraction((s) => s);',
-].join('\n');
+// 2b. SessionTree：版本号进作用域。
+// 0.1.6 重锚（0.6.5 实爆修复，issue：左侧会话栏空白）：旧锚是
+//   `const list = useSessions((s) => s);` +
+//   `const pendingInteractions = useSessionPendingInteraction((s) => s);`
+// 两行联合锚——0.1.6 把 SessionTree 的数据源「入参化」（list /
+// useSessionPendingInteraction 改由父级以 props 传入，函数体内不再调用
+// useSessions），该两行全文件只剩 SearchResults 一处。旧锚于是把声明注进了
+// SearchResults，而 2c 的 UI_DEPS_ANCHOR 仍命中 SessionTree 的 groups useMemo
+// ——SessionTree 引用了未声明的 dshWsPinVersion，首渲染即
+// `ReferenceError: dshWsPinVersion is not defined` → sidebar.workspaces 槽位
+// 条目崩溃退位 → 左侧会话栏整体空白（用户实报「左边对话栏不显示」）。
+// 现锚在 SessionTree 自身的 expandedGroups 行（全文件唯一整行匹配；deriveGroups
+// 内另有一处同名局部量，但整行文本不同），且紧邻 groups useMemo ——声明先于使用。
+const UI_TREE_ANCHOR = '			const expandedGroups = (0, react.useMemo)(() => Object.entries(groupExpansion).filter(([, expanded]) => expanded).map(([key]) => key), [groupExpansion]);';
 const UI_TREE_INSERT = [
-	'			const list = useSessions((s) => s);',
-	'			const pendingInteractions = useSessionPendingInteraction((s) => s);',
+	UI_TREE_ANCHOR,
 	'			// dsh-desktop patch (workspace pin): 版本号进 groups useMemo deps，切置顶即时重排。',
 	'			const dshWsPinVersion = dshUseWorkspacePinVersion();',
 ].join('\n');
@@ -267,6 +275,45 @@ const UI_REPLACEMENTS = [
 // ---------------------------------------------------------------------------
 // 工具：锚点必须存在 + 标记幂等的替换（与 patch-open-project-dir 同款契约）
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 作用域校验（0.6.5 实爆回归）：声明与 deps 引用必须在同一个函数体内。
+// 旧锚把声明注进了 SearchResults、deps 却留在 SessionTree —— SessionTree 引用
+// 未声明的 dshWsPinVersion，首渲染 ReferenceError → sidebar.workspaces 槽位条目
+// 崩溃退位 → 左侧会话栏空白。锚点漂移不再靠肉眼发现：这里在落盘前机器校验。
+// ---------------------------------------------------------------------------
+
+/** 取 index 处所在的最内层 `function NAME(` 的 NAME（bundle 里为两 tab 缩进的模块内函数）。 */
+function enclosingFunctionAt(src, index) {
+	if (index < 0) return null;
+	const before = src.slice(0, index);
+	const fns = [...before.matchAll(/^[\t ]*function ([A-Za-z0-9_$]+)\(/gm)];
+	return fns.length ? fns[fns.length - 1][1] : null;
+}
+
+/**
+ * 校验 `const dshWsPinVersion = dshUseWorkspacePinVersion();` 声明与 deps 数组里
+ * 的 `dshWsPinVersion` 引用落在同一个（且名为 SessionTree 的）函数体内。
+ * @param {string} src 已应用全部替换的源码
+ * @returns {{ok: boolean, fn?: string|null, deps?: string|null, why?: string}}
+ */
+function verifyVersionScope(src) {
+	const decl = 'const dshWsPinVersion = dshUseWorkspacePinVersion();';
+	const di = src.indexOf(decl);
+	if (di < 0) return { ok: false, why: '声明未注入' };
+	const depsRel = src.indexOf('\n\t\t\t\tdshWsPinVersion\n', di + decl.length);
+	if (depsRel < 0) return { ok: false, why: 'deps 引用未注入' };
+	const fn = enclosingFunctionAt(src, di);
+	const deps = enclosingFunctionAt(src, depsRel);
+	if (fn === null || deps === null) return { ok: false, fn, deps, why: '无法定位所在函数' };
+	if (fn !== deps) return { ok: false, fn, deps, why: `声明在 ${fn}、deps 引用在 ${deps}（跨作用域必然 ReferenceError）` };
+	// 函数名点名只在真实 bundle 上生效：buildUiFixture 是锚点拼接件（各锚自带
+	// 函数头），「最近的函数头」在夹具上没有语义，故夹具只校验同作用域。
+	if (src.includes('function SessionTree(') && fn !== 'SessionTree') {
+		return { ok: false, fn, deps, why: `目标函数是 ${fn}，期望 SessionTree` };
+	}
+	return { ok: true, fn, deps };
+}
+
 function applyReplacements(file, replacements, log, stats, options) {
 	let src;
 	try {
@@ -286,6 +333,12 @@ function applyReplacements(file, replacements, log, stats, options) {
 			return false;
 		}
 		src = src.replace(anchor, insert);
+	}
+	const scope = verifyVersionScope(src);
+	if (!scope.ok) {
+		log('workspace-pin 补丁: 作用域校验失败（锚点漂移，已放弃落盘） ' + file + ' :: ' + scope.why);
+		if (stats) stats.anchorMissing += 1;
+		return false;
 	}
 	src = '// ' + MARKER + ': 侧栏工作区置顶（多选、localStorage 持久化）\n' + src;
 	try {
@@ -323,12 +376,16 @@ function patchWorkspacePin(nmRoot, log = () => {}, stats, options) {
 	return changed;
 }
 
-/** 测试用：构造一份包含全部 UI 锚点的最小夹具（unit-workspace-pin.test.js 使用）。 */
+/**
+ * 测试用：构造一份包含全部 UI 锚点的最小夹具（unit-workspace-pin.test.js 使用）。
+ * 夹具是锚点拼接件（各锚自带函数头，故「最近的函数头」无语义）——verifyVersionScope
+ * 在夹具上只校验「声明与 deps 同作用域」，函数名点名只在真实 bundle 上生效。
+ */
 function buildUiFixture() {
 	return UI_REPLACEMENTS.map((r) => r.anchor).join('\n// ---- 夹具分隔 ----\n') + '\n';
 }
 
-module.exports = { patchWorkspacePin, MARKER, buildUiFixture, CORE, UI_REPLACEMENTS };
+module.exports = { patchWorkspacePin, MARKER, buildUiFixture, CORE, UI_REPLACEMENTS, verifyVersionScope };
 
 if (require.main === module) {
 	const root = process.argv[2] ? path.resolve(process.argv[2]) : path.resolve(__dirname, '..', 'node_modules');
