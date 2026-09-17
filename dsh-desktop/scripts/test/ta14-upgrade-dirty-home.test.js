@@ -337,3 +337,55 @@ test('e-electron-remnant-static：write_log_pointer_files 存在且指向 logs �
   // 真跑断言在该 crate 单测（pointer_file_written_into_sibling_electron_dir）。
   assert.ok(src.includes('fn pointer_file_written_into_sibling_electron_dir'), 'in-crate 真跑单测应存在');
 });
+
+// ---------------------------------------------------------------------------
+// f) 覆盖安装前的进程/句柄释放加固（用户实报：Error opening file for writing:
+//    ...@img/sharp-win32-x64/lib/libvips-42.dll）。根因是关窗只是隐藏到托盘
+//    （windows.rs closeToTray 缺省 true）→ 内核 node 仍映射着 sharp 的原生库 →
+//    NSIS 覆盖「被加载的映像」必然失败；而模板的 CheckIfAppIsRunning 只认主程序、
+//    且杀完不等待。判据：① 模板在 CheckIfAppIsRunning 之后插入两个宏（顺序即语义：
+//    必须先杀掉壳，Job Object 才会收走内核树）② 清理必须走 CIM 而不是 $_.Path
+//    （实测：安装器子 PowerShell 里 $_.Path 对所有进程都是空的，用它等于静默空转）
+//    ③ 等待必须有界，且静默安装不得弹框阻断。
+// ---------------------------------------------------------------------------
+test('reinstall-static：覆盖安装前清理本树 node 并等句柄释放（含 CIM 回归锁）', () => {
+  const nsi = path.join(REPO_ROOT, 'dsh-tauri', 'src-tauri', 'src', 'app', 'nsis', 'installer-template.nsi');
+  const nsh = path.join(REPO_ROOT, 'dsh-tauri', 'src-tauri', 'src', 'app', 'nsis', 'installerHooks.nsh');
+  const nsiSrc = fs.readFileSync(nsi, 'utf8');
+  const nshSrc = fs.readFileSync(nsh, 'utf8');
+  // 判据只看代码：钩子文件里刻意留了反面教材注释（「不要用 $_.Path …」），
+  // 不剥注释的话守卫会被自己的文档绊倒。
+  const nshCode = nshSrc.split('\n').filter(line => !line.trimStart().startsWith(';')).join('\n');
+
+  // 1) 插入点与顺序：CheckIfAppIsRunning → kill → wait。
+  const checkIdx = nsiSrc.indexOf('!insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe"');
+  const killIdx = nsiSrc.indexOf('!insertmacro DSH_KILL_TREE_NODES');
+  const waitIdx = nsiSrc.indexOf('!insertmacro DSH_WAIT_FOR_INSTDIR_RELEASE');
+  assert.ok(checkIdx > 0, '模板里应有 CheckIfAppIsRunning');
+  assert.ok(killIdx > checkIdx, 'DSH_KILL_TREE_NODES 必须在 CheckIfAppIsRunning 之后（先杀壳，Job Object 才带着内核树走）');
+  assert.ok(waitIdx > killIdx, 'DSH_WAIT_FOR_INSTDIR_RELEASE 必须在 kill 之后（否则等的是自己刚杀的那批）');
+
+  // 2) 两个宏都在钩子文件里定义，且 PREINSTALL 本体仍然为空（v0.5.1 的教训）。
+  assert.match(nshCode, /!macro DSH_KILL_TREE_NODES/, '缺 DSH_KILL_TREE_NODES 定义');
+  assert.match(nshCode, /!macro DSH_WAIT_FOR_INSTDIR_RELEASE/, '缺 DSH_WAIT_FOR_INSTDIR_RELEASE 定义');
+  const preinstall = nshCode.slice(nshCode.indexOf('!macro NSIS_HOOK_PREINSTALL'), nshCode.indexOf('!macroend', nshCode.indexOf('!macro NSIS_HOOK_PREINSTALL')));
+  assert.ok(!/FileOpen|ExecWait|Sleep/.test(preinstall), 'PREINSTALL 本体必须保持为空（历史上卡死过五轮）');
+
+  // 3) 清理走 CIM 的 ExecutablePath/CommandLine；$_.Path 形态是回归锁死点。
+  assert.match(nshCode, /Get-CimInstance Win32_Process \| Where-Object \{ \$\$_.Name -eq 'node\.exe'/,
+    '必须用 Get-CimInstance Win32_Process 列举 node');
+  assert.match(nshCode, /\$\$_.ExecutablePath -like \('\$INSTDIR\*'\) -or \$\$_.CommandLine -like \('\*\$INSTDIR\*'\)/,
+    '必须按本安装树前缀匹配 ExecutablePath 或 CommandLine（不误杀系统其它 node）');
+  assert.ok(!/\$_\.Path -like/.test(nshCode),
+    '禁止用 $_.Path：实测安装器子 PowerShell 里它对所有进程都是空的（静默空转，等于没修）');
+  assert.ok(!/taskkill \/IM node\.exe/.test(nshCode), '禁止 taskkill /IM node.exe（会误杀用户自己的 node 服务）');
+
+  // 4) 等待有界 + 静默不阻断：轮询上限存在、Sleep 步进存在、弹框被 ${IfNot} ${Silent} 包住。
+  assert.match(nshCode, /\$\{If\} \$1 > 30/, '等待必须有轮次上限');
+  assert.match(nshCode, /Sleep 500/, '等待必须是 500ms 步进轮询');
+  assert.match(nshCode, /\$\{IfNot\} \$\{Silent\}\s*\n\s*MessageBox/, '静默安装不得弹框（否则 /S 会挂住）');
+
+  // 5) 探针只探两类真会被占用的文件（主程序 exe + 实测报错的 sharp 原生库）。
+  assert.match(nshCode, /IfFileExists "\$INSTDIR\\\$\{MAINBINARYNAME\}\.exe" 0 dsh_rel_probe_lib/, '缺主程序探针');
+  assert.match(nshCode, /libvips-42\.dll" 0 dsh_rel_ok/, '缺 sharp 原生库探针');
+});

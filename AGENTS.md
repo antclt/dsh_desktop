@@ -89,6 +89,16 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   冒烟用手拼安装布局 + `DSH_HOME`/`DSH_TAURI_USERDATA` 隔离。
 - **NSIS 钩子（installerHooks.nsh）改动必须过 `makensis` 编译验证**——宏展开、栈平衡、
   `/SD` 参数位置都曾导致安装器卡死或编译阻断。
+- **关窗 ≠ 退出**：`closeToTray` 缺省 true（`src/app/src/windows.rs` 的 `CloseRequested`），
+  点 × 只是隐藏到托盘、**内核 node 继续跑**。于是覆盖安装写 `@img/sharp-win32-x64/lib/
+  libvips-42.dll` 会被 Windows 拒绝（不允许覆盖已被加载的映像），用户看到
+  「Error opening file for writing」。安装器已加固：`installer-template.nsi` 在
+  `CheckIfAppIsRunning` 之后插 `DSH_KILL_TREE_NODES`（按 CIM 的 ExecutablePath/CommandLine
+  前缀精确清本安装树的 node）+ `DSH_WAIT_FOR_INSTDIR_RELEASE`（有界等句柄释放 ≤15s）。
+  两个宏都在 `installerHooks.nsh`，**别再改回 `$_.Path`**——实测安装器子 PowerShell 里它
+  对所有进程都是空的（过滤永远不命中，等于没清理），回归锁在 `ta14-upgrade-dirty-home`。
+  手动验证这两个宏：`makensis -INPUTCHARSET UTF8` 编译一个 `!include` 真钩子文件的独立
+  脚本，用 `/D=<临时目录>` 跑 `/S`，别在真安装目录上试。
 - **稳定性三原则（评审默认立场）**：① 客户端必须能打开，装配失败终态恢复页而非退出；
   ② 兼容性不报错，意外以日志收场（`panics.log`）不以崩溃收场；③ 用户数据不动。
 - `unit-updater` 的两个 fallback 用例在依赖装好时显示 `skip`，属**预期**而非失败。

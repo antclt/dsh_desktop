@@ -659,17 +659,13 @@ Section Install
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
-  ; DSH：清理本安装树残留的内核 node 子进程（webServer/agent）。CheckIfAppIsRunning
-  ; 只识别主程序——node.exe 加载着 node_modules 下的原生 DLL（libvips-42.dll 等），
-  ; 不清理则覆盖安装写文件报 "Error opening file for writing"。按 ExecutablePath
-  ; 前缀精确匹配本安装树（不误伤系统其它 node）；经临时 ps1 执行，零引号嵌套；
-  ; 失败静默——仍被锁的文件由 NSIS 自带的重试/忽略对话框兜底。
-  ClearErrors
-  FileOpen $0 "$TEMP\dsh-kill-nodes.ps1" w
-  FileWrite $0 "Get-Process node -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like ('$INSTDIR*') } | Stop-Process -Force$\r$\n"
-  FileClose $0
-  ExecWait 'powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP\dsh-kill-nodes.ps1"'
-  Delete "$TEMP\dsh-kill-nodes.ps1"
+  ; DSH：清理本安装树残留的内核 node 子进程（webServer/agent）并等句柄释放。
+  ; CheckIfAppIsRunning 只识别主程序——node.exe 加载着 node_modules 下的原生 DLL
+  ; （libvips-42.dll 等），不清理则覆盖安装写文件报 "Error opening file for
+  ; writing"；而杀进程是异步的，所以还必须等目标文件真的可写再往下走。
+  ; 两个宏的定义、边界与踩坑记录见 installerHooks.nsh 头部。
+  !insertmacro DSH_KILL_TREE_NODES
+  !insertmacro DSH_WAIT_FOR_INSTDIR_RELEASE
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
