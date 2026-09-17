@@ -89,6 +89,22 @@
 
 import { createEpochPromotion } from './compaction-epoch.mjs'
 
+/**
+ * 内核 0.1.6 起 Session 把事件日志收成私有（`private eventsSnapshot`），公开读法
+ * 变成 `snapshotEvents()` / `ownEvents()`；旧版是直接读 `session.events`。
+ * 两种形状都兼容——只认旧形状时，0.1.6 上这里会抛
+ * `Cannot read properties of undefined (reading 'find')`，整轮运行直接失败
+ * （用户实报：除标准模式外所有预设发消息即断）。
+ * 注：`snapshotEvents()` 在 0.1.6 里标注为 deprecated（新代码应走异步事件流），
+ * 预设钩子是同步装配路径，这里按官方「既有逻辑可暂不迁移」的豁免使用。
+ */
+function sessionEvents(session) {
+  if (Array.isArray(session?.events)) return session.events
+  if (typeof session?.snapshotEvents === 'function') return session.snapshotEvents()
+  if (typeof session?.ownEvents === 'function') return session.ownEvents()
+  return []
+}
+
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'anchored-tool-bootstrap'
 
@@ -222,8 +238,8 @@ export function apply(ctx, config) {
    */
   const unlockedFor = (session) => {
     const unlocked = new Set()
-    if (session === undefined || !Array.isArray(session.events)) return unlocked
-    for (const event of session.events) {
+    if (session === undefined || sessionEvents(session).length === 0) return unlocked
+    for (const event of sessionEvents(session)) {
       if (event.type !== 'tool/call') continue
       if (event.data?.name !== 'dev_tool_search') continue
       let args

@@ -24,6 +24,22 @@
  * quantizes to the four modes.
  */
 
+
+/**
+ * 内核 0.1.6 起 Session 把事件日志收成私有（`private eventsSnapshot`），公开读法
+ * 变成 `snapshotEvents()` / `ownEvents()`；旧版是直接读 `session.events`。
+ * 两种形状都兼容——只认旧形状时，0.1.6 上这里会抛
+ * `Cannot read properties of undefined (reading 'find')`，整轮运行直接失败
+ * （用户实报：除标准模式外所有预设发消息即断）。
+ * 注：`snapshotEvents()` 在 0.1.6 里标注为 deprecated（新代码应走异步事件流），
+ * 预设钩子是同步装配路径，这里按官方「既有逻辑可暂不迁移」的豁免使用。
+ */
+function sessionEvents(session) {
+  if (Array.isArray(session?.events)) return session.events
+  if (typeof session?.snapshotEvents === 'function') return session.snapshotEvents()
+  if (typeof session?.ownEvents === 'function') return session.ownEvents()
+  return []
+}
 export const MODE_SPEC = 0
 export const MODE_MIXED = 0.3
 export const MODE_REACT = 1
@@ -141,7 +157,7 @@ export function classifyTask(text) {
 
 /** Per-session mode derived from durable events (resume-safe). */
 export function sessionMode(session) {
-  const events = session.events
+  const events = sessionEvents(session)
   const userMsg = events.find((e) => e.type === 'user/message')
   return classifyTask(extractText(userMsg?.data))
 }
