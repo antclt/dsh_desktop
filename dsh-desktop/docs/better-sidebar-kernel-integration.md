@@ -38,9 +38,11 @@ ctx.slots.register({ name: 'sidebar.right.pane.tab', key: id, inject: (sessionId
 | 触发条件 | 内核提供 `sidebarRightTabs` + `sidebarRight` 两个服务 | 缺任一服务，或偏好 `kernelRightbar: 'legacy'` |
 | 右栏 | 内核那一列（`#root` 的第三列网格，可拖宽/全屏/收起） | 插件自绘的浮层 + 给 `#root` 加 `margin-right` |
 | 面板 DOM | portal 进内核给的 pane（`[data-dsh-kernel-pane]`） | 留在插件自己的 `[data-dsh-panel-host]` 固定层 |
-| 开关入口 | **内核会话头部的展开按钮**（插件不再画右侧开合钮） | 插件的悬浮钮簇 |
+| 右侧开关 | **内核会话头部的展开按钮** | 插件浮层钮簇里的那颗 |
+| 底部面板开关 | **内核右栏标签条按钮排里并列的一颗**（`[底部面板] [分栏] [全屏] [收起]`） | 插件浮层钮簇里的那颗 |
+| 浮层钮簇 | 整簇不渲染（应用右上角没有任何我们的浮层按钮） | 保留 |
 | 列宽/全屏 | 内核 | 插件（自绘拖宽把手） |
-| 底部面板 | 不变：仍是会话列下方的独立 Dock（`--dsh-sidebar-height` 顶开） | 同左 |
+| 底部面板本体 | 不变：仍是会话列下方的独立 Dock（`--dsh-sidebar-height` 顶开） | 同左 |
 
 关键实现点：
 
@@ -57,6 +59,11 @@ ctx.slots.register({ name: 'sidebar.right.pane.tab', key: id, inject: (sessionId
    首次展开内核右栏时自动打开工作台标签，否则展开先落在内核引导页）。
 5. **不写进 `dsh.client.inject`**：inject 是硬前置，写进去会让插件在缺少该服务的内核上
    **整体不加载**；这里用 `ctx.inject([...])` 的可选接法，服务缺席只是不集成。
+6. **底部面板开关并进内核标签条**（`useKernelStripAnchor` + `KernelBottomPanelToggle`）：
+   从我们的 pane 往上找 dock 的标签条，把我们**自己的**宿主 span（`data-dsh-strip-host`）
+   插到 kit 的「分栏」按钮之前，再 portal 一颗 28×28 的按钮进去——按钮排读作
+   `[底部面板] [分栏] [全屏] [收起]`。只插我们自己的空元素，内核节点既不搬动也不改样式；
+   标签条被内核重渲染导致宿主消失时，用 MutationObserver 自愈重建（否则按钮会凭空不见）。
 
 ## 用户可见的变化
 
