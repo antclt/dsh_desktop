@@ -3092,17 +3092,24 @@ if (args.check)
         async execute() {
             const results = [];
             const check = (name, ok, detail = '') => { results.push([name, ok, detail]); };
-            // ⚠️ 测试插件**固定名字 + 固定目录**（D: 盘）：tsx 的 resolve 缓存按
-            // specifier 记忆解析路径——换名/换目录会命中旧缓存（ENOENT 旧路径，
-            // 实测踩坑）。全新 specifier + 固定目录 → 首次解析后缓存永远一致。
+            // 测试插件**固定名字 + 固定目录**：tsx 的 resolve 缓存按 specifier 记忆
+            // 解析路径——换名/换目录会命中旧缓存（ENOENT 旧路径，实测踩坑）。全新
+            // specifier + 固定目录 → 首次解析后缓存永远一致。
+            // 目录挂在注入器自己的数据目录下（与 registry.json / self-reload.json
+            // 同源，随 config.registryFile 可覆盖、尊重 DSH_HOME 重定向）：既不往盘根
+            // 写，也不依赖某个固定盘符存在——旧实现硬编码 `D:\杨佳禾\dsh\selftest-runner`，
+            // 在没有 D 盘或不可写的机器上 mkdirSync 会直接抛。
             const TEST_PKG = '@dsh-external/selftest-runner';
             const TEST_SHORT = 'selftest-runner';
-            const tmpDir = join('D:/', '杨佳禾', 'dsh', TEST_SHORT);
+            const tmpDir = join(dirname(registryFile), TEST_SHORT);
             try {
                 rmSync(tmpDir, { recursive: true, force: true });
+                mkdirSync(tmpDir, { recursive: true });
             }
-            catch { /* 忽略 */ }
-            mkdirSync(tmpDir, { recursive: true });
+            catch (e) {
+                check('测试目录可写', false, `${tmpDir}: ${(e && e.message) || e}`);
+                return summarize(results);
+            }
             try {
                 // ── 1. 生成最小测试插件（工具形态）──
                 mkdirSync(join(tmpDir, 'src'), { recursive: true });
@@ -3224,19 +3231,34 @@ if (args.check)
                 }
                 catch { /* 定位失败按无处理 */ }
                 if (libPath) {
-                    let libRestored = true;
+                    let backup = null;
+                    let libRestored = false;
                     try {
-                        const backup = readFileSync(libPath, 'utf8');
+                        backup = readFileSync(libPath, 'utf8');
                         writeFileSync(libPath, 'BROKEN SELF TEST !!!', 'utf8');
                         const precheck = await withOpLock(() => reloadPackage('dsh-super-injector'));
                         check('预检拦截（拒绝自杀）', precheck.includes('预检失败'), precheck.slice(0, 150));
-                        writeFileSync(libPath, backup, 'utf8');
-                        libRestored = true;
                     }
                     catch (e) {
                         check('预检拦截（拒绝自杀）', false, String(e));
                     }
-                    check('预检后 lib 恢复', libRestored);
+                    finally {
+                        // ⚠️ 还原必须走 finally：破坏与还原之间任何一步抛异常（reloadPackage
+                        // 直接 throw、check 抛错）都会把注入器 lib 留在 "BROKEN SELF TEST !!!"。
+                        // 旧实现把还原写在 try 尾部、catch 里既不还原也不改 libRestored（初值
+                        // true）→ 「预检后 lib 恢复」谎报 PASS：自检把注入器弄坏了还说自己修好了。
+                        // 现以磁盘内容为准（写完回读比对，不信布尔量）。
+                        if (backup !== null) {
+                            try {
+                                writeFileSync(libPath, backup, 'utf8');
+                                libRestored = readFileSync(libPath, 'utf8') === backup;
+                            }
+                            catch {
+                                libRestored = false;
+                            }
+                        }
+                    }
+                    check('预检后 lib 恢复', libRestored, libRestored ? '' : `注入器 lib 未能还原，可能仍处于破坏态：${libPath}`);
                 }
                 else {
                     check('预检拦截（拒绝自杀）', false, '未定位注入器 lib');

@@ -1400,7 +1400,14 @@ window.__ModuleLoader__.load({
           if (!ctx.commandUi || typeof ctx.commandUi.register !== "function") return;
           return ctx.commandUi.register({
             name: "side-session",
-            description: "临时会话",
+            // 内核契约（dsh-client-ui-commands 的 candidates）：label/description
+            // 是「取数函数」而非字面量——内核无条件调用 contribution.description()，
+            // 只容忍 undefined。此处原先写字面量字符串，导致 candidates() 抛
+            // TypeError: contribution.description is not a function → 整个 / 命令
+            // 源候选构建失败（控制台 [ui-input-trigger] source "command" candidates
+            // failed），斜杠命令面板静默不出。改回函数形态；label 同样按函数给。
+            label: function () { return "临时会话"; },
+            description: function () { return "侧边临时会话：唤起浮窗 / 清空"; },
             available: function () { return true; },
             ui: {
               kind: "popupSelect",

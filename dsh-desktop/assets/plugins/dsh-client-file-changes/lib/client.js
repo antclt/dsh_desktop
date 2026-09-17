@@ -412,7 +412,13 @@ window.__ModuleLoader__.load({
 				'<button class="dsh-pv-btn" data-act="close" title="关闭预览">✕</button>' +
 				'</div>' +
 				'<div class="dsh-pv-chips"></div>' +
-				'<div class="dsh-pv-body"><iframe class="dsh-pv-frame" title="preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe></div>' +
+				// 初始 iframe 不带 sandbox：navigate() 在设置 src 之前一定会按同源/跨源
+				// 二选一写好 sandbox（见下方 navigate），所以这里静态写死是多余的——
+				// 而且静态写死等同于「一创建就带上 allow-scripts + allow-same-origin」，
+				// 浏览器随即告警 "An iframe which has both allow-scripts and
+				// allow-same-origin for its sandbox attribute can escape its
+				// sandboxing"（用户实报的 console 噪音，buildPreviewPanel:417）。
+				'<div class="dsh-pv-body"><iframe class="dsh-pv-frame" title="preview"></iframe></div>' +
 				'<div class="dsh-pv-status">未加载</div>';
 			document.body.appendChild(root);
 

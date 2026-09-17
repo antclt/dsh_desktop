@@ -2730,11 +2730,30 @@ var POCKET_FOOTER_STYLES = {
 var DESKTOP_FOOTER_CSS = "@media (min-width: 1024px){"
   + "[class*=\"footerActions\"]{flex-direction:column!important;flex-wrap:nowrap!important;align-items:stretch!important;}"
   + "[class*=\"footerActions\"]>*{width:100%!important;max-width:100%!important;flex:0 0 auto!important;}"
-  + "}";
+  + "}"
+  /* 「手机访问」入口与宿主自带 footer 项（插件市场/知识中心/设置）逐像素对齐：
+     复用 dsh-side-session 的 .dss-footer-icon / .dss-footer-label 同款行样式
+     （宽态整行 34px 高 + 图标 16 + 8px 间距 + 圆角 12；rail 态 36px 圆钮），
+     否则本按钮此前是自绘的 32x32 小方块，与左右邻居行高/内边距都不一致（用户实报
+     「图标和文字都和其他按钮对齐」）。放 media query 之外：rail 态同样需要生效。 */
+  + ".dss-footer-icon{box-sizing:border-box;cursor:pointer;width:calc(100% + 8px);height:34px;"
+  + "color:var(--dsw-alias-label-primary,#0f1115);background:0 0;border:none;border-radius:12px;"
+  + "flex:none;align-items:center;gap:8px;margin:4px -4px;padding:6px 2px 6px 10px;"
+  + "font-family:inherit;font-size:14px;line-height:22px;display:flex;overflow:hidden;"
+  + "transition:background .12s,color .12s;outline:none}"
+  + ".dss-footer-icon:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}"
+  + ".dss-footer-icon[data-on='1']{color:var(--dsw-alias-state-business-primary,#4176e6)}"
+  + ".dss-footer-icon[data-rail='1']{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;"
+  + "margin:8px 0 10px;padding:0}"
+  + ".dss-footer-icon[data-rail='1']:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(38,49,72,.06))}"
+  + ".dss-footer-icon svg{flex:none}"
+  + ".dss-footer-label{white-space:nowrap;overflow:hidden}";
 function PocketRemoteFooter(props) {
   const [open, setOpen] = (0, import_react2.useState)(false);
   const { rpcCall, t } = props;
-  const label = "\u8FDC\u7A0B\u63A7\u5236";
+  // 侧栏宽态才显示文字（槽位下发 wide）；rail 态收成圆钮，与宿主 footer 项一致。
+  const wide = !!(props && props.wide);
+  const label = "\u624B\u673A\u8BBF\u95EE";
   (0, import_react2.useEffect)(() => {
     if (!open) return;
     const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
@@ -2744,23 +2763,25 @@ function PocketRemoteFooter(props) {
   return (0, import_react2.createElement)(import_react2.Fragment, null,
     (0, import_react2.createElement)("button", {
       type: "button",
+      className: "dss-footer-icon",
+      "data-rail": wide ? "0" : "1",
       title: label,
       "aria-label": label,
       "aria-haspopup": "dialog",
-      style: POCKET_FOOTER_STYLES.button,
       onClick: () => setOpen(true)
     },
       (0, import_react2.createElement)(
         "svg",
         {
-          width: "18", height: "18", viewBox: "0 0 24 24", fill: "none",
+          width: wide ? "16" : "18", height: wide ? "16" : "18", viewBox: "0 0 24 24", fill: "none",
           stroke: "currentColor", "stroke-width": "2",
           "stroke-linecap": "round", "stroke-linejoin": "round",
           "aria-hidden": "true"
         },
         (0, import_react2.createElement)("rect", { x: "5", y: "2", width: "14", height: "20", rx: "2", ry: "2" }),
         (0, import_react2.createElement)("path", { d: "M12 18h.01" })
-      )
+      ),
+      wide ? (0, import_react2.createElement)("span", { className: "dss-footer-label" }, label) : null
     ),
     open && (0, import_react2.createElement)("div", {
       style: POCKET_FOOTER_STYLES.backdrop,
