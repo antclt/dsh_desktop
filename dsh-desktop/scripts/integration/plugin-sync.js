@@ -35,6 +35,8 @@ const {
   removeLegacyMarketplacePatchLines,
   removeRetiredDshMarketPatchRows,
   removeRetiredThirdPartyThinkingPatchRows,
+  removeRetiredDshFloatWindowPatchRows,
+  removeRetiredDshMiniPatchRows,
   removedPluginIdsFromPatch,
   ensureDisabledPatchEntry,
   registerCompanionPatchEntries,
@@ -371,6 +373,33 @@ function createPluginSync(ctx) {
 
       // v0.3.11 起内置插件市场 zat-dsh-engine 默认移除（用户要求）。
       retireZatEngine(profileDir);
+
+      // 已退役插件 dsh-float-window（loader id float-window）的 patch 行一次性清理。
+      // 与上面两个退役项同款：目录与 manifest 登记在 syncCompanionFiles 内的
+      // removeRetiredDshFloatWindowDir 处理，**patch 行按该文件注释必须由调用方清**
+      // ——而这条启动链此前漏接，导致老 profile 里残留的 float-window 行每 boot 触发
+      // 一次 `Cannot find package '@deepseek-ai/dsh-float-window'`（10 帧栈，实机
+      // 日志 4 个 boot 周期各刷一次）。覆盖安装即自愈，不需要用户手改 profile。
+      try {
+        const retiredFwRaw = fs.readFileSync(patchFile, 'utf8');
+        const retiredFw = removeRetiredDshFloatWindowPatchRows(retiredFwRaw);
+        if (retiredFw.changed) {
+          writeFileAtomic(patchFile, retiredFw.patch);
+          log('已从 cordis.patch.yml 移除退役插件 dsh-float-window 条目');
+        }
+      } catch {}
+
+      // 已退役插件 dsh-mini（0.6.4，由 dsh-pocket 等位替代）的 patch 行清理。
+      // 与 float-window 同一类缺口（同为「调用方职责」却在启动链上漏接），一并补齐
+      // ——否则残留 dsh-mini 行的 profile 会以完全相同的方式每 boot 报缺包。
+      try {
+        const retiredMiniRaw = fs.readFileSync(patchFile, 'utf8');
+        const retiredMini = removeRetiredDshMiniPatchRows(retiredMiniRaw);
+        if (retiredMini.changed) {
+          writeFileAtomic(patchFile, retiredMini.patch);
+          log('已从 cordis.patch.yml 移除退役插件 dsh-mini 条目');
+        }
+      } catch {}
 
       // billion-context-dsh（compaction-acp，模型驱动的 ACP 压缩后端）默认关闭：
       // 用户反馈其在上下文占用未及 1/4 时仍频繁压缩。改为随包默认禁用（顶层

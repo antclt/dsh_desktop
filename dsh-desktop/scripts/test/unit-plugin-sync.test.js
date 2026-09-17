@@ -125,3 +125,104 @@ test('logProfileBundleHealth：manifest 不可读 → 记录日志并早退（�
   assert.doesNotThrow(() => logProfileBundleHealth(), 'manifest 缺失时不得抛异常');
   assert.ok(logs.some((m) => m.includes('manifest 不可读')), '应记录 manifest 不可读日志');
 });
+
+// ---------------------------------------------------------------------------
+// 退役插件的 patch 行清理必须挂在【启动链】上，而不是只挂在独立 CLI 同步器上。
+//
+// 背景（实机）：老 profile 的 cordis.patch.yml 里残留 `- id: float-window` 行，
+// 桌面启动链（sidecar boot → step('sync') → 本模块 sync()）不清理它，于是
+// 每个 boot 周期刷一次 10 帧 `Cannot find package '@deepseek-ai/dsh-float-window'`
+// 栈（用户日志 4 个 boot 周期各一次）。清理函数本身早就存在（companion-profile
+// 导出，CLI 同步器在调），漏的是「启动链这个调用方」——而该文件注释明确写了
+// 「patch 行由调用方清理」。覆盖安装新客户端即应自愈，不需要用户手改 profile。
+// ---------------------------------------------------------------------------
+
+/** 写一份带退役残留行的 profile patch（fixture 形态对齐 entry-list 顶层块）。 */
+function writeRetiredProfile(h, extraRows = []) {
+  const profileDir = path.join(h, 'profiles', 'web');
+  fs.mkdirSync(profileDir, { recursive: true });
+  const file = path.join(profileDir, 'cordis.patch.yml');
+  fs.writeFileSync(file, [
+    '# 老 profile 残留（退役插件）',
+    '- insert:',
+    '    - id: float-window',
+    "      name: '@deepseek-ai/dsh-float-window'",
+    '- insert:',
+    '    - id: dsh-mini',
+    "      name: '@deepseek-ai/dsh-mini'",
+    ...extraRows,
+    '',
+  ].join('\n'));
+  return { profileDir, file };
+}
+
+test('sync()：启动链清掉 profile 里残留的退役插件行（float-window / dsh-mini）', (t) => {
+  const { ctx, h, logs } = makePluginSyncCtx(t);
+  const { file } = writeRetiredProfile(h, [
+    '- insert:',
+    '    - id: side-session',
+    "      name: '@dsh-external/dsh-side-session'",
+  ]);
+
+  createPluginSync(ctx).sync();
+
+  const after = fs.readFileSync(file, 'utf8');
+  assert.ok(!/^\s*-?\s*id:\s*float-window\b/m.test(after), 'float-window 行必须被启动链清掉（否则每 boot 报缺包）');
+  assert.ok(!/^\s*-?\s*id:\s*dsh-mini\b/m.test(after), 'dsh-mini 行必须被清掉（同类缺口，一并补齐）');
+  // 名字也要消失（覆盖 name-only 形态的残留行，不只 id 行）
+  assert.ok(!after.includes('dsh-float-window'), 'float-window 的 name 引用不得残留');
+  assert.ok(!after.includes('@deepseek-ai/dsh-mini'), 'dsh-mini 的 name 引用不得残留');
+  assert.ok(logs.some((m) => m.includes('dsh-float-window')), '应留下 float-window 清理日志');
+  assert.ok(logs.some((m) => m.includes('dsh-mini')), '应留下 dsh-mini 清理日志');
+});
+
+test('退役行清理器只删退役块：在役插件行必须原样留下（防过度删除）', () => {
+  const { removeRetiredDshFloatWindowPatchRows, removeRetiredDshMiniPatchRows } =
+    require('../lib/companion-profile');
+  const fixture = [
+    '# 老 profile 残留（退役插件）',
+    '- insert:',
+    '    - id: float-window',
+    "      name: '@deepseek-ai/dsh-float-window'",
+    '- insert:',
+    '    - id: dsh-mini',
+    "      name: '@deepseek-ai/dsh-mini'",
+    '- insert:',
+    '    - id: side-session',
+    "      name: '@dsh-external/dsh-side-session'",
+    '',
+  ].join('\n');
+
+  const fw = removeRetiredDshFloatWindowPatchRows(fixture);
+  const mini = removeRetiredDshMiniPatchRows(fw.patch);
+  assert.equal(fw.changed, true);
+  assert.equal(mini.changed, true);
+  assert.ok(!/id:\s*float-window\b/.test(mini.patch), 'float-window 块应被移除');
+  assert.ok(!/@deepseek-ai\/dsh-mini/.test(mini.patch), 'dsh-mini 块应被移除');
+  assert.ok(/id:\s*side-session\b/.test(mini.patch), '在役插件行不得被误删');
+  assert.ok(/name:\s*'@dsh-external\/dsh-side-session'/.test(mini.patch), '在役行的 name 不得被误删');
+});
+
+test('sync()：退役行清理幂等（第二遍不再改写，也不报错）', (t) => {
+  const { ctx, h } = makePluginSyncCtx(t);
+  const { file } = writeRetiredProfile(h);
+
+  const sync = createPluginSync(ctx).sync;
+  sync();
+  const once = fs.readFileSync(file, 'utf8');
+  assert.doesNotThrow(() => sync(), '二遍不得抛异常');
+  assert.equal(fs.readFileSync(file, 'utf8'), once, '二遍不得再改写文件');
+});
+
+test('启动链覆盖面：companion-profile 导出的每个 removeRetired*PatchRows 都必须在 sync() 里被调用', () => {
+  const profileSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'companion-profile.js'), 'utf8');
+  const syncSrc = fs.readFileSync(path.join(__dirname, '..', 'integration', 'plugin-sync.js'), 'utf8');
+  const names = [...profileSrc.matchAll(/^function (removeRetired\w*PatchRows)\s*\(/gm)].map((m) => m[1]);
+  assert.ok(names.length >= 4, '至少应有 market / third-party-thinking / float-window / mini 四个退役行清理器，实得: ' + names.join(', '));
+  const missing = names.filter((n) => !syncSrc.includes(n + '('));
+  assert.deepEqual(
+    missing,
+    [],
+    '以下退役行清理器未挂到启动链（老 profile 残留会每 boot 报缺包，只有 CLI 同步时才会被清）: ' + missing.join(', '),
+  );
+});
