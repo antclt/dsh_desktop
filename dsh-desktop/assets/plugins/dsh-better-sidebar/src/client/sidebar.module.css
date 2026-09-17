@@ -40,6 +40,18 @@
   pointer-events: none;
 }
 
+/* 但应用级浮层（设置面板等）打开时必须退到它之下——否则设置界面被面板层盖住
+   （用户实报：「打开侧边栏后打开设置界面，设置界面因为层级低而被遮挡」）。
+   实测设置面板 = position:fixed / z-index:1000（类名 VOzbGW_overlay），与抽屉遮罩
+   同值，所以任何「高于遮罩」的值都会同时高于设置面板。
+   标记选 [class$="_overlay"]（类名以 _overlay 结尾）：实测开着设置时精确命中那一个
+   浮层，关闭时命中 0 个（overlayAnchor / overlayLayer 这类同名子串不会误命中，
+   故不会把宿主永久压到 40 而回归 #52）。宿主 pointer-events 本来就是 none，
+   这里只改绘制层级；浮层关闭 → :has() 失配 → 自动回到 1001。 */
+body:has([class$='_overlay']) :global([data-dsh-panel-host]) {
+  z-index: 40;
+}
+
 /* 注：面板让位只走 layout.css 的 #root margin 推挤（--dsh-sidebar-width）
    单一机制。历史上的双保险——本规则曾用 right 让位（56px clearance）与
    .cHLsAW_frame 的 --dsh-official-push padding——与 margin 并存时产生
@@ -111,8 +123,12 @@
   cursor: default;
 }
 
- transition: none;
-}
+/* 注：此处原有两行残留（`transition: none;` + 孤立的 `}`，没有选择器也没有 @media
+   头）——vendored 源被同步截断留下的重复块：同样的 `transition: none` 已由本文件
+   末尾 `@media (prefers-reduced-motion: reduce)` 的 .panel/.toggleButton/... 那一组
+   覆盖（随包 lib 的编译产物里也只有那一组，没有第二处），故直接删除。
+   它同时是 `npm run bundle` 在这个检出里无法完成的唯一原因：lightningcss 解析
+   整个文件时在孤立 `}` 处报 `Invalid token in pseudo element`。 */
 
 .panelResize {
   position: absolute;
@@ -190,6 +206,36 @@
 .panel,
 .bottomPanel {
   contain: layout style;
+}
+
+/* 内核自带右栏接入（kernel-rightbar.tsx）：pane 里的填充宿主 + 被 portal 进
+   pane 的面板。内核 dockkit 的 paneBody 是 position:relative 的**定高滚动容器**
+   （实测 647px + overflow:auto），中间隔着两层 display:contents 的 slot outlet，
+   所以宿主必须绝对铺满它——static + flex:1 在这里拿不到确定高度，面板会撑成内容
+   高度（实测 13858px）。列宽/开关/全屏仍由内核负责。 */
+.kernelPane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panelKernel {
+  position: relative;
+  inset: auto;
+  transform: none;
+  visibility: visible;
+  /* .panelBody/.workbench/.pane 全靠 flex:1 + min-height:0 撑满父级；legacy 里
+     面板是绝对定位的定高盒子，这里必须显式补上 flex 列上下文，否则 paneBody 会
+     按内容高度铺开（实测编辑器被撑到 4586px、下半截被 pane 裁掉且不可滚动）。 */
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 body[data-dsh-sidebar-dragging] .panel,

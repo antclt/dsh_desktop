@@ -16,6 +16,7 @@ import { createBetterSidebarService, matchUrlTarget } from './service.ts'
 import { revalidateChunksOnReactivate, setChunkModuleSystem } from './chunk-loader.ts'
 import { registerBuiltins } from './builtins/index.ts'
 import { Sidebar } from './Sidebar.tsx'
+import { integrateKernelRightbar, readKernelRightbarSeam } from './kernel-rightbar.tsx'
 import { RenderBoundary } from './RenderBoundary.tsx'
 import { registerOpenPathInterception, registerRemoteOpenPathInterception, registerTurnTailInterception } from './intercept.tsx'
 import { registerLinkInterception } from './link-intercept.ts'
@@ -95,6 +96,20 @@ export function apply(ctx: Context): void {
     () => registerBuiltins(ctx, service, { terminalTitle: () => terminalTitle }),
     'dsh-better-sidebar: register built-in tabs and viewers',
   )
+  // 内核自带右栏接入（可选，见 kernel-rightbar.tsx）：内核提供 sidebarRightTabs /
+  // sidebarRight 时，把整块工作台注册成右栏里的一个标签，右侧面板随后被 portal 进
+  // 内核给的 pane；内核缺这两个服务时这段回调根本不触发，插件保持整合前的自绘浮层。
+  // 故意**不**把该包写进 package.json 的 dsh.client.inject：inject 是硬前置，写进去
+  // 会让插件在缺少该服务的内核上整体不加载，而我们要的是「有没有都活」。
+  ctx.inject(['sidebarRightTabs', 'sidebarRight'], (kernelCtx) => {
+    if (sidebarStore.getPrefs().kernelRightbar === 'legacy') return
+    const seam = readKernelRightbarSeam(kernelCtx as unknown as Context)
+    if (seam === null) return
+    ctx.effect(
+      () => integrateKernelRightbar(ctx, sidebarStore, seam),
+      'dsh-better-sidebar: kernel right bar',
+    )
+  })
   // A failure anywhere in the client lifecycle must never take the app down
   // silently: log with the plugin prefix and pin a visible diagnostic strip
   // to the page so a blank panel is never the only symptom.

@@ -92,7 +92,9 @@ const PrefsSchema = z.object({
 	browserInterceptHttps: z.boolean().default(false),
 	tabsEnabled: z.dict(z.boolean()).default({}),
 	viewersEnabled: z.dict(z.boolean()).default({}),
-	pluginSettings: z.dict(z.dict(z.any())).default({})
+	pluginSettings: z.dict(z.dict(z.any())).default({}),
+	kernelRightbar: z.union([z.const("auto"), z.const("legacy")]).default("auto"),
+	kernelRightbarAutoOpen: z.boolean().default(true)
 });
 //#endregion
 //#region src/wire.ts

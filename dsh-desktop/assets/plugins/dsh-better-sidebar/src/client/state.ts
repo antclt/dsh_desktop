@@ -226,12 +226,22 @@ function treeHasId(node: SplitNode, id: string): boolean {
   return false
 }
 
+/**
+ * Which of the two workbench trees a pane lives in (or a landing is aimed
+ * at): `'splits'` is the right sidebar's tree (the original workbench),
+ * `'bottomSplits'` the bottom panel's. Pane ids are globally unique across
+ * both trees, so an id alone never says which tree to use — callers that
+ * must land in a SPECIFIC place name the tree explicitly (see
+ * {@link rehostTab}).
+ */
+export type SidebarTreeKey = 'splits' | 'bottomSplits'
+
 /** Which tree owns a pane/split id: 'bottomSplits' when the id lives in the
  *  bottom panel's tree, else 'splits' (the right panel's tree). Ids are
  *  globally unique (the shared uid counter), so an id in neither tree falls
  *  back to the right tree, where tree operations no-op on a missing node —
  *  the pre-bottom-panel behavior. */
-export function treeOf(state: SidebarState, id: string): 'splits' | 'bottomSplits' {
+export function treeOf(state: SidebarState, id: string): SidebarTreeKey {
   return treeHasId(state.bottomSplits, id) ? 'bottomSplits' : 'splits'
 }
 
@@ -706,6 +716,33 @@ export function moveTab(state: SidebarState, fromPane: string, tabId: string, to
     leaf.active = moved!.id
   })
   return { ...state, [fromKey]: splits, activePane: toPane }
+}
+
+/**
+ * Land an already-open tab in a NAMED tree, whatever pane happens to be
+ * active (see {@link SidebarTreeKey}). `openTab` normally follows the active
+ * pane — VSCode's "open where the focus is" — but a FILE open must land where
+ * the user reads files: the file preview belongs to the right sidebar, and
+ * once the bottom panel exists its pane is routinely the active one (its
+ * auto-terminal tab activates it), so following the focus quietly strands
+ * every preview in the bottom panel while the right workbench stays empty
+ * (observed: the right tree held no tabs at all while every clicked file
+ * landed in the bottom leaf).
+ *
+ * A tab already in the target tree is merely activated (no churn); one in the
+ * other tree MOVES over, emptying-and-pruning its old leaf — the target pane
+ * is the target tree's active pane when it has one, else its first leaf.
+ */
+export function rehostTab(state: SidebarState, tabId: string, host: SidebarTreeKey): SidebarState {
+  const from = allLeaves(state.splits)
+    .concat(allLeaves(state.bottomSplits))
+    .find(leaf => leaf.tabs.some(tab => tab.id === tabId))?.id
+  if (from === undefined) return state
+  if (treeOf(state, from) === host) return activateTab(state, from, tabId)
+  const active = state.activePane
+  const target = (active !== null ? allLeaves(state[host]).find(leaf => leaf.id === active) : undefined)
+    ?? firstLeaf(state[host])
+  return moveTab(state, from, tabId, target.id)
 }
 
 /** Split the active pane (or the pane containing the active tab). */

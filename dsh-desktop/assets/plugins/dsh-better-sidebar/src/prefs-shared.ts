@@ -201,6 +201,19 @@ export interface SidebarPrefs {
    * numbers / booleans; custom panels are responsible for their own).
    */
   pluginSettings: Record<string, Record<string, unknown>>
+  /**
+   * 是否把工作台接进内核自带右栏。`'auto'`（默认）：内核提供右栏服务
+   * （@deepseek-ai/dsh-client-ui-sidebar-right）时，整块工作台作为右栏里的一个标签
+   * 渲染，列宽/开关/全屏交给内核，插件不再自绘浮层；内核没有该服务时自动退回整合
+   * 前的浮层（legacy）。`'legacy'` 强制保留浮层形态（逃生阀）。改动在下次启动生效
+   * （注册发生在插件 apply 期）。
+   */
+  kernelRightbar: 'auto' | 'legacy'
+  /**
+   * 展开内核右栏时自动打开本插件的工作台标签（默认开）。内核 dock 里没有标签时先
+   * 显示引导页；关掉后展开落在引导页，要再点一次本插件卡片才进工作台。
+   */
+  kernelRightbarAutoOpen: boolean
 }
 
 /** Range contract of {@link SidebarPrefs.defaultWidthPercent}. */
@@ -250,6 +263,8 @@ export const SIDEBAR_PREFS_DEFAULTS: SidebarPrefs = {
   tabsEnabled: {},
   viewersEnabled: {},
   pluginSettings: {},
+  kernelRightbar: 'auto',
+  kernelRightbarAutoOpen: true,
 }
 
 /** Clamp one width percent into the contract range (shared by schema and client reads). */

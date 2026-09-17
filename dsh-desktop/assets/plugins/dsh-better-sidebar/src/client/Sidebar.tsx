@@ -29,6 +29,7 @@
  * the right tree.
  */
 import { createElement, memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { IconCloseFill14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -57,6 +58,7 @@ import { tabContentCompare, type TabContentMemoKey } from './tab-content-memo.ts
 import { detectNewDirectSubagent } from './subagent-detect.ts'
 import { detectNewJob } from './subagent-jobs.ts'
 import { t } from './locales.ts'
+import { ensureKernelRightbarOpen, useKernelPaneEl, useKernelRightbarActive } from './kernel-rightbar.tsx'
 import { api, type SessionScope } from './api.ts'
 import css from './sidebar.module.css'
 
@@ -99,6 +101,24 @@ const osFileDragShield = {
   onDragOver: swallowOsFileDrag,
   onDragLeave: swallowOsFileDrag,
   onDrop: swallowOsFileDrag,
+}
+
+/**
+ * Render children into `to` when it exists, in place otherwise (no portal).
+ * This is the kernel-right-bar integration: the panel moves into the kernel's
+ * pane DOM while staying in this component's single React tree — so every
+ * effect, drag handler and observer below still runs exactly once (rendering a
+ * second <Sidebar> inside the pane would double them all).
+ *
+ * `hideWhenNoTarget` covers the gap the dock creates: while the kernel column is
+ * collapsed (or our tab is closed) the dock unmounts the body, so the pane
+ * element disappears. Falling back to in-place rendering then would draw the
+ * panel at the viewport's top-left over the whole app, so in that mode a missing
+ * target means "render nothing" — the kernel is the one deciding visibility.
+ */
+function MaybePortal(props: { to: HTMLElement | null; hideWhenNoTarget?: boolean; children: ReactNode }) {
+  if (props.to === null) return props.hideWhenNoTarget === true ? null : <>{props.children}</>
+  return createPortal(<>{props.children}</>, props.to)
 }
 
 /**
@@ -180,6 +200,16 @@ function buildNewTabOptions(state: SidebarState, ctx: Context, scope: SessionSco
 export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
   const { ctx, store } = props
 
+  // 内核自带右栏接入（见 kernel-rightbar.tsx）：集成生效（kernelMode）时右侧面板
+  // 交给内核那一列渲染——列宽/开关/全屏/拖宽都归内核；不在位则完全走整合前的自绘
+  // 浮层路径（legacy）。注意「集成生效」与「pane 元素在位」是两件事：内核列收起时
+  // dock 会卸载我们的标签主体、pane 元素随之消失，此时面板必须**不渲染**，否则会
+  // 掉回就地渲染、以视口左上角铺满整个应用。底部面板与它的会话列顶开行为两种模式
+  // 一致——那是另一处独立工作面。
+  const kernelMode = useKernelRightbarActive()
+  const kernelPane = useKernelPaneEl()
+  const integrated = kernelMode
+
   // Copy freshness: re-render the whole tree when the DSH locale switches.
   // The module-level t() reads the active locale at call time, so a root
   // re-render alone re-localizes every panel (no memo barriers below).
@@ -209,7 +239,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
   // — the merged display is the right sidebar alone, the bottom tabs thrown
   // into its strips. Widening never rewrites the migrated state: the tabs
   // keep living in the right tree.
-  const narrow = useNarrowViewport()
+  const narrow = useNarrowViewport() && !integrated
 
   // On-screen keyboard / visual-viewport inset (mobile, split-screen, …):
   // when the visual viewport shrinks below the layout viewport, bottom-
@@ -265,7 +295,9 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
   // capsule) must yield. layout.css keys off this body attribute to push the
   // header's right padding out past the cluster. Only the CLOSED panel needs
   // it — an open panel already squeezes `#root` left, moving the header clear.
-  const collapsed = state === undefined || !state.panelOpen
+  // 集成模式下右侧面板的开关是内核头部的展开按钮（我们不再占角落、不压 #root），
+  // 故这条属性不设，layout.css 的让位规则自然失配。
+  const collapsed = !integrated && (state === undefined || !state.panelOpen)
   useEffect(() => {
     if (collapsed) document.body.setAttribute('data-dsh-sidebar-collapsed', '')
     else document.body.removeAttribute('data-dsh-sidebar-collapsed')
@@ -443,7 +475,8 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
       if (!detectNewDirectSubagent(baseline, ctx.sessions.list.getSnapshot(), sessionId)) return
       if (!store.getPrefs().autoOpenSubagent) return
       if (ctx.betterSidebar?.isTabEnabled('subagent') === false) return
-      store.reduce(s => s.panelOpen ? s : togglePanel(s))
+      // 集成模式：右栏的开关归内核，交给它展开（我们的面板在 pane 里常显）。
+      if (!ensureKernelRightbarOpen()) store.reduce(s => s.panelOpen ? s : togglePanel(s))
       // Pin the landing to the right panel: the auto-opened Subagent page must
       // appear where the panel just expanded, not in a bottom-panel pane the
       // user last touched.
@@ -477,7 +510,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     if (!detectNewJob(prev, sessionList, sessionId)) return
     if (!store.getPrefs().autoOpenJobs) return
     if (ctx.betterSidebar?.isTabEnabled('subagent') === false) return
-    store.reduce(s => s.panelOpen ? s : togglePanel(s))
+    if (!ensureKernelRightbarOpen()) store.reduce(s => s.panelOpen ? s : togglePanel(s))
     store.reduce(s => ({ ...s, activePane: firstLeaf(s.splits).id }))
     ctx.betterSidebar?.openTab({ type: 'subagent', title: t('subagent') })
   }, [sessionList, sessionId, store, ctx])
@@ -498,7 +531,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     const pending = subagentJumpRef.current
     if (pending === undefined || sessionId !== pending) return
     subagentJumpRef.current = undefined
-    store.reduce(s => s.panelOpen ? s : togglePanel(s))
+    if (!ensureKernelRightbarOpen()) store.reduce(s => s.panelOpen ? s : togglePanel(s))
     store.reduce(s => ({ ...s, activePane: firstLeaf(s.splits).id }))
     ctx.betterSidebar?.openTab({ type: 'subagent', title: t('subagent') })
   }, [sessionId, store, ctx])
@@ -571,8 +604,23 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
     // (observed: a 1px sliver at the viewport's left edge).
     const locate = (): void => {
       if (disposed) return
-      const col = document.querySelector('#root [data-slot="conversation"]')
-        ?.parentElement as HTMLElement | undefined
+      // 两代锚点：≤0.1.5 的 [data-slot="conversation"] 之 parent 即会话列；
+      // 0.1.6-alpha.1 改名为 [data-slot="main.conversation"]，且槽位宿主退化成
+      // 0 尺寸包装层（实测其 parent 高/宽皆 0）——只认旧锚点时 col 恒 undefined
+      // → centerMeasured 永远 false → 底部面板（承载全部文件标签与预览）永久
+      // visibility:hidden 且 left:0/right:innerWidth（实测宽 ~0.4px，即注释里
+      // 说的那个 left-edge sliver）。故两代都试，并上溯到第一个有真实宽度的祖先。
+      const col = ((): HTMLElement | undefined => {
+        const slot = document.querySelector('#root [data-slot="conversation"]')
+          ?? document.querySelector('#root [data-slot="main.conversation"]')
+        if (slot === null) return undefined
+        let el: HTMLElement | null = slot.parentElement
+        for (let hops = 0; el !== null && hops < 4; hops += 1) {
+          if (el.getBoundingClientRect().width > 50) return el
+          el = el.parentElement
+        }
+        return el === null ? undefined : el
+      })()
       if (col === undefined || !col.isConnected) {
         if (centerColRef.current !== null) {
           centerColRef.current = null
@@ -895,14 +943,15 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
   // On NARROW viewports the drawer FLOATS over the app shell — no push, the
   // conversation keeps the full width behind the drawer.
   useEffect(() => {
-    const width = !narrow && snapshot.state?.panelOpen === true
+    // 集成模式：列宽由内核那一列负责（我们不再给 #root 加 margin-right）。
+    const width = !integrated && !narrow && snapshot.state?.panelOpen === true
       ? Math.min(snapshot.state.width, maxPanelWidthFor(window.innerWidth))
       : 0
     const height = !narrow && snapshot.state?.bottomOpen === true
       ? Math.min(snapshot.state.bottomHeight, window.innerHeight)
       : 0
     writeGeometry(width, height)
-  }, [narrow, snapshot.state?.panelOpen, snapshot.state?.width, snapshot.state?.bottomOpen, snapshot.state?.bottomHeight])
+  }, [integrated, narrow, snapshot.state?.panelOpen, snapshot.state?.width, snapshot.state?.bottomOpen, snapshot.state?.bottomHeight])
   // Unmount must release the push (issue #31): when the boundary swaps the
   // whole sidebar after a render crash (or the plugin fiber is disposed /
   // HMR), the CSS variables would otherwise stay on <html> and layout.css
@@ -1113,6 +1162,9 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
             </button>
           </Tooltip>
         )}
+        {/* 集成模式下右侧面板的开关是内核头部的展开按钮（用户选择「内核展开按钮为主」），
+            这里只留底部面板那颗 —— 同一个侧边栏不摆两个入口。 */}
+        {!integrated && (
         <Tooltip label={state.panelOpen ? t('collapse') : t('expand')} side="bottom" delayMs={500}>
           <button
             type="button"
@@ -1123,6 +1175,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
             <IconPanelRightOutline16 />
           </button>
         </Tooltip>
+        )}
       </div>
       {/*
         The right panel stays mounted while collapsed (hidden off-screen) so
@@ -1133,12 +1186,16 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
         workbenches (see MobileWorkbench); the width drag strip is not
         offered there — a full-screen sheet has nothing to drag.
       */}
+      {/* 集成模式：面板整段 portal 进内核右栏的 pane（内核画标签条/列宽/全屏）；
+          内核列收起时 pane 不在位 → 整体不渲染（开关归内核）。
+          legacy：就地留在我们自己的浮层里。 */}
+      <MaybePortal to={kernelPane} hideWhenNoTarget={integrated}>
       <div
         ref={panelRef}
-        className={clsx(css.panel, !state.panelOpen && css.panelHidden)}
+        className={clsx(css.panel, !state.panelOpen && !integrated && css.panelHidden, integrated && css.panelKernel)}
         data-dsh-panel
         style={{
-          width: narrow ? '100vw' : Math.min(state.width, maxPanelWidthFor(window.innerWidth)),
+          width: integrated ? '100%' : narrow ? '100vw' : Math.min(state.width, maxPanelWidthFor(window.innerWidth)),
           // Narrow drawer: keep the bottom-anchored sheet above the on-screen
           // keyboard (visualViewport inset); desktop panels are full-height
           // and unaffected.
@@ -1147,7 +1204,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
        
         data-dragging={anyDragging || undefined}
       >
-          {!narrow && (
+          {!narrow && !integrated && (
             <div
               className={clsx(css.panelResize, draggingWidth && css.panelResizeActive)}
              
@@ -1275,6 +1332,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
           />
         )}
       </div>
+      </MaybePortal>
       {/*
         The bottom panel: a second, independent workbench. It squeezes ONLY
         the center column (the agent output area): it starts at the app

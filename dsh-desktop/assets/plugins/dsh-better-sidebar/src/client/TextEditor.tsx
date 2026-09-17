@@ -32,6 +32,7 @@ import { lazyChunkComponent } from './lazy-chunk.tsx'
 import { splitMermaidBlocks, type MermaidMarkdownProps } from './mermaid-blocks.ts'
 import { t } from './locales.ts'
 import { ensureDiffHighlightCss, highlightKindClass, readFileChangesStore, readFileHighlight } from './file-changes-highlight.ts'
+import { DiffTurnsPanel } from './DiffTurnsPanel.tsx'
 import { editorFeatures } from './editor-features.ts'
 import type { EditorToolbarState, FileViewerProps } from './service.ts'
 import css from './sidebar.module.css'
@@ -129,6 +130,8 @@ export function TextEditor(props: FileViewerProps) {
   /** Inline agent-diff highlight: enabled flag + whether this file has changes. */
   const [diffHighlight, setDiffHighlight] = useState(true)
   const [hasDiff, setHasDiff] = useState(false)
+  // 「按变更查看 diff」历史面板的开关（仅在本组件自绘工具条时可达）。
+  const [histOpen, setHistOpen] = useState(false)
 
   const hidePopup = (): void => {
     popupRef.current = null
@@ -452,6 +455,18 @@ export function TextEditor(props: FileViewerProps) {
             <span style={{ opacity: diffHighlight ? 1 : 0.4 }}>±</span>
           </button>
         )}
+        {hasDiff && (
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label="变更历史"
+            title={histOpen ? '收起按变更 diff' : '按变更查看 diff'}
+            aria-pressed={histOpen}
+            onClick={() => { setHistOpen(value => !value) }}
+          >
+            <span style={{ opacity: histOpen ? 1 : 0.4 }}>≡</span>
+          </button>
+        )}
         {saveLabel !== '' && <span className={clsx(css.editorStatus, saveState === 'failed' && css.editorStatusError)}>{saveLabel}</span>}
       </div>
       )}
@@ -463,6 +478,13 @@ export function TextEditor(props: FileViewerProps) {
             ref={hostRef}
           />
         </>
+      )}
+      {histOpen && hasDiff && (
+        <DiffTurnsPanel
+          sessionId={scope.sessionId}
+          path={path}
+          onClose={() => { setHistOpen(false) }}
+        />
       )}
       {markdown && mode === 'preview' && (
         <div

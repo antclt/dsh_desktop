@@ -23,10 +23,11 @@ import type { ReactNode } from 'react'
 import type { Context } from '../context-types.ts'
 import {
   activateTab as activateTabReducer, allLeaves, closeTab as closeTabReducer, leafWithTab,
-  openTabInActivePane, patchTab, tabOpenIn, togglePanel, treeOf,
-  type SidebarSnapshot, type SidebarState, type SidebarStore, type SidebarTab,
+  openTabInActivePane, patchTab, rehostTab, tabOpenIn, togglePanel, treeOf,
+  type SidebarSnapshot, type SidebarState, type SidebarStore, type SidebarTab, type SidebarTreeKey,
 } from './state.ts'
 import { isNarrowWidth } from './breakpoints.ts'
+import { ensureKernelRightbarOpen } from './kernel-rightbar.tsx'
 import type { SessionScope } from './api.ts'
 import type { SidebarPrefs } from '../prefs-shared.ts'
 
@@ -336,6 +337,17 @@ export interface OpenTabSeed {
   url?: string
   /** JSON-serializable custom state carried on the minted tab (persisted across reloads; v0.12.0+). */
   meta?: unknown
+  /**
+   * Landing tree override. Absent (the default) lands the tab in the globally
+   * active pane — 'open where the focus is'; `'splits'` forces the right
+   * sidebar's workbench, `'bottomSplits'` the bottom panel. A tab of the same
+   * id/dedupe key that already lives in the OTHER tree moves over (emptied
+   * leaves are pruned), so the caller's intent wins over where the tab was
+   * opened before. The file preview uses `'splits'`: a file click in the
+   * explorer must show up beside the tree, not wherever the bottom panel's
+   * auto-terminal tab left the focus.
+   */
+  host?: SidebarTreeKey
 }
 
 /**
@@ -375,6 +387,11 @@ export interface BetterSidebarService {
    * lands in THAT session's sidebar state (loading it if it has none yet)
    * without switching the UI's active session; when absent the open lands
    * in the currently active session (the pre-0.12 behavior).
+   *
+   * `seed.host` names the landing tree instead of following the active pane
+   * (the file preview passes `'splits'` so a file click always shows up in
+   * the right sidebar, beside the explorer tree); an existing tab of the
+   * same dedupe key in the other tree moves over.
    *
    * A CONTENT open (a `path` or `url` seed) must land in sight: when the
    * panel hosting the landing pane is collapsed, it is expanded
@@ -666,6 +683,12 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
           ...(seed.title !== undefined ? { title: seed.title } : {}),
         })
       }
+      // A named landing tree overrides the active-pane choice (and moves a
+      // tab that already existed in the other tree). Runs before the
+      // lifecycle capture below so `created`/`activated` report the tab's
+      // FINAL home, and before the auto-expand block, which reads the
+      // landing pane's tree to decide WHICH panel to expand.
+      if (seed.host !== undefined) landed = rehostTab(landed, tab.id, seed.host)
       // Lifecycle capture (before the auto-expand block, which early-returns).
       if (isCreation) {
         // Resolve the ACTUAL landed tab — the url patch mints a new object,
@@ -697,6 +720,12 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
         && typeof window !== 'undefined'
         && (seed.path !== undefined || seed.url !== undefined)
       ) {
+        // 集成模式：右侧面板住在内核自带右栏里，开关归内核——让它展开（我们的
+        // 面板在 pane 里常显，panelOpen 只是 legacy 的账）。内核不在位时返回
+        // false，落回下面的浮层展开逻辑。
+        if (treeOf(landed, landed.activePane ?? '') !== 'bottomSplits' && ensureKernelRightbarOpen()) {
+          return landed
+        }
         if (isNarrowWidth(window.innerWidth)) {
           if (!landed.panelOpen) return togglePanel(landed)
         } else {

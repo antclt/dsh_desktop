@@ -22,7 +22,14 @@ export function openSidebarFile(ctx: Context, store: SidebarStore, sessionId: st
   const title = at === -1 ? absolute : absolute.slice(at + 1)
   // Route through the sidebar service so the editor descriptor's dedupeKey
   // (per-path) applies; the id is path-derived so multiple editors coexist.
-  ctx.betterSidebar?.openTab({ type: 'editor', title, path: absolute, id: `editor:${absolute}` })
+  // `host: 'splits'` pins the landing to the RIGHT workbench: a file click in
+  // the explorer must show up beside the tree. Without it the open follows the
+  // active pane, and the bottom panel's pane is already the active one once
+  // its auto-terminal tab exists — every preview then lands under the
+  // conversation while the right workbench stays empty (the reported
+  // "clicking a file shows no preview": the tab DID open, out of sight in
+  // the bottom panel it had drifted into).
+  ctx.betterSidebar?.openTab({ type: 'editor', title, path: absolute, id: `editor:${absolute}`, host: 'splits' })
 }
 
 /** The intercepted produced-files row (visual twin of the deliverables chips). */

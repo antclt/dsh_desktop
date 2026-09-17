@@ -150,4 +150,8 @@ export const PrefsSchema: z<SidebarPrefs> = z.object({
   // "settings seam" opening — without it the seam would drop third-party
   // keys as unknown schema fields.
   pluginSettings: z.dict(z.dict(z.any())).default({}),
+  // 内核右栏接入（见 client/kernel-rightbar.tsx）：'auto' 在内核提供右栏服务时把
+  // 工作台嵌成右栏里的一个标签，内核没有该服务时自动退回浮层；'legacy' 强制浮层。
+  kernelRightbar: z.union([z.const('auto'), z.const('legacy')]).default('auto'),
+  kernelRightbarAutoOpen: z.boolean().default(true),
 })

@@ -344,6 +344,9 @@ export const zh = {
   pluginTurnReviewDesc: '对「刚刚这一回合」的 diff 做 Approve / Request changes 的人闸门：只审上一回合，不 fork 会话；文件按主会话/子代理/未归因分组，按文件勾选打回 + 可选评语，点文件先看回合开始快照 vs 现在的 diff。不是 /rewind',
   pluginVideoPreviewDesc: '在 better-sidebar 编辑器内联预览视频文件（.mp4/.webm/.mov/.mkv/.avi 等），自带支持 HTTP Range（206）的 /video 宿主路由，可拖动进度条、不受 20MB mediaLimit 限制',
   pluginDocsPanelDesc: 'DSH 侧边栏里的「全局文档」：全局 Markdown 笔记，任何工作区随时可读——列表点选阅读、悬浮大纲跳转、Chrome / VS Code 外部打开、代码复制，目录可配置（默认 ~/.dsh/docs）',
+  kernelTabTitle: '工作台',
+  kernelGuideTitle: '侧边工作台',
+  kernelGuideDescription: '文件树 + 编辑器 + 终端 + 源代码管理 + 浏览器（本插件的工作台，停在内核自带右栏里）',
 }
 
 /** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
@@ -681,6 +684,9 @@ export const en: Record<keyof typeof zh, string> = {
   pluginTurnReviewDesc: 'A human gate on the just-finished turn: Approve / Request changes per path with an optional comment; paths grouped by main session / subagent / unattributed; inline snapshot-vs-now diff before you decide. No fork, no /rewind',
   pluginVideoPreviewDesc: 'Inline video preview (.mp4/.webm/.mov/.mkv/.avi etc.) for the better-sidebar editor, backed by a dedicated /video host route with HTTP Range (206) support — scrubbing works and files are not capped by the 20MB mediaLimit',
   pluginDocsPanelDesc: 'Global docs in the DSH sidebar: read your own Markdown notes from any workspace — a file list, an outline, open in Chrome / VS Code, and copy buttons; the docs directory is configurable (default ~/.dsh/docs)',
+  kernelTabTitle: 'Workbench',
+  kernelGuideTitle: 'Side workbench',
+  kernelGuideDescription: 'File tree + editor + terminal + source control + browser — this plugin’s workbench, docked in the kernel’s own right sidebar',
 }
 
 /**
