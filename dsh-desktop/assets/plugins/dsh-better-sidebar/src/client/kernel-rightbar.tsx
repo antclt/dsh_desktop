@@ -17,10 +17,12 @@
  * package.json 的 dsh.client.inject：inject 是硬前置，写进去等于让插件在没有该
  * 服务的内核上整体不加载；这里走 ctx.inject 的可选接法，服务缺席只是不集成。
  */
-import { useSyncExternalStore, type ComponentType } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ComponentType } from 'react'
+import { createPortal } from 'react-dom'
 import type { Context } from '../context-types.ts'
 import type { SidebarStore } from './state.ts'
-import { IconPanelRightOutline16 } from './icons.tsx'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconPanelBottomOutline16, IconPanelRightOutline16 } from './icons.tsx'
 import { t } from './locales.ts'
 import css from './sidebar.module.css'
 
@@ -124,6 +126,91 @@ function subscribeKernelPane(listener: () => void): () => void {
 /** React hook form: the current kernel pane element (null while not integrated). */
 export function useKernelPaneEl(): HTMLElement | null {
   return useSyncExternalStore(subscribeKernelPane, () => paneEl, () => null)
+}
+
+/** Our own element inside the dock's button row (see {@link ensureStripHost}). */
+const STRIP_HOST_ATTR = 'data-dsh-strip-host'
+
+/**
+ * The dock's tab strip: the row holding the kit's own [split] [fullscreen] [collapse]
+ * buttons. Our bottom-panel toggle docks there as a parallel button (the user's
+ * "在侧边栏按钮里面加一个并列的底部侧边栏"), so the floating toggle cluster can go away.
+ *
+ * `useKernelPaneEl` is the lifetime signal: the strip only exists while our tab body
+ * is mounted, and the strip can be re-rendered (dropping our host) without the pane
+ * element changing — hence the observer, which re-creates the host if it vanishes.
+ */
+export function useKernelStripAnchor(): HTMLElement | null {
+  const pane = useKernelPaneEl()
+  const [host, setHost] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    if (pane === null) {
+      setHost(null)
+      return
+    }
+    const refresh = (): void => { setHost(ensureStripHost(pane)) }
+    refresh()
+    const surface = pane.closest('[data-dockkit-surface]') ?? pane.parentElement ?? document.body
+    const observer = new MutationObserver(refresh)
+    observer.observe(surface, { childList: true, subtree: true })
+    return () => {
+      observer.disconnect()
+      const stale = document.querySelector(`[${STRIP_HOST_ATTR}]`)
+      stale?.remove()
+      setHost(null)
+    }
+  }, [pane])
+  return host
+}
+
+/**
+ * Find the dock's tab strip from our pane, then make sure our host element exists in
+ * its button row — inserted BEFORE the kit's split control, so the row reads
+ * [底部面板] [分栏] [全屏] [收起]. We own exactly this one empty span; the kit's own
+ * nodes are never moved or restyled (only the strip's flex makes room, 28px).
+ */
+function ensureStripHost(pane: HTMLElement): HTMLElement | null {
+  let scope: HTMLElement | null = pane
+  let strip: HTMLElement | null = null
+  for (let hops = 0; scope !== null && hops < 8; hops += 1) {
+    strip = scope.querySelector('[data-dockkit-strip]')
+    if (strip !== null) break
+    scope = scope.parentElement
+  }
+  if (strip === null) return null
+  const existing = strip.querySelector(`[${STRIP_HOST_ATTR}]`)
+  if (existing !== null) return existing as HTMLElement
+  const host = document.createElement('span')
+  host.setAttribute(STRIP_HOST_ATTR, '')
+  host.className = 'dsh-strip-host'
+  strip.insertBefore(host, strip.querySelector('[data-dockkit-split-button]'))
+  return host
+}
+
+/**
+ * The bottom-panel toggle as a button in the dock's strip (integrated mode only).
+ * Renders nothing until the strip exists; toggling keeps our existing semantics —
+ * the bottom panel still spans the conversation column below.
+ */
+export function KernelBottomPanelToggle(props: { open: boolean; onToggle: () => void; host: HTMLElement | null }) {
+  const { open, onToggle, host } = props
+  if (host === null) return null
+  const label = open ? t('collapseBottomPanel') : t('expandBottomPanel')
+  return createPortal(
+    <Tooltip label={label} side="bottom" delayMs={500}>
+      <button
+        type="button"
+        className={css.toggleButton}
+        data-dsh-bottom-panel-toggle=""
+        aria-label={label}
+        aria-pressed={open}
+        onClick={onToggle}
+      >
+        <IconPanelBottomOutline16 />
+      </button>
+    </Tooltip>,
+    host,
+  )
 }
 
 /**

@@ -58,7 +58,7 @@ import { tabContentCompare, type TabContentMemoKey } from './tab-content-memo.ts
 import { detectNewDirectSubagent } from './subagent-detect.ts'
 import { detectNewJob } from './subagent-jobs.ts'
 import { t } from './locales.ts'
-import { ensureKernelRightbarOpen, useKernelPaneEl, useKernelRightbarActive } from './kernel-rightbar.tsx'
+import { ensureKernelRightbarOpen, KernelBottomPanelToggle, useKernelPaneEl, useKernelRightbarActive, useKernelStripAnchor } from './kernel-rightbar.tsx'
 import { api, type SessionScope } from './api.ts'
 import css from './sidebar.module.css'
 
@@ -209,6 +209,8 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
   const kernelMode = useKernelRightbarActive()
   const kernelPane = useKernelPaneEl()
   const integrated = kernelMode
+  // 集成模式下底部面板的开关搬进内核右栏标签条那颗并列按钮里（浮层钮簇整体退役）。
+  const stripHost = useKernelStripAnchor()
 
   // Copy freshness: re-render the whole tree when the DSH locale switches.
   // The module-level t() reads the active locale at call time, so a root
@@ -1048,6 +1050,9 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
   if (state === undefined || sessionId === undefined) {
     return (
       <div data-dsh-panel-host {...osFileDragShield}>
+        {/* 集成模式：底部面板的开关在内核右栏标签条里（此处无会话、面板也没有内容），
+            浮层钮簇整体不渲染。 */}
+        {!integrated && (
         <div className={css.toggleCluster} data-dsh-toggle-cluster>
           {!narrow && (
             <Tooltip label={t('noSession')} side="bottom" delayMs={500}>
@@ -1062,6 +1067,7 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
             </button>
           </Tooltip>
         </div>
+        )}
       </div>
     )
   }
@@ -1145,6 +1151,16 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
         right end it really squeezes (the strip reserves its width via CSS),
         so the tabs genuinely yield space to it.
       */}
+      {/* 集成模式：浮层钮簇整体退役 —— 右侧面板的开关是内核头部的展开按钮，
+          底部面板的开关搬进内核右栏标签条那颗并列按钮（见 KernelBottomPanelToggle），
+          不再有任何东西浮在应用右上角。 */}
+      {integrated ? (
+        <KernelBottomPanelToggle
+          open={state.bottomOpen}
+          onToggle={() => { store.reduce(toggleBottomPanel) }}
+          host={stripHost}
+        />
+      ) : (
       <div className={css.toggleCluster} data-dsh-toggle-cluster>
         {/*
           Narrow viewports merge the two workbenches into the one drawer —
@@ -1162,9 +1178,6 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
             </button>
           </Tooltip>
         )}
-        {/* 集成模式下右侧面板的开关是内核头部的展开按钮（用户选择「内核展开按钮为主」），
-            这里只留底部面板那颗 —— 同一个侧边栏不摆两个入口。 */}
-        {!integrated && (
         <Tooltip label={state.panelOpen ? t('collapse') : t('expand')} side="bottom" delayMs={500}>
           <button
             type="button"
@@ -1175,8 +1188,8 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
             <IconPanelRightOutline16 />
           </button>
         </Tooltip>
-        )}
       </div>
+      )}
       {/*
         The right panel stays mounted while collapsed (hidden off-screen) so
         the slide in/out can animate; visibility hides it after the slide

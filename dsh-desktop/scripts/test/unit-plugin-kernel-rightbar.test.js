@@ -129,15 +129,43 @@ test('集成模式下把列宽/开关/拖宽让给内核，只保留底部面板
   if (!/const collapsed = !integrated && \(state === undefined \|\| !state\.panelOpen\)/.test(sidebar)) {
     offenders.push('data-dsh-sidebar-collapsed 未按 integrated 关闭');
   }
-  // 4) 右侧开关钮让位给内核头部那颗；底部那颗保留。
-  if (!/\{!integrated && \(\s*\n\s*<Tooltip label=\{state\.panelOpen \? t\('collapse'\) : t\('expand'\)\}/.test(sidebar)) {
-    offenders.push('集成模式下仍渲染自己的右侧开合钮（与内核头部那颗重复）');
+  // 4) 集成模式下浮层钮簇整体退役：右侧开关交给内核头部那颗，底部开关搬进内核标签条。
+  if (!/integrated \? \(\s*<KernelBottomPanelToggle/.test(sidebar)) {
+    offenders.push('集成模式下没有渲染标签条里的底部面板开关（KernelBottomPanelToggle）');
+  }
+  if (!/\) : \(\s*<div className=\{css\.toggleCluster\} data-dsh-toggle-cluster>/.test(sidebar)) {
+    offenders.push('浮层钮簇不是「只在 legacy 渲染」（integrated 分支里应当整簇退役）');
   }
   if (!/aria-label=\{state\.bottomOpen \? t\('collapseBottomPanel'\) : t\('expandBottomPanel'\)\}/.test(sidebar)) {
-    offenders.push('底部面板的开关钮丢了（终端入口）');
+    offenders.push('底部面板的开关语义丢了（折叠/展开文案）');
   }
   // 5) 自绘拖宽把手在集成模式隐藏。
   if (!/\{!narrow && !integrated && \(/.test(sidebar)) offenders.push('集成模式下仍渲染自绘拖宽把手');
+
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
+test('底部面板开关并进内核标签条的按钮排（插在 kit 的「分栏」左边，且不搬动内核节点）', () => {
+  const src = read('src/client/kernel-rightbar.tsx');
+  const offenders = [];
+
+  // 找到标签条 → 在我们自己的宿主 span 里 portal 一颗按钮；宿主插在 kit 的分栏按钮之前。
+  if (!/'\[data-dockkit-strip\]'/.test(src)) offenders.push('没有定位内核标签条（[data-dockkit-strip]）');
+  if (!/STRIP_HOST_ATTR = 'data-dsh-strip-host'/.test(src)) offenders.push('缺我们自己的宿主标记（data-dsh-strip-host）');
+  if (!/strip\.insertBefore\(host, strip\.querySelector\('\[data-dockkit-split-button\]'\)\)/.test(src)) {
+    offenders.push('宿主不是插在 kit 的分栏按钮之前（按钮排顺序会漂到最右）');
+  }
+  if (!/createPortal\(/.test(src)) offenders.push('按钮没有 portal 进宿主（会渲染到浮层里）');
+  if (!/data-dsh-bottom-panel-toggle=""/.test(src)) offenders.push('缺底部面板开关的稳定标记');
+  if (!/aria-pressed=\{open\}/.test(src)) offenders.push('开关缺按压态（看不出底部面板是否展开）');
+  // 标签条会被内核重渲染：宿主被丢掉时要能自愈（observer 重建），否则按钮凭空消失。
+  if (!/new MutationObserver\(refresh\)/.test(src)) offenders.push('缺宿主自愈（标签条重渲染后按钮会消失）');
+
+  for (const rel of BUNDLES) {
+    const s = read(rel);
+    if (!/data-dsh-strip-host/.test(s)) offenders.push(`${rel}：产物里没有宿主标记`);
+    if (!/data-dsh-bottom-panel-toggle/.test(s)) offenders.push(`${rel}：产物里没有底部面板开关`);
+  }
 
   assert.deepEqual(offenders, [], offenders.join('\n'));
 });
