@@ -207,6 +207,28 @@ function stripComments(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
+// ---------------------------------------------------------------------------
+// 「登记工作区」必须**把会话挂进去**（用户实报：迁移后会话还在「未分组」）。
+//
+// 内核的会话归组靠工作区记录里的 `sessionIds`，不是按会话头的 cwd 现算 ——
+// `bootstrap()` 那套按 cwd 自动归组只在工作区域**首次**初始化时跑一次
+// （`dsh-workspace/lib/index.js` 的 `if (!state.initialized)` 分支）。所以
+// `registry.create(path)` 只是建了个**空**工作区，必须再 `attachSession(id)`。
+// 这条锁住「只 create 不 attach」的回归。
+// ---------------------------------------------------------------------------
+test('登记工作区必须 attachSession（只 create 会得到空工作区）', () => {
+  const host = read('src/rpc.js');
+  assert.match(host, /attachSession\(/, '宿主侧必须调 workspace.attachSession');
+  assert.match(host, /attachFailed/, '挂不上的会话要逐条上报，不能吞');
+  assert.match(host, /sessionIds/, 'workspaces 请求要能带会话 id');
+  // 路由必须收 groups（目录 + 会话 id），旧的 directories 只作兼容
+  assert.match(host, /pickGroups\(/, 'workspaces 路由要用 pickGroups 归一化入参');
+  const client = stripComments(read('lib/client.js'));
+  assert.match(client, /groupsFor\(/, '页面必须按目录带上会话 id');
+  assert.match(client, /call\('workspaces',\s*\{\s*groups\s*\}\)/, '页面必须发 groups 而不是裸目录列表');
+  assert.match(client, /dshId/, '会话 id 取侦察结果里的 dshId');
+});
+
 /** 与 src/rpc.js 里的模板串同形（`${API_PREFIX}/inspect` 展开后的样子）。 */
 function API_PREFIX_ACTION(action) {
   return '`${API_PREFIX}/' + action + '`';
