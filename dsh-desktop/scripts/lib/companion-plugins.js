@@ -129,6 +129,13 @@ const COMPANION_PLUGINS = [
   // id 必须与其 bundle 层 cordis.patch.yml 声明的 loader id（prompt-optimizer）
   // 一致——写成包名会步 super-injector 的后尘（自愈 dropBlocksByIds 永不命中）。
   { id: 'prompt-optimizer', name: 'dsh-prompt-optimizer' },
+  // zcode → dsh 会话迁移（本仓库内置）：把 zcode CLI 的历史会话（SQLite）转成 dsh
+  // 原生会话日志（session.jsonl.zstd），迁完即可在会话列表里恢复。宿主侧 bundle
+  // 插件，贡献 zcode.inspect / zcode.migrate / zcode.verify 三个工具与 /zcode 命令。
+  // id 必须与其 bundle 层 cordis.patch.yml 的 loader id（zcode-migrate）一致 ——
+  // 不一致会让自愈的 dropBlocksByIds 永不命中，造成重复挂载（issue #104）。
+  // 追加在清单末尾：前 18 条的顺序被 unit-patch-engine 的漂移防线钉住。
+  { id: 'zcode-migrate', name: 'dsh-zcode-migrate' },
 ];
 
 /** 包名 → assets/plugins 下的目录名（去 scope 前缀）。 */
