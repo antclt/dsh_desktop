@@ -22,27 +22,42 @@ const { DatabaseSync } = require('node:sqlite')
 function mockContext() {
   const tools = []
   const sections = []
+  const routes = []
   const provided = {}
   return {
     tools: { register: (definition) => tools.push(definition) },
     systemPrompt: { section: (fn) => sections.push(fn) },
+    // 设置页（客户端半）的数据入口：HTTP 路由必须挂在这个前缀上。
+    webServer: { register: (route) => { routes.push(route); return () => {} } },
+    effect: (fn) => { fn(); return () => {} },
     provide: (key, value) => {
       provided[key] = value
     },
     logger: { warn() {} },
     registered: tools,
     sections,
+    routes,
     provided,
   }
 }
 
 test('the module exports the dsh plugin contract', () => {
   assert.equal(name, 'zcode-migrate')
-  assert.deepEqual(inject, ['tools'])
+  // webServer 是设置页的后端：缺它设置页不会出现，所以声明成硬依赖而不是可选读。
+  assert.deepEqual(inject, ['tools', 'webServer'])
   assert.equal(typeof apply, 'function')
   assert.ok(Config, 'Config schema is exported')
   // The schema must satisfy Standard Schema v1 for hosts that validate it.
   assert.equal(typeof Config['~standard']?.validate, 'function')
+})
+
+test('apply 挂载设置页的 HTTP 面（prefix 路由，带 handler）', () => {
+  const ctx = mockContext()
+  apply(ctx, {})
+  const route = ctx.routes.find((r) => r.path === '/zcode-migrate/api')
+  assert.ok(route !== undefined, '必须挂 /zcode-migrate/api 前缀路由')
+  assert.equal(route.kind, 'prefix')
+  assert.equal(typeof route.handler, 'function')
 })
 
 test('apply registers the three tools with their behavior hints', () => {
@@ -153,4 +168,24 @@ test('plugin config reaches the tools as defaults', async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   }
+})
+
+test('apply 不得直接给 ctx 赋属性（cordis 的 ctx 是 Proxy，会抛 cannot set … without provide）', () => {
+  // 实测现场：内核日志里 `[loader-isolation] entry zcode-migrate failed: cannot set
+  // property "zcodeMigrate" without provide` —— 插件曾在 apply 里写 ctx.zcodeMigrate = …，
+  // 于是整个宿主半加载失败（设置页在、工具/命令/路由全都没有）。
+  // 这里把 mock 换成「对未声明属性赋值即抛」的 Proxy，复刻 cordis 的行为当回归锁。
+  const base = mockContext()
+  const strict = new Proxy(base, {
+    set(target, prop, value) {
+      if (prop in target) {
+        target[prop] = value
+        return true
+      }
+      throw new Error(`cannot set property "${String(prop)}" without provide`)
+    },
+  })
+  assert.doesNotThrow(() => apply(strict, {}))
+  assert.ok(strict.provided.zcodeMigrate, '服务面必须经 provide 暴露')
+  assert.equal(strict.zcodeMigrate, undefined, '不得在 ctx 上留裸属性')
 })

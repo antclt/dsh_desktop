@@ -72,6 +72,52 @@ test('manifest 声明的工具必须在源码里真的注册（防「声明了�
   const tools = read('src/tools.js');
   const offenders = declared.filter((name) => !tools.includes(`'${name}'`));
   assert.deepEqual(offenders, [], `以下工具在 manifest 里声明但 src/tools.js 没注册：${offenders.join(', ')}`);
-  // 宿主侧插件：不得声明 client 半（本插件没有前端产物，声明了会加载失败）。
-  assert.equal(manifest.client, undefined, '宿主侧插件不得声明 client 半');
 });
+
+// ---------------------------------------------------------------------------
+// 客户端半（设置页）：给「选中 + 一键迁移」提供界面。三条不变量：
+//   ① 清单声明了 client.main，且那个文件真的存在（否则内核加载不到页面）；
+//   ② 包内 bundle id 必须等于 manifest id —— 注册表频道靠 id === 插件 id 判定到货，
+//      写成包名以外的东西会「装了但页面不出现」；
+//   ③ 页面必须注册到内核的设置槽（settings.section），且宿主侧真挂了它调用的那个
+//      HTTP 前缀路由（两边路径漂移 = 页面永远报错）。
+// ---------------------------------------------------------------------------
+test('客户端半：设置页在清单/包声明/产物/宿主路由四处对齐', () => {
+  const manifest = readJson('dsh.plugin.json');
+  const pkg = readJson('package.json');
+  const offenders = [];
+
+  // ① 声明与产物
+  if (manifest.client?.main !== './lib/client.js') offenders.push('dsh.plugin.json 未声明 client.main=./lib/client.js');
+  if (pkg.exports?.['./client'] === undefined) offenders.push('package.json 缺 ./client 导出');
+  const clientFile = path.join(ASSETS, 'lib', 'client.js');
+  if (!fs.existsSync(clientFile)) offenders.push('lib/client.js 不在位（客户端产物）');
+  else {
+    const src = fs.readFileSync(clientFile, 'utf8');
+    // ② bundle id === manifest id
+    const id = (src.match(/__ModuleLoader__\.load\(\{\s*id:\s*'([^']+)'/) || [])[1];
+    if (id !== manifest.id) offenders.push(`bundle id(${id}）必须等于 manifest id(${manifest.id})`);
+    // ③ 设置槽 + 调用的接口前缀
+    if (!src.includes("'settings.section'")) offenders.push('页面未注册 settings.section');
+    const apiPrefix = (src.match(/const API = '([^']+)'/) || [])[1];
+    if (apiPrefix === undefined) offenders.push('页面未声明 API 前缀');
+    else {
+      const host = read('src/rpc.js');
+      const hostPrefix = (host.match(/API_PREFIX = '([^']+)'/) || [])[1];
+      if (hostPrefix !== apiPrefix) offenders.push(`页面前缀(${apiPrefix}) 与宿主 API_PREFIX(${hostPrefix}) 不一致`);
+      for (const action of ['inspect', 'migrate', 'verify']) {
+        if (!host.includes(`${API_PREFIX_ACTION(action)}`)) offenders.push(`宿主缺 ${action} 分支`);
+      }
+    }
+    // 注入面：设置槽的拥有者必须在 dsh.client.inject 里
+    const inject = pkg.dsh?.client?.inject ?? [];
+    if (!inject.some((id) => /dsh-client-ui-settings/.test(id))) offenders.push('dsh.client.inject 未包含 @deepseek-ai/dsh-client-ui-settings');
+  }
+
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
+/** 与 src/rpc.js 里的模板串同形（`${API_PREFIX}/inspect` 展开后的样子）。 */
+function API_PREFIX_ACTION(action) {
+  return '`${API_PREFIX}/' + action + '`';
+}

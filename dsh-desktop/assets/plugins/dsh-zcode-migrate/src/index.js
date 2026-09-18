@@ -12,12 +12,15 @@
 
 import { Schema } from './schema.js'
 import { registerTools } from './tools.js'
+import { registerApi } from './rpc.js'
 import { inspect, migrate } from '../core/migrate.js'
 import { toErrorPayload } from '../core/errors.js'
 
 export const name = 'zcode-migrate'
 
-export const inject = ['tools']
+// webServer 是设置页（客户端半 lib/client.js）的数据入口所必需：没有它就没有
+// HTTP 面，设置页只能干看着（所以声明成硬依赖而不是可选读）。
+export const inject = ['tools', 'webServer']
 
 export const Config = Schema.object({
   dbPath: Schema.string()
@@ -74,6 +77,11 @@ export function apply(ctx, config = {}) {
 
   registerTools(ctx, resolved)
 
+  // 设置页的数据入口（客户端半的唯一后端）。挂载失败不阻断插件：工具面照常可用。
+  if (!registerApi(ctx, resolved)) {
+    ctx.logger?.warn?.('[zcode-migrate] webServer 不可用：设置页（勾选迁移）不会出现，仍可用工具/命令行迁移')
+  }
+
   if (resolved.slashCommand) {
     try {
       if (typeof ctx.systemPrompt?.section === 'function') {
@@ -85,16 +93,19 @@ export function apply(ctx, config = {}) {
   }
 
   // 暴露一个最小服务面，便于其他插件/测试直接调用迁移逻辑。
-  ctx.zcodeMigrate = {
+  //
+  // 【别再写回 `ctx.zcodeMigrate = …`】cordis 4 的 ctx 是 Proxy：未声明 provide 就直接
+  // 给 ctx 赋属性会抛 `cannot set property "zcodeMigrate" without provide`，整个宿主半
+  // 随之加载失败（内核日志里是 `[loader-isolation] entry zcode-migrate … failed`，
+  // 表现为「设置页在、但工具/命令/路由全都没有」）。只走 provide 这一条路。
+  const service = {
     config: resolved,
     inspect: (options = {}) => inspect({ ...resolved, ...options }),
     migrate: (options = {}) => migrate({ ...resolved, ...options }),
   }
-  if (typeof ctx.provide === 'function') ctx.provide('zcodeMigrate', ctx.zcodeMigrate)
+  if (typeof ctx.provide === 'function') ctx.provide('zcodeMigrate', service)
 
-  return () => {
-    if (typeof ctx.provide !== 'function') delete ctx.zcodeMigrate
-  }
+  return () => {}
 }
 
 export { inspect, migrate, toErrorPayload }

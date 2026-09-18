@@ -74,6 +74,16 @@ dsh plugin --profile web add /path/to/dsh-zcode-migrate
 
 ## 用法
 
+### 在 dsh 里（设置页：勾选 + 一键迁移）
+
+打开「设置 → zcode 迁移」：点**侦察**列出 zcode 里的会话（按项目分组、标出已迁移），
+勾选要迁的（默认勾好「未迁移」的那批，另有「只选未迁移 / 全选 / 清空」），
+决定是否**先预演**（默认开，不写盘），然后点**迁移选中**——按批推进度并逐条给结果。
+迁完刷新/重启 dsh，新会话就出现在左侧会话列表里。
+
+设置页的数据全部走宿主侧 `/zcode-migrate/api/{inspect,migrate,verify}`（客户端半不碰文件系统，
+该路由只信本机 Host）。
+
 ### 在 dsh 里（模型可调用工具）
 
 | 工具 | 作用 |
@@ -206,3 +216,16 @@ test/          node:test 测试
 ## License
 
 MIT
+
+## 内置注意事项（改这个插件前必读）
+
+1. **不要给它加回 `dsh.bundle.patch`**：本仓库的启动期同步对 bundle 类插件会主动移除
+   loader 行（改走 profile 清单），而这个插件只有「一行 insert」的 patch，走清单不生效 ——
+   实测表现为「客户端半（设置页）在，宿主半（工具/命令/路由）全没有」。作为普通配套件
+   （与另外 23 个内置件一致）由同步写行加载才是对的。
+2. **不要写 `ctx.zcodeMigrate = ...`**：cordis 4 的 ctx 是 Proxy，未声明 provide 就赋属性会抛
+   `cannot set property "zcodeMigrate" without provide`，整个宿主半加载失败（内核日志
+   `[loader-isolation] entry zcode-migrate ... failed`）。只走 `ctx.provide(...)`；
+   `test/plugin.test.mjs` 有一条用 Proxy 复刻该行为的回归锁。
+3. 内核日志在 `%APPDATA%dsh-desktoplogs`（**不是** `%APPDATA%DSH Desktoplogs`，
+   后者是退役 Electron 线的旧目录）—— 排查加载问题先看那里的 `dsh-web.log`。

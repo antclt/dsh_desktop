@@ -13,5 +13,8 @@
       "zcode.verify"
     ],
     "skills": []
+  },
+  "client": {
+    "main": "./lib/client.js"
   }
 }
