@@ -59,12 +59,47 @@ function pickMigrate(body) {
   }
 }
 
+/** 目录 → 工作区标题：取末级目录名（与 dsh 自己给工作区命名的方式一致）。 */
+function workspaceTitle(dir) {
+  const parts = String(dir).replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean)
+  return parts.length === 0 ? String(dir) : parts[parts.length - 1]
+}
+
+/**
+ * 把「迁移过来的目录」登记成 dsh 工作区。
+ *
+ * 为什么需要：会话归组靠工作区注册表（`ctx.workspaceRegistry`）里的记录去匹配会话头的
+ * `cwd`——迁移只写会话日志、不登记工作区，于是所有迁来的会话都掉进「未分组」（用户实报）。
+ * `registry.create(path, title)` 要求 path 是**存在的目录**并自动去重，所以这里逐个试、
+ * 逐个报结果（目录不存在/服务缺席都如实返回，不假装成功）。
+ * @param {object} registry - `ctx.workspaceRegistry`（缺席时返回 ok:false）。
+ * @param {string[]} dirs - 目录列表。
+ */
+async function ensureWorkspaces(registry, dirs) {
+  const out = []
+  for (const dir of dirs) {
+    if (typeof dir !== 'string' || dir === '') continue
+    if (registry === undefined || typeof registry.create !== 'function') {
+      out.push({ directory: dir, ok: false, error: '工作区服务不可用（ctx.workspaceRegistry）' })
+      continue
+    }
+    try {
+      const workspace = await registry.create(dir, workspaceTitle(dir))
+      out.push({ directory: dir, ok: true, id: workspace?.id ?? null, title: workspace?.title ?? workspaceTitle(dir) })
+    } catch (err) {
+      out.push({ directory: dir, ok: false, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+  return out
+}
+
 /**
  * Build the route handler for `ctx.webServer.register({ kind: 'prefix', … })`.
  * @param {object} resolved - the plugin's normalized config (dbPath/dshRoot/…).
+ * @param {object} [deps] - `{ workspaceRegistry }`（可选；缺席时 workspaces 动作如实报错）。
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void>}
  */
-export function createApiHandler(resolved) {
+export function createApiHandler(resolved, deps = {}) {
   return async (req, res) => {
     const hostname = (typeof req.headers?.host === 'string' ? req.headers.host : '')
       .replace(/:\d+$/, '')
@@ -80,6 +115,15 @@ export function createApiHandler(resolved) {
       }
       if (path === `${API_PREFIX}/migrate`) {
         return sendJson(res, 200, await migrate({ ...resolved, ...pickMigrate(await readJson(req)) }))
+      }
+      if (path === `${API_PREFIX}/workspaces`) {
+        const body = await readJson(req)
+        const dirs = Array.isArray(body.directories) ? body.directories.map(String).filter(Boolean) : []
+        if (dirs.length === 0) return sendJson(res, 400, { ok: false, error: 'workspaces 需要 directories' })
+        const results = await ensureWorkspaces(deps.workspaceRegistry, dirs)
+        // 请求本身成功即 ok:true；每个目录的成败在 results[] 里如实给出
+        // （客户端把顶层 ok:false 当硬错误会吞掉逐条结果，页面就没法显示「哪些失败」）。
+        return sendJson(res, 200, { ok: true, results })
       }
       if (path === `${API_PREFIX}/verify`) {
         const body = await readJson(req)
@@ -115,12 +159,13 @@ export function createApiHandler(resolved) {
  * Mount the API on the DSH web server (same lifetime as the plugin fiber).
  * @param {object} ctx - cordis context carrying `webServer` + `effect`.
  * @param {object} resolved - normalized plugin config.
+ * @param {object} [deps] - `{ workspaceRegistry }`。
  * @returns {boolean} whether the route was mounted.
  */
-export function registerApi(ctx, resolved) {
+export function registerApi(ctx, resolved, deps = {}) {
   const webServer = ctx?.webServer
   if (typeof webServer?.register !== 'function') return false
-  const handler = createApiHandler(resolved)
+  const handler = createApiHandler(resolved, deps)
   const mount = () => webServer.register({ kind: 'prefix', path: API_PREFIX, handler })
   if (typeof ctx.effect === 'function') ctx.effect(mount, 'zcode-migrate: api')
   else mount()

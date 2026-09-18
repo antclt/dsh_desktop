@@ -49,6 +49,13 @@ window.__ModuleLoader__.load({
       failed: '失败',
       skipped: '跳过',
       verifyOk: '产物可读',
+      groupAll: '全选此组',
+      groupMigrate: '迁移此组',
+      registerWs: '登记工作区',
+      registerWsAll: '登记全部工作区',
+      registering: '登记中…',
+      wsRegistered: '工作区已登记',
+      wsHint: '会话按「工作区」归组：迁移只写会话日志，不登记工作区的话，迁来的会话会全部掉进「未分组」。点「登记工作区」把这些目录补登记即可（迁移时会自动登记）。',
     }
 
     const fmtTime = (ms) => {
@@ -77,6 +84,7 @@ window.__ModuleLoader__.load({
       const [dryRun, setDryRun] = react.useState(true)
       const [progress, setProgress] = react.useState(null)
       const [results, setResults] = react.useState(null)
+      const [wsResult, setWsResult] = react.useState(null)
       const stopRef = react.useRef(false)
 
       const sessions = report?.sessions ?? []
@@ -106,8 +114,8 @@ window.__ModuleLoader__.load({
         })
       }
 
-      const run = async () => {
-        const ids = [...picked]
+      const run = async (explicitIds) => {
+        const ids = explicitIds ?? [...picked]
         if (ids.length === 0) {
           setError(L.needPick)
           return
@@ -127,12 +135,29 @@ window.__ModuleLoader__.load({
             setResults([...all])
           }
           setProgress({ done: ids.length, total: ids.length })
-          // 迁完重侦察一次：把「已迁移」标记刷新出来。
           if (!dryRun) {
+            // 迁移只写会话日志；不登记工作区的话这些会话会全掉进「未分组」（用户实报），
+            // 所以真迁之后自动把涉及的目录补登记成 dsh 工作区。
+            const dirs = [...new Set(ids.map((id) => sessions.find((s) => s.zcodeId === id)?.directory).filter((d) => typeof d === 'string' && d !== ''))]
+            if (dirs.length > 0) await registerWorkspaces(dirs)
             const next = await call('inspect')
             setReport(next)
             setPicked(new Set(next.sessions.filter((s) => !s.alreadyMigrated).map((s) => s.zcodeId)))
           }
+        } catch (err) {
+          setError(err.message)
+        } finally {
+          setBusy(null)
+        }
+      }
+
+      /** 把目录登记成 dsh 工作区（会话归组靠它；重复登记由宿主侧去重）。 */
+      const registerWorkspaces = async (dirs) => {
+        setBusy('workspaces')
+        setError(null)
+        try {
+          const out = await call('workspaces', { directories: dirs })
+          setWsResult(out.results ?? [])
         } catch (err) {
           setError(err.message)
         } finally {
@@ -192,14 +217,37 @@ window.__ModuleLoader__.load({
             key: 'pending',
             onClick: () => setPicked(new Set(sessions.filter((s) => !s.alreadyMigrated).map((s) => s.zcodeId))),
           }, `${L.onlyPending}（${pendingCount}）`),
+          react.createElement(Button, {
+            key: 'wsall',
+            onClick: () => registerWorkspaces(groups.map(([dir]) => dir).filter((d) => d !== '(无工作目录)')),
+            disabled: busy !== null,
+          }, busy === 'workspaces' ? L.registering : `${L.registerWsAll}（${groups.length}）`),
         ]),
+
+        report !== null && react.createElement('div', { key: 'wshint', style: { ...dim, marginTop: 6 } }, L.wsHint),
 
         report !== null && react.createElement('div', { key: 'list', style: { ...box, maxHeight: 320, overflowY: 'auto' } },
           sessions.length === 0
             ? react.createElement('div', { style: dim }, L.noSession)
             : groups.map(([dir, rows]) => react.createElement('div', { key: dir, style: { marginBottom: 8 } }, [
-                react.createElement('div', { key: 'h', style: { fontWeight: 600, fontSize: 12, marginBottom: 2 } },
-                  `${L.project}：${dir}（${rows.length}）`),
+                react.createElement('div', { key: 'h', style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'wrap' } }, [
+                  react.createElement('span', { key: 't', style: { fontWeight: 600, fontSize: 12, flex: 1 } },
+                    `${L.project}：${dir}（${rows.length}）`),
+                  react.createElement(Button, {
+                    key: 'gsel',
+                    onClick: () => setPicked((prev) => new Set([...prev, ...rows.map((r) => r.zcodeId)])),
+                  }, L.groupAll),
+                  react.createElement(Button, {
+                    key: 'ggo',
+                    onClick: () => run(rows.filter((r) => !r.alreadyMigrated).map((r) => r.zcodeId)),
+                    disabled: busy !== null,
+                  }, `${L.groupMigrate}（${rows.filter((r) => !r.alreadyMigrated).length}）`),
+                  dir !== '(无工作目录)' && react.createElement(Button, {
+                    key: 'gws',
+                    onClick: () => registerWorkspaces([dir]),
+                    disabled: busy !== null,
+                  }, L.registerWs),
+                ]),
                 ...rows.map((s) => react.createElement('label', { key: s.zcodeId, style: rowStyle }, [
                   react.createElement('input', {
                     key: 'c',
@@ -214,6 +262,13 @@ window.__ModuleLoader__.load({
                   s.alreadyMigrated && tag(L.already, 'var(--dsw-alias-state-success-primary)'),
                 ])),
               ]))),
+
+        wsResult !== null && react.createElement('div', { key: 'ws', style: { ...box, borderColor: 'var(--dsw-alias-border-l2)' } }, [
+          react.createElement('div', { key: 'h', style: { fontWeight: 600, marginBottom: 4 } },
+            `${L.wsRegistered}：${wsResult.filter((r) => r.ok).length}/${wsResult.length}`),
+          ...wsResult.filter((r) => !r.ok).slice(0, 8).map((r, i) => react.createElement('div', { key: i, style: dim },
+            `✗ ${r.directory} —— ${r.error ?? ''}`)),
+        ]),
 
         report !== null && react.createElement('div', { key: 'go', style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' } }, [
           react.createElement('label', { key: 'dry', style: rowStyle }, [

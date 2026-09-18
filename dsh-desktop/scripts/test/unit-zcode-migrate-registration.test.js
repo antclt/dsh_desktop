@@ -105,7 +105,7 @@ test('客户端半：设置页在清单/包声明/产物/宿主路由四处对�
       const host = read('src/rpc.js');
       const hostPrefix = (host.match(/API_PREFIX = '([^']+)'/) || [])[1];
       if (hostPrefix !== apiPrefix) offenders.push(`页面前缀(${apiPrefix}) 与宿主 API_PREFIX(${hostPrefix}) 不一致`);
-      for (const action of ['inspect', 'migrate', 'verify']) {
+      for (const action of ['inspect', 'migrate', 'verify', 'workspaces']) {
         if (!host.includes(`${API_PREFIX_ACTION(action)}`)) offenders.push(`宿主缺 ${action} 分支`);
       }
     }

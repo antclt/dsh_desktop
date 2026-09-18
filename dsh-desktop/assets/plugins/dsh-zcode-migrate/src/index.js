@@ -20,7 +20,11 @@ export const name = 'zcode-migrate'
 
 // webServer 是设置页（客户端半 lib/client.js）的数据入口所必需：没有它就没有
 // HTTP 面，设置页只能干看着（所以声明成硬依赖而不是可选读）。
-export const inject = ['tools', 'webServer']
+// workspaceRegistry 用来把「迁来的目录」登记成 dsh 工作区 —— 会话归组靠它，
+// 不登记的话迁来的会话全掉「未分组」（用户实报）。注意 cordis 必须**声明 inject**
+// 才拿得到服务：实测 `ctx.get('workspaceRegistry')` 在这个上下文里返回 undefined，
+// 于是登记动作只会回「工作区服务不可用」。
+export const inject = ['tools', 'webServer', 'workspaceRegistry']
 
 export const Config = Schema.object({
   dbPath: Schema.string()
@@ -78,7 +82,9 @@ export function apply(ctx, config = {}) {
   registerTools(ctx, resolved)
 
   // 设置页的数据入口（客户端半的唯一后端）。挂载失败不阻断插件：工具面照常可用。
-  if (!registerApi(ctx, resolved)) {
+  // workspaceRegistry 已在上面的 inject 里声明（必须声明才注入，见 inject 处注释）。
+  const workspaceRegistry = ctx.workspaceRegistry
+  if (!registerApi(ctx, resolved, { workspaceRegistry })) {
     ctx.logger?.warn?.('[zcode-migrate] webServer 不可用：设置页（勾选迁移）不会出现，仍可用工具/命令行迁移')
   }
 

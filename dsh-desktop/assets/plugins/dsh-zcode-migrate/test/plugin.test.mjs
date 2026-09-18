@@ -44,7 +44,7 @@ function mockContext() {
 test('the module exports the dsh plugin contract', () => {
   assert.equal(name, 'zcode-migrate')
   // webServer 是设置页的后端：缺它设置页不会出现，所以声明成硬依赖而不是可选读。
-  assert.deepEqual(inject, ['tools', 'webServer'])
+  assert.deepEqual(inject, ['tools', 'webServer', 'workspaceRegistry'])
   assert.equal(typeof apply, 'function')
   assert.ok(Config, 'Config schema is exported')
   // The schema must satisfy Standard Schema v1 for hosts that validate it.

@@ -201,3 +201,32 @@ test('verify：产物路径存在/缺失两种结果都走 200 且带 ok 字段'
     fx.cleanup()
   }
 })
+
+test('workspaces：登记目录（假注册表），目录/服务不可用如实报错', async () => {
+  const calls = []
+  const registry = {
+    async create(dir, title) {
+      calls.push({ dir, title })
+      if (dir.includes('missing')) throw new Error('目录不存在')
+      return { id: 'ws-' + title, title }
+    },
+  }
+  const handler = createApiHandler({ dbPath: 'x', dshRoot: 'y' }, { workspaceRegistry: registry })
+
+  const ok = await call(handler, { path: `${API_PREFIX}/workspaces`, body: { directories: ['C:/a/proj-a', 'C:/b/missing-dir'] } })
+  assert.equal(ok.status, 200)
+  assert.equal(ok.body.ok, true, '请求成功即 ok:true，逐条成败在 results 里')
+  assert.deepEqual(calls, [{ dir: 'C:/a/proj-a', title: 'proj-a' }, { dir: 'C:/b/missing-dir', title: 'missing-dir' }], '标题取末级目录名')
+  assert.equal(ok.body.results[0].ok, true)
+  assert.equal(ok.body.results[0].id, 'ws-proj-a')
+  assert.equal(ok.body.results[1].ok, false)
+  assert.match(ok.body.results[1].error, /目录不存在/)
+
+  // 缺参数 → 400；服务缺席 → ok:false 且说明原因（不许假装成功）
+  assert.equal((await call(handler, { path: `${API_PREFIX}/workspaces`, body: {} })).status, 400)
+  const noRegistry = createApiHandler({ dbPath: 'x', dshRoot: 'y' })
+  const degraded = await call(noRegistry, { path: `${API_PREFIX}/workspaces`, body: { directories: ['C:\a'] } })
+  assert.equal(degraded.status, 200)
+  assert.equal(degraded.body.results[0].ok, false)
+  assert.match(degraded.body.results[0].error, /工作区服务不可用/)
+})
