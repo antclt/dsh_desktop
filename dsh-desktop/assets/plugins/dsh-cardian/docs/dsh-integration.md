@@ -51,7 +51,7 @@ cardian 客户端插件（`src/client/index.tsx`）注册两个可加性条目�
 
 1. **`sidebar.footer.action`** → `KnowledgeTreeTrigger`：侧边栏脚部一行「🌳 知识树」（rail 折叠态只显示图标，展开态显示图标+文字）。
 2. **`shell.overlay`** → `KnowledgeTreePanel`：点击后展开的浮动面板，内部渲染：
-   - 搜索框（防抖调用宿主 `cardian.search`）；
+   - 搜索框（防抖调用宿主 `cardian_search`）；
    - 三个分区的条目树（RepoWiki / 知识卡片 / 记忆）；
    - 点击条目查看详情。
 
@@ -93,9 +93,9 @@ npm run build:client # 产出 lib/client.js
 |---|---|
 | 左侧知识面板入口 | `sidebar.footer.action`「知识树」入口 |
 | 知识列表 / 检索 | `KnowledgeTreePanel` 搜索框 + 分区条目树 |
-| RepoWiki | `Repos/` 分区（`cardian.wiki.*`） |
-| 知识卡片 | `Cards/` 分区（`cardian.card.*`，含闪卡） |
-| 记忆 | `Memory/` 分区（`cardian.memory.*`） |
+| RepoWiki | `Repos/` 分区（`cardian_wiki_*`） |
+| 知识卡片 | `Cards/` 分区（`cardian_card_*`，含闪卡） |
+| 记忆 | `Memory/` 分区（`cardian_memory_*`） |
 | 全部落盘可查看 | 同一 Obsidian 仓库，随时用 Obsidian 打开 |
 
 ## 六、文件清单

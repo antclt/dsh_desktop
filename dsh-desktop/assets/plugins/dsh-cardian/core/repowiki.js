@@ -270,7 +270,7 @@ export class RepoWikiService extends NoteService {
       symSection,
       `## 待补充`,
       '',
-      `> 该页面由 \`cardian.wiki.ingest\` 自动生成。请用 \`cardian.wiki.upsert\` 补充该模块的职责、关键函数与依赖关系。`,
+      `> 该页面由 \`cardian_wiki_ingest\` 自动生成。请用 \`cardian_wiki_upsert\` 补充该模块的职责、关键函数与依赖关系。`,
       '',
     ].join('\n')
 

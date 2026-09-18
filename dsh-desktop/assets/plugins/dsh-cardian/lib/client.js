@@ -3359,9 +3359,9 @@ button.cardian-kt-chip:hover { background: var(--dsw-alias-interactive-bg-active
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
 									className: "cardian-kt-empty-hint",
 									children: [
-										activeTab === "cards" && "点右上角「新建」沉淀第一张卡片；或在对活用 cardian.card.upsert 工具写入知识。",
-										activeTab === "memory" && "点右上角「新建」记录第一条记忆；或在对活用 cardian.memory.commit 提交。",
-										activeTab === "wiki" && "用上方「工作区沉淀」一键扫描项目生成骨架卡，或用 cardian.wiki.ingest 工具扫描仓库。"
+										activeTab === "cards" && "点右上角「新建」沉淀第一张卡片；或在对活用 cardian_card_upsert 工具写入知识。",
+										activeTab === "memory" && "点右上角「新建」记录第一条记忆；或在对活用 cardian_memory_commit 提交。",
+										activeTab === "wiki" && "用上方「工作区沉淀」一键扫描项目生成骨架卡，或用 cardian_wiki_ingest 工具扫描仓库。"
 									]
 								})
 							]

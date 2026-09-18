@@ -1705,9 +1705,9 @@ export function KnowledgeTreePanel({ controller }: { controller: KnowledgeContro
             </span>
             <p className="cardian-kt-empty-title">还没有{SECTION_TITLES[activeTab]}</p>
             <p className="cardian-kt-empty-hint">
-              {activeTab === 'cards' && '点右上角「新建」沉淀第一张卡片；或在对活用 cardian.card.upsert 工具写入知识。'}
-              {activeTab === 'memory' && '点右上角「新建」记录第一条记忆；或在对活用 cardian.memory.commit 提交。'}
-              {activeTab === 'wiki' && '用上方「工作区沉淀」一键扫描项目生成骨架卡，或用 cardian.wiki.ingest 工具扫描仓库。'}
+              {activeTab === 'cards' && '点右上角「新建」沉淀第一张卡片；或在对活用 cardian_card_upsert 工具写入知识。'}
+              {activeTab === 'memory' && '点右上角「新建」记录第一条记忆；或在对活用 cardian_memory_commit 提交。'}
+              {activeTab === 'wiki' && '用上方「工作区沉淀」一键扫描项目生成骨架卡，或用 cardian_wiki_ingest 工具扫描仓库。'}
             </p>
           </div>
         )}

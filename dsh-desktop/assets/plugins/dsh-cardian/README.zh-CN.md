@@ -30,11 +30,11 @@ node examples/demo.mjs      # 生成示例仓库，用 Obsidian 打开 ./cardian
 
 | 功能 | 目录 | 定位 | 工具 |
 |---|---|---|---|
-| **RepoWiki** | `Repos/` | 扫描本地代码仓库生成 Wiki 骨架，agent 回填语义描述 | `cardian.wiki.*` |
-| **知识卡片** | `Cards/` | 原子化知识单元，按分类/标签归组与检索 | `cardian.card.*` |
-| **记忆** | `Memory/` | 跨会话持久记忆，按 scope 归组，支持 facts / importance | `cardian.memory.*` |
+| **RepoWiki** | `Repos/` | 扫描本地代码仓库生成 Wiki 骨架，agent 回填语义描述 | `cardian_wiki_*` |
+| **知识卡片** | `Cards/` | 原子化知识单元，按分类/标签归组与检索 | `cardian_card_*` |
+| **记忆** | `Memory/` | 跨会话持久记忆，按 scope 归组，支持 facts / importance | `cardian_memory_*` |
 
-另有跨分区工具：`cardian.recall`（精简召回）、`cardian.search`（关键词+语义混合检索）、`cardian.tagCloud`、`cardian.backlinks`、`cardian.related`、`cardian.doctor`/`schema`/`reindex`、`cardian.export`/`import`/`importMarkdown`、`cardian.status`；双向同步与代码图谱用 `cardian.wiki.sync`/`graph`，知识分层导出用 `cardian.skill.export`，记忆晋升用 `cardian.memory.promote`。
+另有跨分区工具：`cardian_recall`（精简召回）、`cardian_search`（关键词+语义混合检索）、`cardian_tagCloud`、`cardian_backlinks`、`cardian_related`、`cardian_doctor`/`schema`/`reindex`、`cardian_export`/`import`/`importMarkdown`、`cardian_status`；双向同步与代码图谱用 `cardian_wiki_sync`/`graph`，知识分层导出用 `cardian_skill_export`，记忆晋升用 `cardian_memory_promote`。
 
 ### 对话活动自动刷新
 
@@ -47,7 +47,7 @@ node examples/demo.mjs      # 生成示例仓库，用 Obsidian 打开 ./cardian
 
 ### 一键沉淀 = 骨架 + AI 凝练（0.6.3）
 
-知识树面板 RepoWiki 标签的「📁 工作区沉淀」dock 里点「沉淀 ▸」，现在不只是扫描骨架：骨架卡生成完成后会自动新建一个 **agent 会话**（`ctx.get('agents').create(...)`），让 AI 用 `cardian.wiki.list` / `cardian.wiki.get` / `cardian.wiki.upsert` 把每张骨架卡回填成语义卡片——正文改为「## 职责 / ## 关键实现 / ## 依赖 / ## 注意点」，summary 是一句话职责摘要，标题是人类可读的模块名，去掉「## 待补充」占位并置为 published。已有回填的卡跳过（幂等，不覆盖人工成果）。
+知识树面板 RepoWiki 标签的「📁 工作区沉淀」dock 里点「沉淀 ▸」，现在不只是扫描骨架：骨架卡生成完成后会自动新建一个 **agent 会话**（`ctx.get('agents').create(...)`），让 AI 用 `cardian_wiki_list` / `cardian_wiki_get` / `cardian_wiki_upsert` 把每张骨架卡回填成语义卡片——正文改为「## 职责 / ## 关键实现 / ## 依赖 / ## 注意点」，summary 是一句话职责摘要，标题是人类可读的模块名，去掉「## 待补充」占位并置为 published。已有回填的卡跳过（幂等，不覆盖人工成果）。
 
 - 面板在任务行旁显示 AI 状态：✦ AI 凝练中（会话 xxx）/ ✅ AI 凝练完成 / ⚠️ 不可用（宿主无 agents 服务，骨架已生成，可在对话中让 AI 回填）；
 - 配置项 `aiCondense`（默认 true）控制整体开关；单次沉淀可传 `ai: false` 关闭；
@@ -55,7 +55,7 @@ node examples/demo.mjs      # 生成示例仓库，用 Obsidian 打开 ./cardian
 
 ### 凝练幂等（0.6.2）：重复点击凝练不丢内容
 
-`cardian.wiki.ingest` 对已语义回填过的卡片（body 已不再是「待补充」骨架模板）**跳过覆写**：agent/用户 upsert 的职责描述、摘要、标题全部保留，只在扫描新文件或刷新骨架卡时写入。返回 `{ count, skipped, reserved }`，面板沉淀完成文案显示「新增 N 张，保留已凝练 M 张」。
+`cardian_wiki_ingest` 对已语义回填过的卡片（body 已不再是「待补充」骨架模板）**跳过覆写**：agent/用户 upsert 的职责描述、摘要、标题全部保留，只在扫描新文件或刷新骨架卡时写入。返回 `{ count, skipped, reserved }`，面板沉淀完成文案显示「新增 N 张，保留已凝练 M 张」。
 
 ### 知识树文件夹层级（0.6.2）
 
@@ -89,15 +89,15 @@ node examples/demo.mjs      # 生成示例仓库，用 Obsidian 打开 ./cardian
 
 | 工具 | 行为 |
 |---|---|
-| `cardian.status` | 只读 |
-| `cardian.search` / `recall` / `tagCloud` / `backlinks` / `related` / `export` / `doctor` / `schema` | 只读 |
-| `cardian.import` / `importMarkdown` / `reindex` / `card.review` | 幂等 |
-| `cardian.wiki.ingest` / `upsert` · `card.card.upsert` · `memory.commit` | 幂等 |
-| `cardian.wiki.get` / `list` · `card.get/list/search/due` · `memory.get/list/search/history` | 只读 |
-| `cardian.wiki.delete` · `card.delete` · `memory.delete` | 破坏性（幂等重试安全） |
-| `cardian.wiki.overview` / `memory.promote` / `import` / `importMarkdown` / `reindex` | 幂等治理动作 |
-| `cardian.wiki.sync` / `skill.export` | 幂等（同步/分层导出） |
-| `cardian.wiki.graph` / `cardian.feedback` | graph 只读 · feedback 幂等反馈闭环 |
+| `cardian_status` | 只读 |
+| `cardian_search` / `recall` / `tagCloud` / `backlinks` / `related` / `export` / `doctor` / `schema` | 只读 |
+| `cardian_import` / `importMarkdown` / `reindex` / `card.review` | 幂等 |
+| `cardian_wiki_ingest` / `upsert` · `card.card.upsert` · `memory.commit` | 幂等 |
+| `cardian_wiki_get` / `list` · `card.get/list/search/due` · `memory.get/list/search/history` | 只读 |
+| `cardian_wiki_delete` · `card.delete` · `memory.delete` | 破坏性（幂等重试安全） |
+| `cardian_wiki_overview` / `memory.promote` / `import` / `importMarkdown` / `reindex` | 幂等治理动作 |
+| `cardian_wiki_sync` / `skill.export` | 幂等（同步/分层导出） |
+| `cardian_wiki_graph` / `cardian_feedback` | graph 只读 · feedback 幂等反馈闭环 |
 
 领域特性：笔记可带 `status`(draft/published)、`confidence`(0-1)、`source`、`summary`、`aliases`、`relations`(类型化关系如 `"depends_on [[X]]"`)、`as_of`/`expires`(新鲜度)。RepoWiki 会自动提取 `imports` 依赖；记忆支持 `kind`(semantic/episodic/procedural) 与追加式修订历史；知识卡片支持 `front`/`back`/`deck` 闪卡与 SM-2 复习排期。
 

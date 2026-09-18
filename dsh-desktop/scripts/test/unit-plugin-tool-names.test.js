@@ -36,12 +36,11 @@ const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
 /**
  * 已知的违规存量（棘轮）：插件名 → 允许出现的非法工具名个数。
  * 只能往下减：修完一个就把数字调小，别往上加。
+ *
+ * 目前是空的 —— 2026-09-19 把 dsh-cardian 的 36 个 `cardian.*` 工具名全部改成
+ * `cardian_*` 之后，全部内置插件的工具名都合规了。以后若真需要临时容忍，再往这里加。
  */
-const KNOWN_OFFENDERS = {
-  // vendored 上游包，36 个工具名全是 `cardian.xxx.yyy` 写法。改名会动它的公开工具面，
-  // 待决策；在那之前棘轮锁住数量，防止继续变多。
-  'dsh-cardian': 36,
-};
+const KNOWN_OFFENDERS = {};
 
 /** 递归收集插件目录下的源码文件（跳过 node_modules / test / 产物目录）。 */
 function sourceFiles(dir, out = []) {

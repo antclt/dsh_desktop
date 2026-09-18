@@ -30,11 +30,11 @@ node examples/demo.mjs      # seeds a demo vault; open ./cardian-vault in Obsidi
 
 | Feature | Directory | Role | Tools |
 |---|---|---|---|
-| **RepoWiki** | `Repos/` | Scans local code repos to build a Wiki skeleton; agent back-fills semantic descriptions | `cardian.wiki.*` |
-| **Knowledge Cards** | `Cards/` | Atomic knowledge units grouped/retrieved by category & tags | `cardian.card.*` |
-| **Memory** | `Memory/` | Cross-session persistent memory grouped by scope; facts / importance | `cardian.memory.*` |
+| **RepoWiki** | `Repos/` | Scans local code repos to build a Wiki skeleton; agent back-fills semantic descriptions | `cardian_wiki_*` |
+| **Knowledge Cards** | `Cards/` | Atomic knowledge units grouped/retrieved by category & tags | `cardian_card_*` |
+| **Memory** | `Memory/` | Cross-session persistent memory grouped by scope; facts / importance | `cardian_memory_*` |
 
-Cross-section tools: `cardian.recall` (budgeted recall), `cardian.search` (keyword + semantic hybrid), `cardian.tagCloud`, `cardian.backlinks`, `cardian.related`, `cardian.doctor`/`schema`/`reindex`, `cardian.export`/`import`/`importMarkdown`, `cardian.status`; two-way sync & code graph via `cardian.wiki.sync`/`graph`; layered skill export via `cardian.skill.export`; memory promotion via `cardian.memory.promote`.
+Cross-section tools: `cardian_recall` (budgeted recall), `cardian_search` (keyword + semantic hybrid), `cardian_tagCloud`, `cardian_backlinks`, `cardian_related`, `cardian_doctor`/`schema`/`reindex`, `cardian_export`/`import`/`importMarkdown`, `cardian_status`; two-way sync & code graph via `cardian_wiki_sync`/`graph`; layered skill export via `cardian_skill_export`; memory promotion via `cardian_memory_promote`.
 
 ### Activity-Driven Auto Refresh
 
@@ -47,14 +47,14 @@ I.e. "whenever a project has conversation activity, all three sections refresh" 
 
 ### One-Click Condense = Skeleton + AI Enrichment (0.6.3)
 
-Clicking「沉淀 ▸ (Condense)」in the workflow dock of the RepoWiki tab doesn't just scan a skeleton: after skeleton cards are generated, it spawns an **agent session** (`ctx.get('agents').create(...)`) that back-fills each skeleton into a semantic card using `cardian.wiki.list` / `cardian.wiki.get` / `cardian.wiki.upsert` — body becomes「## 职责 / ## 关键实现 / ## 依赖 / ## 注意点」, summary is a one-line responsibility statement, title is human-readable, and the「## 待补充」placeholder is removed with status set to published. Already-enriched cards are skipped (idempotent, no clobbering of human work).
+Clicking「沉淀 ▸ (Condense)」in the workflow dock of the RepoWiki tab doesn't just scan a skeleton: after skeleton cards are generated, it spawns an **agent session** (`ctx.get('agents').create(...)`) that back-fills each skeleton into a semantic card using `cardian_wiki_list` / `cardian_wiki_get` / `cardian_wiki_upsert` — body becomes「## 职责 / ## 关键实现 / ## 依赖 / ## 注意点」, summary is a one-line responsibility statement, title is human-readable, and the「## 待补充」placeholder is removed with status set to published. Already-enriched cards are skipped (idempotent, no clobbering of human work).
 
 - The panel shows AI status per task: ✦ 凝练中 (session xxx) / ✅ done / ⚠️ unavailable (host has no agents service — skeleton is still generated, ask AI to fill in later);
 - Config `aiCondense` (default true) is the master switch; a single run can pass `ai: false`.
 
 ### Idempotent Condense (0.6.2): No Data Loss on Re-condense
 
-`cardian.wiki.ingest` **skips overwriting** cards already semantically enriched (body no longer the「待补充」skeleton template): agent/user-written descriptions, summaries, and titles are fully preserved; only newly scanned files or refreshed skeletons are written. Returns `{ count, skipped, reserved }`; the panel shows「新增 N 张，保留已凝练 M 张」.
+`cardian_wiki_ingest` **skips overwriting** cards already semantically enriched (body no longer the「待补充」skeleton template): agent/user-written descriptions, summaries, and titles are fully preserved; only newly scanned files or refreshed skeletons are written. Returns `{ count, skipped, reserved }`; the panel shows「新增 N 张，保留已凝练 M 张」.
 
 ### Knowledge Tree Folder Hierarchy (0.6.2)
 
@@ -88,15 +88,15 @@ Each tool is annotated `readOnly` / `idempotent` / `destructive` so agents pick 
 
 | Tools | Behavior |
 |---|---|
-| `cardian.status` | readOnly |
-| `cardian.search` / `recall` / `tagCloud` / `backlinks` / `related` / `export` / `doctor` / `schema` | readOnly |
-| `cardian.import` / `importMarkdown` / `reindex` / `card.review` | idempotent |
-| `cardian.wiki.ingest` / `upsert` · `card.card.upsert` · `memory.commit` | idempotent |
-| `cardian.wiki.get` / `list` · `card.get/list/search/due` · `memory.get/list/search/history` | readOnly |
-| `cardian.wiki.delete` · `card.delete` · `memory.delete` | destructive (idempotent-safe) |
-| `cardian.wiki.overview` / `memory.promote` / `import` / `importMarkdown` / `reindex` | idempotent governance |
-| `cardian.wiki.sync` / `skill.export` | idempotent (sync / layered export) |
-| `cardian.wiki.graph` / `cardian.feedback` | graph readOnly · feedback idempotent loop |
+| `cardian_status` | readOnly |
+| `cardian_search` / `recall` / `tagCloud` / `backlinks` / `related` / `export` / `doctor` / `schema` | readOnly |
+| `cardian_import` / `importMarkdown` / `reindex` / `card.review` | idempotent |
+| `cardian_wiki_ingest` / `upsert` · `card.card.upsert` · `memory.commit` | idempotent |
+| `cardian_wiki_get` / `list` · `card.get/list/search/due` · `memory.get/list/search/history` | readOnly |
+| `cardian_wiki_delete` · `card.delete` · `memory.delete` | destructive (idempotent-safe) |
+| `cardian_wiki_overview` / `memory.promote` / `import` / `importMarkdown` / `reindex` | idempotent governance |
+| `cardian_wiki_sync` / `skill.export` | idempotent (sync / layered export) |
+| `cardian_wiki_graph` / `cardian_feedback` | graph readOnly · feedback idempotent loop |
 
 Domain features: notes support `status`(draft/published), `confidence`(0-1), `source`, `summary`, `aliases`, `relations` (typed relations like `"depends_on [[X]]"`), `as_of`/`expires` (freshness). RepoWiki auto-extracts `imports` dependencies; memory supports `kind`(semantic/episodic/procedural) with append-only revision history; Knowledge Cards support `front`/`back`/`deck` flashcards with SM-2 review scheduling.
 

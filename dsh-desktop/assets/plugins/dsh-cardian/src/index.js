@@ -1141,19 +1141,19 @@ function installConversationHook(ctx, cardian) {
 // ── /cardian 斜杠命令（systemPrompt 约定）─────────────────────────────────
 // dsh 插件协议没有命令注册面（ctx 只有 tools / slots / systemPrompt / …），
 // 且内核不拦截 "/" 开头的用户消息——它们原样进 agent。因此用一段系统提示
-// 约定把 /cardian 前缀映射到既有 cardian.* 工具：零内核依赖，web 与桌面
+// 约定把 /cardian 前缀映射到既有 cardian_* 工具：零内核依赖，web 与桌面
 // 两端经同一插件即时生效。
 export const SLASH_GUIDE = [
-  '\n[cardian 斜杠命令] 用户消息以 `/cardian` 开头时视为知识中心命令：直接调用对应 cardian.* 工具执行，用紧凑列表或表格汇报结果，不要寒暄，不要整段复述长正文。',
+  '\n[cardian 斜杠命令] 用户消息以 `/cardian` 开头时视为知识中心命令：直接调用对应 cardian_* 工具执行，用紧凑列表或表格汇报结果，不要寒暄，不要整段复述长正文。',
   '- `/cardian`（无参或 help）→ 列出本命令清单',
-  '- `/cardian status` → cardian.status',
-  '- `/cardian search <关键词>` → cardian.search（可注明 section: wiki|cards|memory）',
-  '- `/cardian recall <关键词>` → cardian.recall',
-  '- `/cardian tag [分区]` → cardian.tagCloud',
-  '- `/cardian doctor` 与 `/cardian reindex` → cardian.doctor / cardian.reindex',
-  '- `/cardian wiki list` | `/cardian wiki graph <repo>` | `/cardian wiki get <repo> <路径>` | `/cardian wiki sync <本地路径>` → 对应 cardian.wiki.*',
-  '- `/cardian card get <ref>` | `/cardian card due` | `/cardian card add <标题> | <正文>` → 对应 cardian.card.*',
-  '- `/cardian memory list` | `/cardian memory commit <标题> | <内容>` → 对应 cardian.memory.*',
+  '- `/cardian status` → cardian_status',
+  '- `/cardian search <关键词>` → cardian_search（可注明 section: wiki|cards|memory）',
+  '- `/cardian recall <关键词>` → cardian_recall',
+  '- `/cardian tag [分区]` → cardian_tagCloud',
+  '- `/cardian doctor` 与 `/cardian reindex` → cardian_doctor / cardian_reindex',
+  '- `/cardian wiki list` | `/cardian wiki graph <repo>` | `/cardian wiki get <repo> <路径>` | `/cardian wiki sync <本地路径>` → 对应 cardian_wiki_*',
+  '- `/cardian card get <ref>` | `/cardian card due` | `/cardian card add <标题> | <正文>` → 对应 cardian_card_*',
+  '- `/cardian memory list` | `/cardian memory commit <标题> | <内容>` → 对应 cardian_memory_*',
   '',
 ].join('\n')
 
@@ -1398,7 +1398,7 @@ export function apply(ctx, config = {}) {
             if ((s.stale ?? 0) > 0) txt += `- 注意：有 ${s.stale} 条笔记已过 expires，引用前请核实\n`
           } catch {}
           txt += "- 以上摘要与条目是本项目的既有约定/决策，规划与生成代码时应作为行为约束优先遵守\n"
-          txt += "\n需要细节时优先调用 cardian.search / cardian.recall 工具。\n"
+          txt += "\n需要细节时优先调用 cardian_search / cardian_recall 工具。\n"
           txt += SLASH_GUIDE
           return txt
         } catch {

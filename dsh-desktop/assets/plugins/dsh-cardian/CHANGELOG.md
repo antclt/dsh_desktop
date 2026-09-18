@@ -10,6 +10,12 @@ All notable changes to cardian are documented here. The project follows
 - **vault 文件监听自动刷新**（`watchVault` 配置，默认开启）：在 Obsidian 手工编辑笔记后自动 reindex + 重建三区 MOC，无需手动跑 `cardian.reindex`。细节：只认 .md；README/_index/index/MOC 与点开头路径一律忽略（refreshAll 重建的正是这些 MOC 文件，不忽略就自触发成环）；1.2s debounce 合并 Obsidian 原子保存的事件风暴，刷新中到达的新变更排队合并不丢失；FSWatcher `unref()` 不阻塞短生命周期进程退出；`watchVault: false` 可关闭；监听实例暴露在 `cardian.watcher`（stats 可观测），插件卸载时随 apply 清理函数关闭。
 
 ### Fixed
+- **工具名去点：`cardian.wiki.list` → `cardian_wiki_list`（36 个工具全改）**：模型 API 对函数名有硬约束 `^[a-zA-Z0-9_-]+$`，带点的名字会让**整个请求** 400，用户看到的是「本轮运行失败」、这一轮连消息都发不出去：
+  ```
+  Invalid 'tools[1].name': string does not match pattern.
+  Expected a string that matches the pattern '^[a-zA-Z0-9_-]+$'.
+  ```
+  这不是某个工具调用失败，是请求根本发不出去。本仓库的 provider 层有一串 fork 补丁在出口把非法字符换成 `_`、回程还原（`patch-pi-ai-tool-name-wire` 中央收口 + completions / Responses 两条逐适配器补丁），但那**只在装了这些补丁的构建里生效** —— 任何未打补丁的 dsh（官方 npm 包、别人的构建、Qoder 那类 IDE 自带的 worktree 副本）都会原样把 `cardian.backlinks` 发出去而 400。逐适配器打补丁本来就是追上游尾巴，所以这次从**源头**改成合法名：注册名、`SLASH_GUIDE` 提示词、README 与集成文档一并更新；`this.cardian.wiki.graph(...)` 这类**服务方法调用**保持不变（工具名与服务方法同名但用途不同，脚本按上下文区分，跳过了 71 处调用点）。
 - **vault 监听首版会把调用 apply() 的测试/CLI 进程挂死**：FSWatcher 默认撑住事件循环，含 apply() 的测试文件（cardian.test 等）测试全过但进程永不退出，全量 runner 卡死在中间文件。修复为挂载即 `unref()`。
 
 ## [0.13.0] - 2026-09-01
