@@ -8,6 +8,7 @@
  * （只信 localhost / 127.0.0.1，与 synapse 同口径）—— 这条路由能往 `~/.dsh/sessions`
  * 写文件，不能让它被 DNS rebinding 打进来。
  */
+import { existsSync } from 'node:fs'
 import { inspect, migrate, readArtifact } from '../core/migrate.js'
 
 /** 客户端半与宿主半共用的路由前缀（改这里要同步改 lib/client.js）。 */
@@ -79,6 +80,13 @@ async function ensureWorkspaces(registry, dirs) {
   const out = []
   for (const dir of dirs) {
     if (typeof dir !== 'string' || dir === '') continue
+    // 目录已不存在：**不是失败**，是「没什么可登记的」——登记进工作区也没意义（注册表要求
+    // 目录真实存在），而这些会话会继续留在「未分组」。按 skipped 报，页面用灰字列出，
+    // 不再每次登记都刷一堆 ENOENT 红字。
+    if (!existsSync(dir)) {
+      out.push({ directory: dir, ok: false, skipped: true, reason: '目录已不存在（会话将留在「未分组」）' })
+      continue
+    }
     if (registry === undefined || typeof registry.create !== 'function') {
       out.push({ directory: dir, ok: false, error: '工作区服务不可用（ctx.workspaceRegistry）' })
       continue

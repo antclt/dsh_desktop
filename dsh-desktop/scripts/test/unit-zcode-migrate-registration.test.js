@@ -117,6 +117,62 @@ test('客户端半：设置页在清单/包声明/产物/宿主路由四处对�
   assert.deepEqual(offenders, [], offenders.join('\n'));
 });
 
+// ---------------------------------------------------------------------------
+// 「目录已不存在」的语义（用户实报：每次登记工作区都刷一排 ENOENT 红字）。
+// 注册表要求目录真实存在，而 zcode 的历史会话经常指向早已删掉的项目目录，于是
+// 「登记工作区」对那批目录永远失败。约定：**不存在 ≠ 失败**，宿主报 `skipped: true`
+// 且不调注册表，页面按灰字列出并藏掉登记按钮。这条用真 HTTP 面（真 server + fetch）
+// 跑行为，而不是正则扫源码 —— 语义错了必须能红。
+// ---------------------------------------------------------------------------
+test('workspaces：目录已不存在 → skipped 且不碰注册表（真 HTTP 面）', async () => {
+  const http = require('node:http');
+  const { pathToFileURL } = require('node:url');
+  const os = require('node:os');
+  const { createApiHandler, API_PREFIX } = await import(pathToFileURL(path.join(ASSETS, 'src', 'rpc.js')).href);
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-zcode-ws-'));
+  const realDir = path.join(root, 'still-here');
+  const goneDir = path.join(root, 'deleted-long-ago');
+  fs.mkdirSync(realDir);
+  const calls = [];
+  const registry = {
+    async create(dir, title) {
+      calls.push({ dir, title });
+      return { id: 'ws-' + title, title };
+    },
+  };
+  const handler = createApiHandler({ dbPath: 'x', dshRoot: 'y' }, { workspaceRegistry: registry });
+  const server = http.createServer((req, res) => { handler(req, res).catch(() => res.end()); });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const res = await fetch(`http://127.0.0.1:${server.address().port}${API_PREFIX}/workspaces`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ directories: [realDir, goneDir] }),
+    });
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true, '请求成功即 ok:true（顶层 ok:false 会被页面当硬错误，吞掉逐条结果）');
+    assert.equal(body.results[0].ok, true, '存在的目录照常登记');
+    assert.equal(body.results[1].ok, false);
+    assert.equal(body.results[1].skipped, true, '不存在的目录必须标 skipped');
+    assert.equal(body.results[1].error, undefined, 'skipped 不带 error（页面才能与真失败分开渲染）');
+    assert.deepEqual(calls.map((c) => c.dir), [realDir], '不存在的目录不得调用 registry.create');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('inspect 报出目录/会话的存在性（页面据此标注与门控）', () => {
+  const core = read('core/migrate.js');
+  assert.match(core, /exists:\s*existsOf\(directory\)/, 'inspect().directories[] 必须带 exists');
+  assert.match(core, /directoryExists:\s*existsOf\(/, 'inspect().sessions[] 必须带 directoryExists');
+  const client = read('lib/client.js');
+  assert.match(client, /directoryExists !== false/, '页面必须按存在性门控「登记工作区」按钮');
+  assert.match(client, /skipped === true/, '页面必须单独渲染 skipped（灰字）而不是并进失败');
+});
+
 /** 与 src/rpc.js 里的模板串同形（`${API_PREFIX}/inspect` 展开后的样子）。 */
 function API_PREFIX_ACTION(action) {
   return '`${API_PREFIX}/' + action + '`';

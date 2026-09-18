@@ -270,6 +270,15 @@ export async function inspect(input = {}) {
       const dir = row.directory || '(无工作目录)'
       directories.set(dir, (directories.get(dir) || 0) + 1)
     }
+    // 目录是否还在：迁移本身只写会话日志（目录没了也照迁），但**归组**要靠工作区注册表，
+    // 而 registry.create 要求目录真实存在。这里把存在性一并报出来，页面才能明确标注
+    // 「目录已不存在（跳过登记）」——否则用户每次登记都只看到一堆 ENOENT 红字。
+    const dirExists = new Map()
+    const existsOf = (dir) => {
+      if (dir === '' || dir === '(无工作目录)') return false
+      if (!dirExists.has(dir)) dirExists.set(dir, existsSync(dir))
+      return dirExists.get(dir)
+    }
     return {
       ok: true,
       dbPath: connection.dbPath,
@@ -279,13 +288,14 @@ export async function inspect(input = {}) {
       database: counts,
       selected: rows.length,
       directories: [...directories.entries()]
-        .map(([directory, sessions]) => ({ directory, sessions }))
+        .map(([directory, sessions]) => ({ directory, sessions, exists: existsOf(directory) }))
         .sort((a, b) => b.sessions - a.sessions),
       sessions: rows.map((row) => ({
         zcodeId: row.id,
         dshId: toDshSessionId(row.id),
         title: row.title || '',
         directory: row.directory || '',
+        directoryExists: existsOf(row.directory || ''),
         createdAt: row.time_created,
         parentId: row.parent_id || null,
         alreadyMigrated: existsSync(

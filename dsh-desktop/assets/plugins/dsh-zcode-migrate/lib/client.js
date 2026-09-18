@@ -55,6 +55,10 @@ window.__ModuleLoader__.load({
       registerWsAll: '登记全部工作区',
       registering: '登记中…',
       wsRegistered: '工作区已登记',
+      wsSkipped: '跳过（目录已不存在）',
+      wsFailed: '失败',
+      dirGone: '目录已不存在',
+      dirGoneHint: '目录已不存在：这些会话仍会迁移，但无法登记成工作区，会留在「未分组」。',
       wsHint: '会话按「工作区」归组：迁移只写会话日志，不登记工作区的话，迁来的会话会全部掉进「未分组」。点「登记工作区」把这些目录补登记即可（迁移时会自动登记）。',
     }
 
@@ -177,6 +181,10 @@ window.__ModuleLoader__.load({
 
       const pendingCount = sessions.filter((s) => !s.alreadyMigrated).length
       const migratedCount = sessions.length - pendingCount
+      // 可登记工作区的目录（目录还在 + 有工作目录）；与「登记全部工作区」按钮同口径。
+      const wsDirs = groups
+        .filter(([dir, rows]) => dir !== '(无工作目录)' && rows[0]?.directoryExists !== false)
+        .map(([dir]) => dir)
       const summary = results === null ? null : results.reduce((acc, row) => {
         const key = row.status === 'failed' ? 'failed' : row.status === 'skipped' ? 'skipped' : 'migrated'
         acc[key] = (acc[key] ?? 0) + 1
@@ -219,9 +227,11 @@ window.__ModuleLoader__.load({
           }, `${L.onlyPending}（${pendingCount}）`),
           react.createElement(Button, {
             key: 'wsall',
-            onClick: () => registerWorkspaces(groups.map(([dir]) => dir).filter((d) => d !== '(无工作目录)')),
-            disabled: busy !== null,
-          }, busy === 'workspaces' ? L.registering : `${L.registerWsAll}（${groups.length}）`),
+            // 只登记**目录还在**的那批：目录已不存在的登记不进去（注册表要求目录真实存在），
+            // 发过去只会换来一排「跳过」，不如不发。计数与按钮同口径，免得数字对不上。
+            onClick: () => registerWorkspaces(wsDirs),
+            disabled: busy !== null || wsDirs.length === 0,
+          }, busy === 'workspaces' ? L.registering : `${L.registerWsAll}（${wsDirs.length}）`),
         ]),
 
         report !== null && react.createElement('div', { key: 'wshint', style: { ...dim, marginTop: 6 } }, L.wsHint),
@@ -233,6 +243,7 @@ window.__ModuleLoader__.load({
                 react.createElement('div', { key: 'h', style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'wrap' } }, [
                   react.createElement('span', { key: 't', style: { fontWeight: 600, fontSize: 12, flex: 1 } },
                     `${L.project}：${dir}（${rows.length}）`),
+                  rows[0]?.directoryExists === false && tag(L.dirGone, 'var(--dsw-alias-state-warn-primary)'),
                   react.createElement(Button, {
                     key: 'gsel',
                     onClick: () => setPicked((prev) => new Set([...prev, ...rows.map((r) => r.zcodeId)])),
@@ -242,7 +253,7 @@ window.__ModuleLoader__.load({
                     onClick: () => run(rows.filter((r) => !r.alreadyMigrated).map((r) => r.zcodeId)),
                     disabled: busy !== null,
                   }, `${L.groupMigrate}（${rows.filter((r) => !r.alreadyMigrated).length}）`),
-                  dir !== '(无工作目录)' && react.createElement(Button, {
+                  dir !== '(无工作目录)' && rows[0]?.directoryExists !== false && react.createElement(Button, {
                     key: 'gws',
                     onClick: () => registerWorkspaces([dir]),
                     disabled: busy !== null,
@@ -265,9 +276,15 @@ window.__ModuleLoader__.load({
 
         wsResult !== null && react.createElement('div', { key: 'ws', style: { ...box, borderColor: 'var(--dsw-alias-border-l2)' } }, [
           react.createElement('div', { key: 'h', style: { fontWeight: 600, marginBottom: 4 } },
-            `${L.wsRegistered}：${wsResult.filter((r) => r.ok).length}/${wsResult.length}`),
-          ...wsResult.filter((r) => !r.ok).slice(0, 8).map((r, i) => react.createElement('div', { key: i, style: dim },
+            `${L.wsRegistered}：${wsResult.filter((r) => r.ok).length}`
+            + ` · ${L.wsSkipped}：${wsResult.filter((r) => r.skipped === true).length}`
+            + ` · ${L.wsFailed}：${wsResult.filter((r) => !r.ok && r.skipped !== true).length}`),
+          // 目录已不存在 → 灰字（这不是错误，是「没什么可登记的」）；真失败才用 ✗ 红字。
+          ...wsResult.filter((r) => r.skipped === true).slice(0, 12).map((r, i) => react.createElement('div', { key: 's' + i, style: dim },
+            `· ${r.directory} —— ${r.reason ?? L.dirGone}`)),
+          ...wsResult.filter((r) => !r.ok && r.skipped !== true).slice(0, 8).map((r, i) => react.createElement('div', { key: 'f' + i, style: dim },
             `✗ ${r.directory} —— ${r.error ?? ''}`)),
+          wsResult.some((r) => r.skipped === true) && react.createElement('div', { key: 'note', style: { ...dim, marginTop: 4 } }, L.dirGoneHint),
         ]),
 
         report !== null && react.createElement('div', { key: 'go', style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' } }, [

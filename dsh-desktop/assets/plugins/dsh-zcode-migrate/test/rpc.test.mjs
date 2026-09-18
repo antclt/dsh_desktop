@@ -9,7 +9,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { mkdtempSync, existsSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, existsSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -147,6 +147,10 @@ test('inspect → migrate(dryRun) → migrate → inspect：HTTP 面端到端', 
     const target = first.body.sessions.find((s) => s.zcodeId === 'sess_rpc1')
     assert.equal(target.alreadyMigrated, false, '尚未迁移')
     assert.equal(target.directory, CWD)
+    // 存在性随侦察一起报出：页面靠它标注「目录已不存在」并藏掉登记按钮（fixture 里的
+    // CWD 是虚构路径，必须如实为 false；不存在时不许瞎猜成 true）。
+    assert.equal(target.directoryExists, false, '虚构目录必须报不存在')
+    assert.equal(first.body.directories.find((d) => d.directory === CWD).exists, false, '目录级也要带 exists')
 
     const dry = await call(handler, { path: `${API_PREFIX}/migrate`, body: { ids: ['sess_rpc1'], dryRun: true } })
     assert.equal(dry.status, 200)
@@ -202,31 +206,47 @@ test('verify：产物路径存在/缺失两种结果都走 200 且带 ok 字段'
   }
 })
 
-test('workspaces：登记目录（假注册表），目录/服务不可用如实报错', async () => {
+test('workspaces：登记真实目录，目录已不存在 → skipped（不调注册表），真失败 → error', async () => {
+  // 注册表要求目录真实存在，所以成功路径必须用**真实临时目录**（曾经的用例拿
+  // 'C:/a/proj-a' 这种假路径当成功样例，一旦加上存在性预检就会全线变 skipped）。
+  const root = mkdtempSync(join(tmpdir(), 'zcode-ws-'))
+  const realA = join(root, 'proj-a')
+  const realB = join(root, 'proj-boom')
+  mkdirSync(realA)
+  mkdirSync(realB)
+  const gone = join(root, 'deleted-long-ago')
+
   const calls = []
   const registry = {
     async create(dir, title) {
       calls.push({ dir, title })
-      if (dir.includes('missing')) throw new Error('目录不存在')
+      if (dir.includes('boom')) throw new Error('目录不存在')
       return { id: 'ws-' + title, title }
     },
   }
   const handler = createApiHandler({ dbPath: 'x', dshRoot: 'y' }, { workspaceRegistry: registry })
 
-  const ok = await call(handler, { path: `${API_PREFIX}/workspaces`, body: { directories: ['C:/a/proj-a', 'C:/b/missing-dir'] } })
+  const ok = await call(handler, { path: `${API_PREFIX}/workspaces`, body: { directories: [realA, realB, gone] } })
   assert.equal(ok.status, 200)
   assert.equal(ok.body.ok, true, '请求成功即 ok:true，逐条成败在 results 里')
-  assert.deepEqual(calls, [{ dir: 'C:/a/proj-a', title: 'proj-a' }, { dir: 'C:/b/missing-dir', title: 'missing-dir' }], '标题取末级目录名')
+  assert.deepEqual(calls, [{ dir: realA, title: 'proj-a' }, { dir: realB, title: 'proj-boom' }], '标题取末级目录名')
   assert.equal(ok.body.results[0].ok, true)
   assert.equal(ok.body.results[0].id, 'ws-proj-a')
-  assert.equal(ok.body.results[1].ok, false)
+  assert.equal(ok.body.results[1].ok, false, '注册表抛错 → 真失败')
   assert.match(ok.body.results[1].error, /目录不存在/)
+  // 目录已不存在：报 skipped（不是失败），且**根本不碰注册表** —— 这是「别每次登记都刷
+  // 一排 ENOENT」的关键，否则页面又变成满屏红字。
+  assert.equal(ok.body.results[2].ok, false)
+  assert.equal(ok.body.results[2].skipped, true, '不存在的目录标记为 skipped')
+  assert.match(ok.body.results[2].reason, /目录已不存在/)
+  assert.equal(ok.body.results[2].error, undefined, 'skipped 不带 error，页面才能与真失败分开渲染')
 
   // 缺参数 → 400；服务缺席 → ok:false 且说明原因（不许假装成功）
   assert.equal((await call(handler, { path: `${API_PREFIX}/workspaces`, body: {} })).status, 400)
   const noRegistry = createApiHandler({ dbPath: 'x', dshRoot: 'y' })
-  const degraded = await call(noRegistry, { path: `${API_PREFIX}/workspaces`, body: { directories: ['C:\a'] } })
+  const degraded = await call(noRegistry, { path: `${API_PREFIX}/workspaces`, body: { directories: [realA] } })
   assert.equal(degraded.status, 200)
   assert.equal(degraded.body.results[0].ok, false)
   assert.match(degraded.body.results[0].error, /工作区服务不可用/)
+  rmSync(root, { recursive: true, force: true })
 })

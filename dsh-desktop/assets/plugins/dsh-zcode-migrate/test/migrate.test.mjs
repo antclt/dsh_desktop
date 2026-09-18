@@ -233,6 +233,10 @@ test('inspect reports the database, distribution and prior migrations', async ()
     assert.equal(before.selected, 3)
     assert.equal(before.directories.length, 2)
     assert.equal(before.sessions.every((s) => s.alreadyMigrated === false), true)
+    // 存在性预检：fixture 的 cwd 是虚构路径，逐条都要如实报 false（页面靠它决定是否
+    // 显示「登记工作区」按钮），且目录级与会话级口径必须一致。
+    assert.equal(before.sessions.every((s) => s.directoryExists === false), true)
+    assert.equal(before.directories.every((d) => d.exists === false), true)
 
     await migrate({ dbPath: fx.dbPath, dshRoot: fx.root })
     const after = await inspect({ dbPath: fx.dbPath, dshRoot: fx.root })
