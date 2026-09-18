@@ -173,6 +173,40 @@ test('inspect 报出目录/会话的存在性（页面据此标注与门控）',
   assert.match(client, /skipped === true/, '页面必须单独渲染 skipped（灰字）而不是并进失败');
 });
 
+// ---------------------------------------------------------------------------
+// 设置页「点一下」的行为锁（用户实报：点「迁移选中」报 `ids.map is not a function`）。
+//
+// 根因是把处理函数裸挂在 onClick 上 —— React 会把点击事件当第一个实参传进去，
+// 事件不是数组：`ids.length` 是 undefined → 批循环整个不执行 → 预演模式下静默
+// 「0 成功」，关掉预演就死在 `ids.map`。源码正则与类型都看不出来，只有真点击能。
+//
+// 所以这里锁两层：① 页面自带一个**真渲染 + 真点击**的行为测试（少了它就等于没锁）；
+// ② 裸挂这个具体写法不许回来（`run` 内部另有一道非数组兜底）。
+// ---------------------------------------------------------------------------
+test('设置页的点击行为有真渲染测试，且不再裸挂 onClick 处理函数', () => {
+  const clientTest = path.join(ASSETS, 'test', 'client.test.mjs');
+  assert.ok(fs.existsSync(clientTest), '缺 test/client.test.mjs：没有真点击的测试，onClick 传参错法就没人拦');
+  const src = fs.readFileSync(clientTest, 'utf8');
+  assert.match(src, /props\.onClick\(\{/, '行为测试必须真的调用 onClick 并传入事件对象');
+  assert.match(src, /factory\(require\)/, '行为测试必须走真实装载路径（__ModuleLoader__ + require shim）');
+
+  const pkg = readJson('package.json');
+  assert.equal(pkg.scripts?.test, 'node --test "test/*.test.mjs"', '测试脚本必须覆盖 test/ 下全部用例');
+
+  const client = read('lib/client.js');
+  assert.match(client, /Array\.isArray\(explicitIds\)/, 'run() 必须对非数组入参兜底（事件对象不是数组）');
+  // 先剥注释再匹配：`lib/client.js` 的注释里就写着「别再写 `onClick: run`」，
+  // 不剥的话这条断言会被自己的注释绊倒（同名坑：AGENTS.md 里的命令 token）。
+  const clientCode = stripComments(client);
+  assert.doesNotMatch(clientCode, /onClick:\s*run\b/, '别再裸挂 run：onClick 会把事件当 explicitIds 传进去');
+  assert.match(clientCode, /onClick:\s*\(\)\s*=>\s*run\(\)/, '主迁移按钮必须是 () => run()');
+});
+
+/** 去掉行注释与块注释，避免源码断言被注释里的示例文字绊倒。 */
+function stripComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
 /** 与 src/rpc.js 里的模板串同形（`${API_PREFIX}/inspect` 展开后的样子）。 */
 function API_PREFIX_ACTION(action) {
   return '`${API_PREFIX}/' + action + '`';
