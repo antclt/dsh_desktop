@@ -11,14 +11,15 @@ import { join } from 'node:path'
 import { encodeSegment, projectKey, projectDir, sessionLogPath, toDshSessionId, NO_CWD_DIR } from '../core/paths.js'
 
 test('projectKey matches real dsh project directories', () => {
-  // Taken verbatim from ~/.dsh/sessions.
+  // Taken verbatim from ~/.dsh/sessions（用户名统一替换成 tester：这是公开仓库，
+  // 真实机器用户名不该进测试向量；规则本身与用户名无关）。
   const fixtures = [
-    ['C:\\Users\\delinger\\Desktop\\music_region', '--C-Users-delinger-Desktop-music_region--'],
-    ['C:\\Users\\delinger\\Desktop\\deepseek_harness', '--C-Users-delinger-Desktop-deepseek_harness--'],
-    ['C:\\Users\\delinger\\Desktop\\dsh-research', '--C-Users-delinger-Desktop-dsh-research--'],
+    ['C:\\Users\\tester\\Desktop\\music_region', '--C-Users-tester-Desktop-music_region--'],
+    ['C:\\Users\\tester\\Desktop\\deepseek_harness', '--C-Users-tester-Desktop-deepseek_harness--'],
+    ['C:\\Users\\tester\\Desktop\\dsh-research', '--C-Users-tester-Desktop-dsh-research--'],
     // CJK code units take the ~XXXX escape.
-    ['C:\\Users\\delinger\\Desktop\\传送门', '--C-Users-delinger-Desktop-~4F20~9001~95E8--'],
-    ['C:\\Users\\delinger\\Desktop\\杂活室', '--C-Users-delinger-Desktop-~6742~6D3B~5BA4--'],
+    ['C:\\Users\\tester\\Desktop\\传送门', '--C-Users-tester-Desktop-~4F20~9001~95E8--'],
+    ['C:\\Users\\tester\\Desktop\\杂活室', '--C-Users-tester-Desktop-~6742~6D3B~5BA4--'],
   ]
   for (const [cwd, expected] of fixtures) {
     assert.equal(projectKey(cwd), expected, cwd)

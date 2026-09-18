@@ -4,6 +4,10 @@
 
 参考实现：[yanggenjie/zcode-data-archive](https://github.com/yanggenjie/zcode-data-archive)（把 zcode 导出为 pi 格式 / HTML 预览站 / 归档报表）。本项目是同一件事的 **dsh 版本**，并且做成了 dsh 插件。
 
+本仓库是该插件的独立主页；它同时被内置在 [DSH Desktop](https://github.com/myYangyunfan/dsh_desktop)（桌面客户端）里作为伴随插件开箱可用——两处的代码同源，独立仓库便于单独安装与跟踪改动。
+
+**零第三方依赖**，只用 Node 内置模块（`node:sqlite`、`node:zlib`），`npm ci` 不需要装任何东西。
+
 ---
 
 ## 它做了什么
@@ -36,7 +40,13 @@ dsh 的 JSONL 持久化后端把每个会话存成：
 ## 安装
 
 ```bash
-# 放进 dsh 的插件目录并启用（示例：web profile）
+git clone https://github.com/myYangyunfan/zcode22dsh.git
+dsh plugin --profile web add ./zcode22dsh     # 装进某个 profile
+```
+
+也可以直接用本地路径（开发时更顺手）：
+
+```bash
 dsh plugin --profile web add /path/to/dsh-zcode-migrate
 ```
 
@@ -183,7 +193,7 @@ node scripts/validate-with-dsh.mjs ~/.dsh/sessions
 ### 单元测试
 
 ```bash
-npm test        # 57 个测试，覆盖路径规则、帧编解码、事件映射、迁移编排、插件契约
+npm test        # 66 个测试，覆盖路径规则、帧编解码、事件映射、迁移编排、插件契约、设置页 HTTP 面
 ```
 
 测试用**自建的合成 zcode 数据库**，不依赖你机器上的真实数据。
