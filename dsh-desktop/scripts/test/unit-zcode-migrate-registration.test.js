@@ -68,7 +68,7 @@ test('loader id 一致性（issue #104 的坑：不一致会双挂载）', () =>
 test('manifest 声明的工具必须在源码里真的注册（防「声明了没实现」）', () => {
   const manifest = readJson('dsh.plugin.json');
   const declared = manifest.contributes?.tools ?? [];
-  assert.deepEqual(declared, ['zcode.inspect', 'zcode.migrate', 'zcode.verify'], '工具清单是既有契约，改这里要同步改实现与文档');
+  assert.deepEqual(declared, ['zcode_inspect', 'zcode_migrate', 'zcode_verify'], '工具清单是既有契约，改这里要同步改实现与文档');
   const tools = read('src/tools.js');
   const offenders = declared.filter((name) => !tools.includes(`'${name}'`));
   assert.deepEqual(offenders, [], `以下工具在 manifest 里声明但 src/tools.js 没注册：${offenders.join(', ')}`);
