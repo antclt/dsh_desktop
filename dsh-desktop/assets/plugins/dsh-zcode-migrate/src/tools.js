@@ -20,14 +20,13 @@
 import { toErrorPayload } from '../core/errors.js'
 import { inspect, migrate, readArtifact } from '../core/migrate.js'
 
-const strOpt = (description) => ({ type: 'string', description, required: false })
-const numOpt = (description) => ({ type: 'number', description, required: false })
-const boolOpt = (description) => ({ type: 'boolean', description, required: false })
+const strOpt = (description) => ({ type: 'string', description })
+const numOpt = (description) => ({ type: 'number', description })
+const boolOpt = (description) => ({ type: 'boolean', description })
 const arrOpt = (description) => ({
   type: 'array',
   items: { type: 'string' },
   description,
-  required: false,
 })
 
 function params(properties) {
@@ -130,7 +129,7 @@ export function registerTools(ctx, defaults = {}) {
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '会话日志文件路径（.jsonl.zstd 或 .jsonl）', required: true },
+        path: { type: 'string', description: '会话日志文件路径（.jsonl.zstd 或 .jsonl）' },
       },
       required: ['path'],
     },

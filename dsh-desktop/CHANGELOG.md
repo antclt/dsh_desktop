@@ -1,8 +1,21 @@
-D
 # Changelog — DSH Desktop
 
 DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行时与 dsh CLI，
 一键启动 Web UI。
+
+## [0.6.5] - 2026-09-22
+
+### feat(release)：v0.6.5 正式版发布
+
+- **内置会话迁移插件 `dsh-zcode-migrate`**：
+  - 支持一键将 zcode 历史会话迁移导入为 DSH 原生会话并关联工作区。
+  - 工具参数定义适配严格 JSON Schema（Draft 4+），彻底杜绝布尔型 `required: false/true` 引发的模型 API 400 拒收打回。
+- **知识中心与图谱记忆默认软禁用（按需启用）**：
+  - 默认软禁用 `dsh-cardian`（知识中心）与 `graph-memory`（图谱记忆），避免未显式开启时无故污染工作目录或在长对话中无界注入提示词。用户可在应用内插件管理中一键按需开启。
+- **内核升级适配**：
+  - 内核平滑迁移并适配 `0.1.6-alpha.1`。
+- **全平台构建与便携版双轨分发**：
+  - 支持全平台远端构建，Windows x64 同时提供「内置 Node 完整便携版」与「轻量 Lite 便携版（免自带 Node）」。
 
 ## [Unreleased]
 

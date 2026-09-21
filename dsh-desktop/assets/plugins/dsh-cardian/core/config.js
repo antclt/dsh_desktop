@@ -18,7 +18,7 @@ export function resolveConfig(raw = {}) {
     throw new ConfigError('vaultPath 必须是非空字符串')
   }
 
-  const autoInit = coerceBool(raw.autoInit, true, 'autoInit')
+  const autoInit = coerceBool(raw.autoInit, false, 'autoInit')
   const semanticSearch = coerceBool(raw.semanticSearch, true, 'semanticSearch')
   const watchVault = coerceBool(raw.watchVault, true, 'watchVault')
 

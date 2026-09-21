@@ -42,6 +42,7 @@ const { PluginStateStore } = require('./plugin-core/lib/state-store');
 const { syncHubRecognition } = require('./lib/hub-registry');
 const {
   ACP_SELF_DISABLE_BLOCK, PET_DISABLE_BLOCK,
+  CARDIAN_DISABLE_BLOCK, GRAPH_MEMORY_DISABLE_BLOCK,
   removeAcpBasicDisableBlock,
   ensureDisabledPatchEntry, removeLegacyMarketplacePatchLines,
   removeRetiredDshMarketPatchRows, removeRetiredThirdPartyThinkingPatchRows,
@@ -359,6 +360,32 @@ function syncPlugins(home, dryRun, dshPkgDir) {
       else log('已写入 harness-pet 禁用条目（桌面宠物默认关闭）');
     } else {
       log('harness-pet 禁用条目已存在（跳过）');
+    }
+  }
+
+  // 知识中心（dsh-cardian / cardian）默认关闭：可在设置 → 插件 → 管理一键开启。
+  if (bundleNames.has('dsh-cardian')) {
+    const cardian = ensureDisabledPatchEntry(patch, new RegExp('(?:^|\\n)\\s*-?\\s*id\\s*:\\s*cardian(?![A-Za-z0-9_.-])'), CARDIAN_DISABLE_BLOCK);
+    if (cardian.changed) {
+      patch = cardian.patch;
+      changed = true;
+      if (dryRun) log(`dry-run: 将向 ${patchFile} 写入 cardian 禁用条目`);
+      else log('已写入 cardian 禁用条目（知识中心默认关闭）');
+    } else {
+      log('cardian 禁用条目已存在（跳过）');
+    }
+  }
+
+  // 知识图谱记忆（graph-memory）默认关闭：可在设置 → 插件 → 管理一键开启。
+  if (bundleNames.has('graph-memory')) {
+    const gm = ensureDisabledPatchEntry(patch, new RegExp('(?:^|\\n)\\s*-?\\s*id\\s*:\\s*graph-memory(?![A-Za-z0-9_.-])'), GRAPH_MEMORY_DISABLE_BLOCK);
+    if (gm.changed) {
+      patch = gm.patch;
+      changed = true;
+      if (dryRun) log(`dry-run: 将向 ${patchFile} 写入 graph-memory 禁用条目`);
+      else log('已写入 graph-memory 禁用条目（知识图谱记忆默认关闭）');
+    } else {
+      log('graph-memory 禁用条目已存在（跳过）');
     }
   }
 

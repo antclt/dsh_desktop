@@ -35,6 +35,12 @@ const PET_DISABLE_BLOCK = '\n# harness-pet：桌面宠物默认关闭（设置 �
 // 的 insert 注册（loader disabled 覆盖语义），内核默认 compaction-basic 随即接管。
 const ACP_SELF_DISABLE_BLOCK = '\n# billion-context-dsh（compaction-acp）：模型驱动压缩默认关闭（频繁自动压缩反馈；设置 → 插件 → 管理 可一键开启）\n- id: compaction-acp\n  disabled: true\n';
 
+// dsh-cardian（cardian）：知识中心默认关闭（设置 → 插件 → 管理 可一键开启）
+const CARDIAN_DISABLE_BLOCK = '\n# dsh-cardian（cardian）：知识中心默认关闭（设置 → 插件 → 管理 可一键开启）\n- id: cardian\n  disabled: true\n';
+
+// graph-memory：知识图谱记忆默认关闭（设置 → 插件 → 管理 可一键开启）
+const GRAPH_MEMORY_DISABLE_BLOCK = '\n# graph-memory：知识图谱记忆默认关闭（设置 → 插件 → 管理 可一键开启）\n- id: graph-memory\n  disabled: true\n';
+
 // 顶层条目 id 行（缩进 0-2）：统一字符集，含点号。
 const ID_ROW_RE = /^(\s*)-\s*id:\s*([A-Za-z0-9][A-Za-z0-9_.-]*)/;
 // 任意缩进的条目 id 行（insert 块内层 / 顶层共用）。
@@ -952,6 +958,8 @@ module.exports = {
   ACP_DISABLE_BLOCK,
   ACP_SELF_DISABLE_BLOCK,
   PET_DISABLE_BLOCK,
+  CARDIAN_DISABLE_BLOCK,
+  GRAPH_MEMORY_DISABLE_BLOCK,
   LOADER_ID_RE,
   parsePatchRows,
   patchRowIds,

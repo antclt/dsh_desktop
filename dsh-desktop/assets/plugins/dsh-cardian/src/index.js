@@ -13,7 +13,7 @@ import { ConfigError } from '../core/errors.js'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { slugify } from '../core/slug.js'
 import { basename } from 'node:path'
-import { watch as fsWatch } from 'node:fs'
+import { watch as fsWatch, existsSync } from 'node:fs'
 
 export const name = 'cardian'
 
@@ -25,7 +25,7 @@ export const Config = Schema.object({
     .default('./cardian-vault'),
   autoInit: Schema.boolean()
     .description('启动时自动创建仓库目录与三个分区的索引（Map of Content）')
-    .default(true),
+    .default(false),
   aiCondense: Schema.boolean()
     .description('（保留兼容位）AI 扫盘的语义回填现由网关逐文件直调宿主 llm 完成，是否真正回填取决于扫描向导里是否选了模型')
     .default(true),
@@ -1422,8 +1422,10 @@ export function apply(ctx, config = {}) {
     ;(cardian.ready ?? Promise.resolve())
       .then(() => {
         if (disposed) return
-        vaultWatcher = installVaultWatcher(ctx, cardian)
-        if (vaultWatcher) cardian.watcher = vaultWatcher
+        if (existsSync(resolved.vaultPath)) {
+          vaultWatcher = installVaultWatcher(ctx, cardian)
+          if (vaultWatcher) cardian.watcher = vaultWatcher
+        }
       })
       .catch(() => {})
   }

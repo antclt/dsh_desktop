@@ -5,6 +5,9 @@ All notable changes to cardian are documented here. The project follows
 
 ## [Unreleased]
 
+### Changed
+- **默认关闭静默自动建库（`autoInit: false`）**：此前插件一加载就会强行创建 `./cardian-vault` 目录及三张空 MOC，哪怕用户从没建过卡片也会留下空文件。现在默认设为 `false`，完全静默，只有在知识中心真正点击「新建卡片/记忆」或执行「RepoWiki 沉淀」写入时才按需触发建库。
+
 ### Added
 - **/cardian 斜杠命令**：dsh 会话内输入 `/cardian <子命令>` 即可查询/沉淀知识库——status / search / recall / tag / doctor / reindex / wiki(list·graph·get·sync) / card(get·due·add) / memory(list·commit)，无参 `/cardian` 列出清单。dsh 插件协议无命令注册面且内核不拦截 "/" 前缀消息，故实现为 systemPrompt 注入的命令约定（`SLASH_GUIDE` 常量）：零内核依赖，web 与桌面两端经同一插件即时共用。
 - **vault 文件监听自动刷新**（`watchVault` 配置，默认开启）：在 Obsidian 手工编辑笔记后自动 reindex + 重建三区 MOC，无需手动跑 `cardian.reindex`。细节：只认 .md；README/_index/index/MOC 与点开头路径一律忽略（refreshAll 重建的正是这些 MOC 文件，不忽略就自触发成环）；1.2s debounce 合并 Obsidian 原子保存的事件风暴，刷新中到达的新变更排队合并不丢失；FSWatcher `unref()` 不阻塞短生命周期进程退出；`watchVault: false` 可关闭；监听实例暴露在 `cardian.watcher`（stats 可观测），插件卸载时随 apply 清理函数关闭。

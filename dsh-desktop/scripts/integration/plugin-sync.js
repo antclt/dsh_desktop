@@ -32,6 +32,8 @@ const {
   ACP_SELF_DISABLE_BLOCK,
   removeAcpBasicDisableBlock,
   PET_DISABLE_BLOCK,
+  CARDIAN_DISABLE_BLOCK,
+  GRAPH_MEMORY_DISABLE_BLOCK,
   removeLegacyMarketplacePatchLines,
   removeRetiredDshMarketPatchRows,
   removeRetiredThirdPartyThinkingPatchRows,
@@ -433,6 +435,36 @@ function createPluginSync(ctx) {
           }
         } catch (err) {
           log('写入 harness-pet 禁用条目失败: ' + err.message);
+        }
+      }
+
+      // dsh-cardian（cardian，知识中心）默认关闭。
+      if (bundleNames.has('dsh-cardian')) {
+        try {
+          let patch = '';
+          try { patch = fs.readFileSync(patchFile, 'utf8'); } catch { /* 全新 profile：patch 文件尚未创建，视为空 */ }
+          const entry = ensureDisabledPatchEntry(patch, new RegExp('(?:^|\\n)\\s*-?\\s*id\\s*:\\s*cardian\\b'), CARDIAN_DISABLE_BLOCK);
+          if (entry.changed) {
+            writeFileAtomic(patchFile, entry.patch);
+            log('已默认关闭知识中心（cardian，可在插件管理开启）');
+          }
+        } catch (err) {
+          log('写入 cardian 禁用条目失败: ' + err.message);
+        }
+      }
+
+      // graph-memory（知识图谱记忆）默认关闭。
+      if (bundleNames.has('graph-memory')) {
+        try {
+          let patch = '';
+          try { patch = fs.readFileSync(patchFile, 'utf8'); } catch { /* 全新 profile：patch 文件尚未创建，视为空 */ }
+          const entry = ensureDisabledPatchEntry(patch, new RegExp('(?:^|\\n)\\s*-?\\s*id\\s*:\\s*graph-memory\\b'), GRAPH_MEMORY_DISABLE_BLOCK);
+          if (entry.changed) {
+            writeFileAtomic(patchFile, entry.patch);
+            log('已默认关闭知识图谱记忆（graph-memory，可在插件管理开启）');
+          }
+        } catch (err) {
+          log('写入 graph-memory 禁用条目失败: ' + err.message);
         }
       }
 

@@ -122,6 +122,17 @@ test('a tool surfaces failures as a structured payload instead of throwing', asy
   assert.equal(missingArg.error.code, 'CONFIG_ERROR')
 })
 
+test('tool parameter schemas comply with strict JSON schema (no boolean required in properties)', () => {
+  const ctx = mockContext()
+  apply(ctx, {})
+  for (const tool of ctx.registered) {
+    assert.equal(Array.isArray(tool.parameters.required), true, `${tool.name}.parameters.required must be an array`)
+    for (const [propName, propDef] of Object.entries(tool.parameters.properties || {})) {
+      assert.equal(propDef.required, undefined, `${tool.name}.parameters.properties.${propName} must not declare 'required'`)
+    }
+  }
+})
+
 test('plugin config reaches the tools as defaults', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'zcode-plugin-'))
   try {

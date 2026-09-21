@@ -11,6 +11,9 @@ const {
   ensureDisabledPatchEntry,
   registerCompanionPatchEntries,
   ACP_DISABLE_BLOCK,
+  PET_DISABLE_BLOCK,
+  CARDIAN_DISABLE_BLOCK,
+  GRAPH_MEMORY_DISABLE_BLOCK,
 } = require('../lib/companion-profile');
 
 test('removedPluginIdsFromPatch: 大小写不敏感的 removed: true 被识别（issue #87）', () => {
@@ -40,6 +43,32 @@ test('ensureDisabledPatchEntry: id 前缀不误命中（compaction-basic vs comp
   const exact = out.patch + '- insert:\n    - id: compaction-basic\n';
   const again = ensureDisabledPatchEntry(exact, idPattern, ACP_DISABLE_BLOCK);
   assert.strictEqual(again.changed, false, '精确 id 已存在时必须幂等跳过');
+});
+
+test('CARDIAN_DISABLE_BLOCK 与 GRAPH_MEMORY_DISABLE_BLOCK: 默认禁用块格式正确且幂等', () => {
+  assert.match(CARDIAN_DISABLE_BLOCK, /id:\s*cardian\b/);
+  assert.match(CARDIAN_DISABLE_BLOCK, /disabled:\s*true/);
+  assert.match(GRAPH_MEMORY_DISABLE_BLOCK, /id:\s*graph-memory\b/);
+  assert.match(GRAPH_MEMORY_DISABLE_BLOCK, /disabled:\s*true/);
+
+  // 验证写入全新 patch
+  const cardianPattern = new RegExp('(?:^|\\n)\\s*-?\\s*id\\s*:\\s*cardian(?![A-Za-z0-9_.-])');
+  const gmPattern = new RegExp('(?:^|\\n)\\s*-?\\s*id\\s*:\\s*graph-memory(?![A-Za-z0-9_.-])');
+
+  let patch = '- insert:\n    - id: balance\n';
+  const out1 = ensureDisabledPatchEntry(patch, cardianPattern, CARDIAN_DISABLE_BLOCK);
+  assert.strictEqual(out1.changed, true);
+  assert.ok(out1.patch.includes('id: cardian'));
+
+  const out2 = ensureDisabledPatchEntry(out1.patch, gmPattern, GRAPH_MEMORY_DISABLE_BLOCK);
+  assert.strictEqual(out2.changed, true);
+  assert.ok(out2.patch.includes('id: graph-memory'));
+
+  // 验证幂等：再次执行不再改动
+  const out3 = ensureDisabledPatchEntry(out2.patch, cardianPattern, CARDIAN_DISABLE_BLOCK);
+  assert.strictEqual(out3.changed, false);
+  const out4 = ensureDisabledPatchEntry(out2.patch, gmPattern, GRAPH_MEMORY_DISABLE_BLOCK);
+  assert.strictEqual(out4.changed, false);
 });
 
 test('registerCompanionPatchEntries: dsh-terminal 不得误判 dsh-terminal-tab 已存在（issue #87）', () => {
