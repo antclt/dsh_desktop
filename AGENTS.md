@@ -145,10 +145,9 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   再取中央目录解析（几 MB，无需拖整包）；`.sha256` 边车直接 GET 即可读内容。
 - **稳定性三原则（评审默认立场）**：① 客户端必须能打开，装配失败终态恢复页而非退出；
   ② 兼容性不报错，意外以日志收场（`panics.log`）不以崩溃收场；③ 用户数据不动。
-- 文档里的测试基线数字常滞后。**现值（2026-10-11 实测，v1.0.2 备货——profile 别名链接根因修复 +
-  两条静默诊断补丁 + CI 两处断链根治到位后）**：
-  `scripts/test/` 192 个测试文件，`npm test` = 2063 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
-  与网络浮动（本次全量实测 pass 2053 / skip 10，差额来自 `example.com` 真实网络用例），
+- 文档里的测试基线数字常滞后。**现值（2026-10-12 实测，内置插件管理页 `dsh-builtin-manager` 落地后）**：
+  `scripts/test/` 194 个测试文件，`npm test` = 2077 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
+  与网络浮动（本次全量实测 pass 2067 / skip 10，差额来自 `example.com` 真实网络用例），
   skip 逐条都是环境缺料而非缺陷（pristine 夹具缺 `@openai/codex` / `@earendil-works/pi-ai`、
   openclaw 双轨的兄弟目录 `../openclaw-dsh-bridge/` 不在盘、本机无 `D:\workspace\dsh-pack` 克隆、
   真实网络、`.tmp-kernel` 构建产物不可用）——一律以现跑输出为准，**pass 与 fail 才是判据**。
@@ -241,6 +240,12 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   这条停用行能活过 boot 的 bundle 迁移清理（`dropBlocksByIds` 只删「正文全是 name 行」的非 insert 块），
   双向锁在 `unit-companion-disable-override.test.js`。**启停只有 sidecar 一个写者**，插件 host 半边
   必须保持不写文件（`unit-builtin-manager-client.test.js` 有断言钉住）。
+  2026-10-12 在隔离安装布局 + 真内核页面上实测的两条，写文案时别再说反：① 内核自带的那一节
+  `dsh-client-ui-settings-plugins`（标题正是「内置插件」）拥有 Settings 导航与 tab 外壳，我们的 tab
+  嵌在它里面，只注册一个视图时它连 tablist 都不渲染；② 写入 `disabled` 之后**重载页面就读不到这条**
+  （客户端半边由活动条目门控），只有插件的内核半边才等下次启动——所以管理页**必须把自己那一行锁成
+  不可停用**（`lib/client.js` 的 `SELF` 常量 + `selfLock` 文案，反证锁在同套件第三条），
+  否则用户关掉本页就没有任何界面能开回来。
 - **内核右栏是可扩展面，别去改内核包**：`dsh-client-ui-sidebar-right` 的
   `sidebarRightTabs.register` + `sidebar.right.pane.tab` 是公开两段式标签 API（内核自己的
   文件/文档预览/终端也用它）。本仓库的 better-sidebar 已经用它把工作台接成右栏里的一个标签，

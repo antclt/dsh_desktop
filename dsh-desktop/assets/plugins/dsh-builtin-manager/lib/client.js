@@ -24,10 +24,11 @@ window.__ModuleLoader__.load({
         + "用浏览器直接访问内核页面时只能查看，不能修改。",
       loadFailed: "读取内置插件清单失败：",
       saveFailed: "保存失败：",
-      saved: "已保存「{name}」为{state}，下次启动生效。",
+      saved: "已保存「{name}」为{state}。",
       retry: "重新读取",
       empty: "清单里没有任何内置插件（随包交付门禁可能被裁过）。",
-      restartNote: "停用/启用在下次启动时生效：内核在装配阶段才读取这份覆盖，本页不会改动正在运行的插件。",
+      restartNote: "改动会立刻写进配置：本页与界面里的插件视图刷新页面即更新（实测：停用后重载就读不到这条了），"
+        + "插件的内核半边则在下次启动生效。",
       on: "启用",
       off: "停用",
       stateOn: "已启用",
@@ -35,6 +36,7 @@ window.__ModuleLoader__.load({
       locked: "这一项由内核或交付清单管理，不能在这里改。",
       removed: "已卸载，不能在这里改。",
       configLock: "带自定义配置，禁止在此停用。",
+      selfLock: "这是本管理页自己：停用后这条唯一的内置插件开关面就跟着消失，界面上再也开不回来，所以不能在这里关。",
       count: "共 {n} 条内置插件"
     };
     const EN = {
@@ -44,10 +46,11 @@ window.__ModuleLoader__.load({
         + "switched by the DSH Desktop shell, so open this page inside the app; a plain browser view is read-only.",
       loadFailed: "Failed to read the built-in plugin list: ",
       saveFailed: "Save failed: ",
-      saved: "Saved “{name}” as {state}. Effective on next launch.",
+      saved: "Saved “{name}” as {state}.",
       retry: "Reload",
       empty: "No built-in plugin in the list (the packaging gate may have trimmed it).",
-      restartNote: "Switches take effect on the next launch: the patch layer is read while the kernel assembles.",
+      restartNote: "The change is written to the config at once: this page and the in-page plugin views update on reload, "
+        + "while each plugin's host half takes effect on the next launch.",
       on: "enabled",
       off: "disabled",
       stateOn: "Enabled",
@@ -55,6 +58,8 @@ window.__ModuleLoader__.load({
       locked: "Managed by the kernel or the delivery list; not editable here.",
       removed: "Uninstalled; not editable here.",
       configLock: "Has custom configuration, so it cannot be switched here.",
+      selfLock: "This is the manager page itself. Switching it off also removes the only built-in plugin switch surface, "
+        + "and the UI can no longer turn it back on, so it cannot be disabled here.",
       count: "{n} built-in plugins"
     };
     // 语言每次渲染时取：页面刷新即换，不值得为它订阅字典事件。
@@ -63,6 +68,8 @@ window.__ModuleLoader__.load({
 
     const NAME = { fontWeight: 600, fontSize: 13, minWidth: 190 };
     const DESC = { fontSize: 12, opacity: .65, flex: "1 1 auto" };
+    // 与本包 cordis.patch.yml 的 loader id、sidecar 行 id 同值（回归测试咬三方一致）。
+    const SELF = "dsh-builtin-manager";
 
     // 桥返回的形状既可能是裸数组，也可能是 {plugins:[...]}，两种都收；
     // 只留在册内置件（group==='companion'），坏行直接丢——清单不全是页面不能整页炸。
@@ -136,9 +143,13 @@ window.__ModuleLoader__.load({
           saveError ? jsx("p", { style: { fontSize: 12, color: "#c62828" }, children: L.saveFailed + saveError }, "saveerr") : null,
           rows.length === 0 ? jsx("p", { style: { fontSize: 12, opacity: .7 }, children: L.empty }, "empty") : null,
           rows.map((row) => {
-            const locked = row.toggleable !== true || row.removed === true;
-            const why = row.removed === true ? L.removed
-              : (row.hasConfig === true && row.enabled === false ? L.configLock : L.locked);
+            // 本管理页自己必须锁死：停用它就把这条唯一的内置件开关面一起关掉，界面上开不回来
+            // （实测：写进 disabled 之后页面重载就读不到这条了，不必等下次启动）。
+            const self = row.id === SELF;
+            const locked = self || row.toggleable !== true || row.removed === true;
+            const why = self ? L.selfLock
+              : (row.removed === true ? L.removed
+                : (row.hasConfig === true && row.enabled === false ? L.configLock : L.locked));
             return jsxs("div", {
               style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid rgba(128,128,128,.18)" },
               children: [

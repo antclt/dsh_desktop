@@ -261,8 +261,7 @@ test('开关：成功要回写行状态并提示生效时机；失败必须原�
   tree = await mounter.settle();
   assert.deepEqual(calls, [['easyrewrite', false]], '必须按 (行 id, enabled) 调桥：id 是 cordis 按行寻址的键，不能传成包名');
   const afterOk = textAll(tree);
-  assert.ok(afterOk.includes('已保存'), '成功后要给出「已保存」: ' + afterOk.slice(0, 200));
-  assert.ok(afterOk.includes('下次启动'), '成功提示必须带生效时机');
+  assert.ok(afterOk.includes('已保存「dsh-easyrewrite」为停用'), '成功提示要按行名与实际状态措辞: ' + afterOk.slice(0, 200));
   assert.equal(switches(tree)[1].props.checked, false, '行状态必须跟着实际结果走');
 
   // 失败路径：sidecar 回 ok:false（例如带自定义配置被拒）时绝不能显示「已保存」
@@ -273,6 +272,30 @@ test('开关：成功要回写行状态并提示生效时机；失败必须原�
   assert.ok(afterFail.includes('带自定义配置'), '失败原文必须上屏: ' + afterFail.slice(0, 220));
   assert.ok(!afterFail.includes('已保存'), '失败时不得留着任何「已保存」字样（上一次成功的提示也必须被清掉，否则用户读到的是过期结论）;')
   assert.equal(switches(tree)[0].props.checked, true, '保存失败后行状态不得偷偷翻转');
+});
+
+test('自锁：本页自己那条不可停用，且生效时机按实测措辞', async () => {
+  const calls = [];
+  const bridge = {
+    list: async () => ([
+      row({ id: 'dsh-builtin-manager', name: 'dsh-builtin-manager' }),
+      row({ id: 'better-sidebar' })
+    ]),
+    setEnabled: async (id, enabled) => { calls.push([id, enabled]); return { ok: true }; }
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
+  const tree = await createMounter(Component, {}).settle();
+
+  const sw = switches(tree);
+  assert.equal(sw.length, 2, '两条内置件应渲染两个开关');
+  assert.equal(sw[0].props.disabled, true, '管理页自己那条必须 disabled——关掉它就没有界面能开回来');
+  const text = textAll(tree);
+  assert.ok(text.includes('这是本管理页自己'), '必须说明为什么不能关: ' + text.slice(0, 200));
+  // 实测（2026-10-12 隔离安装布局 + 真内核页面）：disabled 写进去之后**重载页面**就读不到这条了，
+  // 只有插件的内核半边才是下次启动。措辞不能一律写成「下次启动生效」。
+  assert.ok(text.includes('刷新页面即更新') && text.includes('下次启动生效'),
+    '生效时机要分两层写: ' + text.slice(-260));
+  assert.equal(calls.length, 0, '渲染本身不得触发写');
 });
 
 test('无桥兜底：纯浏览器/WSL 直连内核时可读不可写', async () => {
@@ -302,10 +325,17 @@ test('包面一致：bundle 层 loader id 与在册清单同 id，client 入口�
   const hit = COMPANION_PLUGINS.filter((p) => p.id === m[1]);
   assert.equal(hit.length, 1, '在册清单里该 id 必须唯一命中');
   assert.equal(hit[0].name, pkg.name, '清单包名与 bundle 声明必须同源');
+
+  // 自锁判据用的是行 id，而行 id 由 sidecar 按清单给——三方必须同值，否则自锁静默失效。
+  const clientSrc = fs.readFileSync(path.join(PKG_DIR, 'lib', 'client.js'), 'utf8');
+  const selfM = /const SELF = "([^"]+)"/.exec(clientSrc);
+  assert.ok(selfM, 'client 必须定义 SELF 常量');
+  assert.equal(selfM[1], m[1], 'SELF 必须等于 bundle 层 loader id');
+  assert.equal(selfM[1], hit[0].id, 'SELF 必须等于在册清单的行 id');
 });
 
 // ---------------------------------------------------------------------------
-// 反证两条：守卫被摘掉时行为必须按预期变形，否则上面的判据是空的
+// 反证三条：守卫被摘掉时行为必须按预期变形，否则上面的判据是空的
 // ---------------------------------------------------------------------------
 
 test('反证 1：摘掉 group 过滤后，core 行会混进列表（证明那条用例真在咬这条判据）', () => {
@@ -333,4 +363,21 @@ test('反证 2：摘掉 ok===false 分支后，失败会被报成「已保存」
   tree = await mounter.settle();
   assert.equal(calls.length, 1, '桥必须真的被调用过（否则本条反证是空转）');
   assert.ok(textAll(tree).includes('已保存'), '守卫摘掉后页面会谎报已保存——这正是上面那条断言要防的');
+});
+
+test('反证 3：摘掉自锁分支后，本页自己那条变成可停用（自锁那条用例因此在咬真判据）', async () => {
+  const calls = [];
+  const bridge = {
+    list: async () => ([row({ id: 'dsh-builtin-manager', name: 'dsh-builtin-manager' })]),
+    setEnabled: async (id, enabled) => { calls.push([id, enabled]); return { ok: true }; }
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } }, {
+    mutate: (src) => src.replace('const locked = self || row.toggleable', 'const locked = row.toggleable')
+  });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  assert.equal(switches(tree)[0].props.disabled, false, '守卫摘掉后自己那条就该是可点的');
+  await switches(tree)[0].props.onChange({ target: { checked: false } });
+  tree = await mounter.settle();
+  assert.deepEqual(calls, [['dsh-builtin-manager', false]], '摘掉守卫后「关掉管理页」会被真的写下去');
 });

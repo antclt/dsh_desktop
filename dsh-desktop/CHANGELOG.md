@@ -40,21 +40,32 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
   `createPluginManager` → `togglePluginInPatch` 写 profile `cordis.patch.yml` 的 `disabled: true`。
   插件 host 半边刻意留空且不写任何文件——启停保持**单一写者**（本仓库为「两个写者改同一份用户
   文件」付过两次学费：别名链接劫持 scoped 解析、「同步确保全部在位」覆写用户停用）。
-  生效时机如实写明：**下次启动生效**（patch 层在内核装配期读取）；页面里没有
+  生效时机按实测分两层写（见下条真机一轮）：改动**立刻写入** patch 层、界面**重载页面即更新**，
+  插件的内核半边才下次启动生效；页面里没有
   `window.dshDesktop`（浏览器直连内核 / WSL 后端）时只说明原因、不渲染可写开关。
+  本页自己那一行**锁成不可停用**——停用会立刻把这条 tab 收掉，而它是唯一能改回来的界面，
+  放它关掉等于一次性销毁开关面。
 - **随迁**：`COMPANION_PLUGINS` 追加一条 + 四处逐名 1:1 台账同步（THIRD_PARTY_NOTICES §4.1、
   builtin-plugins-inventory §一与 §5.2 判定表、README.md / README.en.md 插件表）；
   `unit-hub-registry` 的「命中补丁面件数」哨兵 27 → 28（29 减 1 条例外）；AGENTS 记一条已知坑，
   `docs/plugin-center-architecture.md` 新增 §4.7。
-- **验证**：`unit-builtin-manager-client.test.js` 8 例（模块契约与「host 不得写文件」/
+- **验证**：`unit-builtin-manager-client.test.js` 10 例（模块契约与「host 不得写文件」/
   `normalize` 两种桥形状 + 剔除 + 阳性对照 / 渲染与不可改行置灰 / 成功回写与失败原文上屏且不谎报 /
-  无桥兜底 / 包面 id 同源 / **两条反证**：摘掉 group 过滤则 core 行漏进、摘掉 `ok === false`
-  分支则失败被报成「已保存」）；`unit-companion-disable-override.test.js` 4 例（停用块活过 boot
+  自锁与两层生效时机 /
+  无桥兜底 / 包面 id 与 `SELF` 三方同源 / **三条反证**：摘掉 group 过滤则 core 行漏进、摘掉 `ok === false`
+  分支则失败被报成「已保存」、摘掉自锁则本页自己那条可被真的关掉）；`unit-companion-disable-override.test.js` 4 例（停用块活过 boot
   登记并逐条覆盖全量在册件 / 纯登记块必须被迁移清理删掉的反证 / `togglePluginInPatch` → 登记 →
   再 toggle 的串测 / 卸载行是停用行超集且同样活过登记）。真沙箱端到端：`sidecar boot` 五步全绿 →
-  新插件镜像进 profile 且进 `bundles`（`plugin-list` 报 31 行、companion 组 29 条）→
+  新插件镜像进 profile 且进 `bundles`（`plugin-list` 报 32 行、companion 组 29 条）→
   `plugin-set-enabled dsh-builtin-manager 0` 写入停用行 → **再 boot 一次该行原样在位**，
   `plugin-list` 的 `enabled` 随之为 false（拉锯消失）。
+  2026-10-12 补真机一轮（`stage-payload` 29 个插件目录进包 → `smoke-installed` PASS：page-error 0、
+  内置件镜像进 profile → 手动续跑壳不杀 → 浏览器开内核页）：「设置 → 内置插件」里本页**真实挂载**，
+  无桥时兜底文案照面；桩桥下行状态/置灰原因/`setEnabled(id, enabled)` 实参与「已保存」提示逐项符合；
+  写路径在同一条 `plugin-set-enabled … 0/1` 上往返核对（停用行写入与恢复删除逐字对齐）。
+  **本轮实测校正了两件原先按代码推断的说法**：① 停用后**重载页面就读不到这条**（客户端半边由活动条目
+  门控），不是一律「下次启动」；② 内核自带那一节（`dsh-client-ui-settings-plugins`，标题也叫「内置插件」）
+  拥有 Settings 导航与 tab 外壳，我们的 tab 嵌在里面——因此本页必须锁自己那一行。
 
 ## [1.0.2] - 2026-10-11
 
