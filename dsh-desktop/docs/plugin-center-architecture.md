@@ -8,7 +8,7 @@
 > **适用范围（v1.0.0，2026-10-07）**：本文描述的**契约仍然生效**——`cordis.patch.yml` 的唯一写入口
 > （`patch-surgery`）、启停 / 卸载 / 恢复生命周期（`lifecycle`）、卸载与隔离决策的持久化点
 > （`PluginStateStore`，落 `<DSH_HOME>/desktop-plugin-state.json`）、能力鉴权与自动隔离四级防线，
-> 服务的仍是随包的 28 个内置配套插件与用户自行安装的第三方插件。
+> 服务的仍是随包的 29 个内置配套插件与用户自行安装的第三方插件。
 > **已退役、本文不再描述其安装面的部分**：可视化插件市场 `dsh-community-market` 与其桌面服务桥
 > `dsh-market-desktop-bridge`、插件中枢 `dsh-hub`（仅用于挂载市场与 `graph-memory`）——三者连同
 > `graph-memory` / `harness-pet` / `dsh-cardian` 等于 2026-10-07 按用户点名移除（内置插件 39 → 28）。
@@ -192,6 +192,36 @@ fail-loud 语义注入自动隔离（详见该文件头注释）：
 **诚实边界**：同进程插件造成的共享状态破坏无法逐插件回滚——L2/L3 通过
 「隔离 + 重启」恢复干净状态；插件代码永不进入 Electron 主进程执行路径
 （进程隔离是真实的）。
+
+### 4.7 内置插件管理页（`dsh-builtin-manager`，2026-10-11 新增）
+
+**它解决的是「内置件在界面上管不了」，而不是又一套管理机器。** 页面在「设置 → 插件」的
+`settings.plugins.tab` 槽里（id `builtin`），只列随包内置件（`group === 'companion'`），
+行上给一个复选开关。
+
+- **单一写者**：页面调 `window.dshDesktop.pluginManager.list / setEnabled` →
+  `dsh:plugin-list` / `dsh:plugin-set-enabled`（§7 能力面）→ sidecar `createPluginManager` →
+  `patch-surgery.togglePluginInPatch`（§4.1 的那唯一写入口）。插件本体**不写任何文件**，
+  host 半边是空的；`unit-builtin-manager-client.test.js` 有一条断言禁止 host 侧出现写文件调用，
+  就是为了不再长出第二个写者（本仓库为「两个写者改同一份用户文件」付过两次学费：别名链接
+  劫持 scoped 解析、以及「同步确保全部在位」覆写用户停用）。
+- **停用为什么关得住**：写入的是 profile `cordis.patch.yml` 的
+  `- id: <loader id>\n  name: <包名>\n  disabled: true`。§4.5 的配套件登记步骤里有一段
+  bundle 迁移清理（`dropBlocksByIds`），它按 id 删同名块以消灭「bundle + patch 双登记」
+  （issue #104）；`dropBlocksByIds` 对**非 insert 块**只在「剩余正文全是 name 行」时才删，
+  带 `disabled` 行的块原样保留。这条一线之差由
+  `unit-companion-disable-override.test.js` 双向锁住：纯登记块必须被删、停用块必须活过登记、
+  `togglePluginInPatch` 产出的形状必须落在保留一侧。
+- **为什么不用内核那份插件中心页**（实测）：内核的两个开关都只认运行态。包级
+  `setBundleEnabled(false)` 把名字从 `dsh.profile.bundles` 摘掉，而 `listBundles` 的行名单 =
+  `bundles ∪ dependencies ∪ 安装锚点`——内置件三处都不在（实测 profile `dependencies`
+  命中 0 条），一关就从页面上消失、开不回来；条目级开关的解锁条件 `row.entryId !== void 0`
+  同样只认「当前活着的条目」。把内置件塞进 `dependencies` 能让它常驻，但那是 issue #177
+  （孤儿依赖 → boot `ERR_MODULE_NOT_FOUND` + pnpm 404）的事故面，明确不走。
+  所以本页的清单来源是**交付清单** `COMPANION_PLUGINS`，与运行态无关。
+- **生效时机**：patch 层在内核装配期读取，所以停用/启用**下次启动生效**；页面把这句话写在
+  列表下方，不做「看起来立刻生效」的假象。无 `window.dshDesktop`（浏览器直连内核 / WSL 后端）
+  时只说明原因，不渲染可写开关。
 
 ## 5. 状态存储（PluginStateStore）
 

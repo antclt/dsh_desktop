@@ -16,7 +16,7 @@ Node 逻辑仍是活代码（Tauri sidecar 直接复用，零重写）。主平�
 | 目录 | 说明 |
 | --- | --- |
 | `dsh-tauri/` | 桌面壳主线：`contracts/`（六份契约）、`src-tauri/`（Rust 工作区）、`sidecar/`（Node 薄封装）、`ui/`（frontendDist 占位页）、`dlls/`（D3DCOMPILER_47.dll）、`package-payload/`（打包暂存，gitignored）、`ta13-soak/`（Rust soak 压测）、`scripts/`（stage-payload / stage-plugin-gate / smoke-installed）、`docs/` |
-| `dsh-desktop/` | 内核侧 Node 逻辑：构建期补丁、自愈（根级 boot 链脚本 `watchdog.js` / `*-heal.js` 等）、插件同步、余额链、`docs/`、`assets/plugins/`（**随安装包分发**——v1.0.0 内置线，2026-10-08 裁定；内置伴随插件在册 **28** 个，v1.0.0 由 39 精简、2026-10-07 移除 11 个；随包 agent 预设子系统已整体拆除）、`vendor/`（node/npm 运行时 + `dsh-kernel/` pin 的离线内核 tgz，后者**必须入库**） |
+| `dsh-desktop/` | 内核侧 Node 逻辑：构建期补丁、自愈（根级 boot 链脚本 `watchdog.js` / `*-heal.js` 等）、插件同步、余额链、`docs/`、`assets/plugins/`（**随安装包分发**——v1.0.0 内置线，2026-10-08 裁定；内置伴随插件在册 **29** 个（v1.0.0 由 39 精简、2026-10-07 移除 11 个，2026-10-11 增自研 `dsh-builtin-manager` 内置插件管理页）；随包 agent 预设子系统已整体拆除）、`vendor/`（node/npm 运行时 + `dsh-kernel/` pin 的离线内核 tgz，后者**必须入库**） |
 | `dsh-desktop/scripts/test/` | 全部 Node 测试（187 个 `*.test.js/.mjs`，另有 `fixtures/`、`ta16-snapshots/`、mock server），单测唯一去处 |
 | `.github/workflows/` | `ci.yml`（PR 门禁）、`tauri-release.yml`（tag 发版，唯一发布入口）、`release.yml`（退役 Electron 线，全部 `if: false`） |
 
@@ -228,6 +228,19 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   boot 链从不触及；② repair 步**别摘真目录副本**，companion-profile 的 sync 每 boot 按 VENDOR_DEPS 重写它们，
   删了就是拉锯；③ 排查解析问题必须按 **scoped 全名**逐个解析——`VENDOR_DEPS` 里是未 scoped 的
   `cosmokit`/`schemastery`，只按它探测会连续两轮得出「包都能解析」的假结论。
+- **内核插件中心页的两个开关都只认「运行态」，所以内置插件的管理页必须自建（2026-10-11）**：
+  包级 `setBundleEnabled(false)` 把名字从 profile 的 `dsh.profile.bundles` 摘掉，而
+  `listBundles` 的行名单 = `bundles ∪ dependencies ∪ 安装锚点`——随包内置件三处都不在
+  （实测 profile `dependencies` 里内置件命中 **0** 条，它们只活在 bundles），于是**一关就从页面上
+  消失、再也开不回来**；条目级开关 `RowSwitch` 的解锁条件是 `row.entryId !== void 0`，而 `entryId`
+  来自「当前活着的 loader 条目」，一关同样锁死（内核返回的 `overrides` 数组页面根本没渲染）。
+  别用「把内置件写进 profile `dependencies`」去治——那是 issue #177 的事故面（孤儿
+  `@deepseek-ai/*` 依赖 → boot `ERR_MODULE_NOT_FOUND` + pnpm 404）。现成的正确落点：自研伴随插件
+  `dsh-builtin-manager` 挂 `settings.plugins.tab` 槽，清单取交付清单 `COMPANION_PLUGINS`（与运行态无关），
+  启停走 `dsh:plugin-set-enabled` → `togglePluginInPatch` 写 `cordis.patch.yml` 的 `disabled: true`；
+  这条停用行能活过 boot 的 bundle 迁移清理（`dropBlocksByIds` 只删「正文全是 name 行」的非 insert 块），
+  双向锁在 `unit-companion-disable-override.test.js`。**启停只有 sidecar 一个写者**，插件 host 半边
+  必须保持不写文件（`unit-builtin-manager-client.test.js` 有断言钉住）。
 - **内核右栏是可扩展面，别去改内核包**：`dsh-client-ui-sidebar-right` 的
   `sidebarRightTabs.register` + `sidebar.right.pane.tab` 是公开两段式标签 API（内核自己的
   文件/文档预览/终端也用它）。本仓库的 better-sidebar 已经用它把工作台接成右栏里的一个标签，

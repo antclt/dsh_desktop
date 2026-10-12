@@ -16,7 +16,7 @@
 //                     （dev 树上一次 pnpm install 就能产出 1.3 万文件的残留树）。
 //
 // v1.0.0 内置线（2026-10-08 裁定，反转此前的「官方形状 / 插件不进包」口径）：这份清单
-// 里的 28 条插件**随安装包分发**——`dsh-desktop/assets/plugins` 整树由 stage-payload.sh
+// 里的 29 条插件**随安装包分发**——`dsh-desktop/assets/plugins` 整树由 stage-payload.sh
 // 与 tauri-release.yml 的五个架构 staging 镜像进 payload，装机后首次开机由 boot 的 sync 步
 // 镜像进 profile，开箱可用。
 //
@@ -130,6 +130,15 @@ const COMPANION_PLUGINS = [
   // 不一致会让自愈的 dropBlocksByIds 永不命中，造成重复挂载（issue #104）。
   // 追加在清单末尾：前 18 条的顺序被 unit-patch-engine 的漂移防线钉住。
   { id: 'zcode-migrate', name: 'dsh-zcode-migrate' },
+  // 内置插件管理页（本仓库自研）：在「设置 → 插件」里逐条查看与启停随包内置件。
+  // 清单数据与启停写入都走**已接线好**的那条链（dsh:plugin-list / dsh:plugin-set-enabled
+  // → sidecar createPluginManager → profile cordis.patch.yml 的 disabled 覆盖），插件本身
+  // 不碰文件——「两个写者改同一份用户文件」是本仓库付过两次学费的形态。
+  // 为什么不复用内核那份插件页：它的包级开关把名字从 dsh.profile.bundles 摘掉后，
+  // listBundles 的行名单（bundles ∪ dependencies ∪ 安装锚点）三处都不含内置件，一关就
+  // 从页面上消失且开不回来；条目级开关的解锁条件又只认「当前活着的条目」。
+  // id 必须与其 bundle 层 cordis.patch.yml 的 loader id 一致（issue #104 同款坑）。
+  { id: 'dsh-builtin-manager', name: 'dsh-builtin-manager' },
 ];
 
 /** 包名 → assets/plugins 下的目录名（去 scope 前缀）。 */

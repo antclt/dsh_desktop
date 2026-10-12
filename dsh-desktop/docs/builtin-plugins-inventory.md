@@ -50,7 +50,7 @@
 > `scripts/lib/plugin-module-table.js`。§一～§四 回答「是谁、从哪来、什么版本」，§五 回答
 > 「能不能挂上 rc.2 宿主、挂了会不会静默失效、全新 clone 拿不拿得到入口」。
 
-## 一、内置插件（在册 28 条，`assets/plugins` 实存 28 个源目录，与清单 1:1）
+## 一、内置插件（在册 29 条，`assets/plugins` 实存 29 个源目录，与清单 1:1）
 
 > 下表逐条与 `COMPANION_PLUGINS` 顺序、各 `package.json` 的 `name`/`version`/`license`/`repository`、`node_modules`
 > 实存情况对齐过（2026-10-07 远端批量更新后复测），序号 / loader id / 包名 / 版本 / `nm` 五列零偏差；
@@ -98,6 +98,7 @@
 | 26 | `input-fold` | `dsh-input-fold` | 0.1.1 | 超长用户提示词默认折叠为前几行 + 「展开」遮罩（>400 字或 8 行才生效） | 自研 |
 | 27 | `prompt-optimizer` | `dsh-prompt-optimizer` | 2.0.4 | 输入框一键润色草稿（默认当前会话模型，零配置 SSE 流式；亦可自配 OpenAI 兼容 API） | `winditer/dsh-prompt-optimizer`，MIT（上游 main 与 npm latest 同为 2.0.3，2.0.4 取自 d-pack）。§一 曾误记为 `WestFox-AwA`，已更正。`./client` 入口是 `dist/client.js`，曾被通用 `dist/` 忽略规则遮蔽，本轮补库内例外，见 §五 5.2 #27） |
 | 28 | `zcode-migrate` | `dsh-zcode-migrate` | 0.1.2 | zcode CLI 历史会话 → dsh 原生会话日志（inspect / migrate / verify 三工具 + `/zcode` 命令） | 自研 |
+| 29 | `dsh-builtin-manager` | `dsh-builtin-manager` | 0.1.0 | 「设置 → 插件」里的内置插件页：逐条查看随包内置件并启停（启停下次启动生效，写入走桌面壳 `dsh:plugin-set-enabled`） | 自研 |
 
 ### 已退役（源目录已删除；`RETIRED_COMPANIONS` 只留「名字」给 profile 回收用）
 
@@ -494,6 +495,7 @@ npm 列额外带 `身份 <same|foreign|unverifiable|unknown>／维护者`——*
 |  26 | `input-fold` | `dsh-input-fold` | 0.1.1 | 1 peer `>=0.1.0-rc.6 <2` | 0.1.1（等版） | 未发布 | 0 别名 / 0 成员 / 0 裸名 → 缺失 0 · 表外 0 · 声明 1 · 移除引用 0 | 维持  |
 |  27 | `prompt-optimizer` | `dsh-prompt-optimizer` | 2.0.4 | 0 peer | 2.0.4（等版） | 2.0.3（我们更高｜身份 same／winditer） | 5 别名 / 0 成员 / 2 裸名 → 缺失 0 · 表外 0 · 声明 3 · 移除引用 0 | 维持。**入口曾被 gitignore 遮蔽**：`./client` → `dist/client.js`（223 KB 上游产物，无 src 不可本地重建）落在通用 `dist/` 规则里 → 本轮补 `!assets/plugins/dsh-prompt-optimizer/dist{,/**}` 例外，产物本身待入库  |
 |  28 | `zcode-migrate` | `dsh-zcode-migrate` | 0.1.2 | 0 peer | 0.1.2（等版） | 未发布 | 1 别名 / 0 成员 / 2 裸名 → 缺失 0 · 表外 0 · 声明 3 · 移除引用 0 | 维持  |
+|  29 | `dsh-builtin-manager` | `dsh-builtin-manager` | 0.1.0 | 2 peer `>=0.1.0-rc.6 <2` | 0.1.0（等版） | 未发布 | 1 别名 / 0 成员 / 2 裸名 → 缺失 0 · 表外 0 · 声明 0 · 移除引用 0 | 维持（本仓库自研新增，2026-10-11）  |
 
 计数对账（与 4.1/4.2 的扫描器输出逐字一致）：
 **d-pack 通道** 等版 20（其中 18 条 shipped + #7/#11 两条收录于 `not-shipped/`）/ 我们更高 5（#3、#12、#16、#24、#25）/

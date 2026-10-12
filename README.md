@@ -183,6 +183,7 @@ v0.5.0 起发布走 **Tauri GitHub Actions 云端流水线**（[`tauri-release.y
 | `dsh-input-fold` | 0.1.1 | 超长用户提示词默认折叠为前几行 + 「展开」遮罩 | 自研 · MIT |
 | `dsh-prompt-optimizer` | 2.0.4 | 输入框一键润色草稿（默认当前会话模型，零配置流式） | [winditer/dsh-prompt-optimizer](https://github.com/winditer/dsh-prompt-optimizer) · MIT |
 | `dsh-zcode-migrate` | 0.1.2 | zcode CLI 历史会话 → dsh 原生会话日志（inspect / migrate / verify + /zcode） | 自研 · MIT |
+| `dsh-builtin-manager` | 0.1.0 | 「设置 → 插件」里的内置插件页：逐条查看随包内置件并启停（启停下次启动生效） | 自研 · MIT |
 
 > 历史上还随包过 `dsh-navbar`（导航栏替换，v0.6.3-beta.3 已移出清单并删源 `ff421ac2`）、
 > `zat-dsh-engine`（旧内置市场，更早退役）——两者均不在上面的 28 个在册清单里。

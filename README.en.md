@@ -197,8 +197,9 @@ Controlled by `bundle.targets` in `tauri.conf.json` — add or remove entries to
 | `dsh-input-fold` | 0.1.1 | Collapses very long user prompts to a few lines with an "expand" overlay | In-house · MIT |
 | `dsh-prompt-optimizer` | 2.0.4 | One-click draft polishing in the composer (uses the current session model, zero-config streaming) | [winditer/dsh-prompt-optimizer](https://github.com/winditer/dsh-prompt-optimizer) · MIT |
 | `dsh-zcode-migrate` | 0.1.2 | Migrates zcode CLI session history into native dsh session logs (inspect / migrate / verify, /zcode) | In-house · MIT |
+| `dsh-builtin-manager` | 0.1.0 | Built-in plugin page under Settings → Plugins: list every bundled plugin and switch it on or off (takes effect on next launch) | In-house · MIT |
 
-> Earlier removals, also outside the 28 registered plugins: `dsh-navbar` (navbar replacement,
+> Earlier removals, also outside the 29 registered plugins: `dsh-navbar` (navbar replacement,
 > dropped from the list and its sources deleted in `v0.6.3-beta.3`, commit `ff421ac2`) and
 > `zat-dsh-engine` (the previous built-in marketplace, retired even earlier).
 

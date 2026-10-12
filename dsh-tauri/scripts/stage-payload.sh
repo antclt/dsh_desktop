@@ -8,7 +8,7 @@
 #      electron-winstaller）——Electron 运行时与打包器，Tauri 版不需要
 #   3. vendor/node/node —— unix node 二进制（115MB，win-x64 包只带 node.exe）
 #
-# `assets/plugins` **随包分发**（v1.0.0 内置线，2026-10-08 裁定）：28 条内置插件
+# `assets/plugins` **随包分发**（v1.0.0 内置线，2026-10-08 裁定）：29 条内置插件
 # 整树进安装包，装完首次开机由 boot 的 sync 步镜像进 profile，开箱可用。
 # 口径与失效语义见下方 assets 段。
 #

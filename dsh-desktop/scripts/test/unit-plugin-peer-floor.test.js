@@ -124,10 +124,10 @@ test('在册舰队：以 pin 内核版本的 peer 判定必须 0 拒挂（DSH-0.
 
   // 清单↔源 1:1（与 unit-hub-registry 的收口用例同向，这里证明本守卫真的覆盖到全部条目）。
   assert.deepEqual(orphan, [], `COMPANION_PLUGINS 有条目在 assets/plugins 找不到源包：\n  ${orphan.join('\n  ')}`);
-  assert.equal(COMPANION_PLUGINS.length, 28, '在册条目数已变（本守卫的阈值与台账需随迁）');
-  assert.equal(byName.size, 28, `assets/plugins 源目录数 ${byName.size} 与清单不同数`);
+  assert.equal(COMPANION_PLUGINS.length, 29, '在册条目数已变（本守卫的阈值与台账需随迁）');
+  assert.equal(byName.size, 29, `assets/plugins 源目录数 ${byName.size} 与清单不同数`);
 
-  // 覆盖哨兵：28 条里 11 条声明 dsh 族 peer（实测 46 个键）。若掉到个位数说明读取脱靶，
+  // 覆盖哨兵：29 条里 12 条声明 dsh 族 peer（实测 47 个键）。若掉到个位数说明读取脱靶，
   // 「0 拒挂」就只是因为什么都没判。
   assert.ok(withFamily >= 10, `只有 ${withFamily} 条声明 dsh 族 peer，采集已脱靶`);
   assert.ok(familyKeys >= 40, `只核到 ${familyKeys} 个 dsh 族 peer 键，采集已脱靶`);

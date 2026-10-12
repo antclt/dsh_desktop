@@ -842,9 +842,9 @@ test('收口：每条在册件的 loader id 必须命中自己的 cordis.patch.y
     assert.equal(fs.existsSync(path.join(assetsRoot, dir, 'cordis.patch.yml')), false,
       dir + ' 已有 cordis.patch.yml，例外名单该撤了（不撤就会一直放过它的挂载面）');
   }
-  // 命中面自检：27 条真命中，不能靠「空集也叫绿」。
-  assert.equal(COMPANION_PLUGINS.length - misses.length, 27,
-    '实际命中的补丁件数应是 27（28 减 1 条例外），当前判据脱靶');
+  // 命中面自检：28 条真命中，不能靠「空集也叫绿」。
+  assert.equal(COMPANION_PLUGINS.length - misses.length, 28,
+    '实际命中的补丁件数应是 28（29 减 1 条例外），当前判据脱靶');
 
   // 反证 1：id 与清单不一致必须报失配（拿临时目录合成，不碰仓库）。
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mount-audit-'));

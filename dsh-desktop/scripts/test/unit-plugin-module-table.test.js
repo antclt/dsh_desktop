@@ -352,7 +352,7 @@ test('反证：入口在 dist/ 且表外裸名的合成插件，必须同时被�
 
 test('在册插件：manifest 声明的每个 JS 入口必须在磁盘存在且不被 git 忽略规则遮蔽', () => {
   const rows = lib.auditEntryVisibility(PLUGINS);
-  assert.ok(rows.length >= 40, `入口只采到 ${rows.length} 条，在册 28 条插件应有 40+`);
+  assert.ok(rows.length >= 40, `入口只采到 ${rows.length} 条，在册 29 条插件应有 40+`);
   assert.deepEqual(rows.filter((r) => !r.exists).map((r) => `${r.dir}/${r.entry}`), [],
     'manifest 指向的入口文件不在磁盘（loader 侧表现为 import 失败）');
   assert.deepEqual(rows.filter((r) => r.ignored).map((r) => `${r.dir}/${r.entry}`), [],

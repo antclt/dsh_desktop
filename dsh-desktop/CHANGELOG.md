@@ -19,7 +19,42 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
 
 ## [Unreleased]
 
-_（暂无未发布条目；v1.0.2 已于 2026-10-11 以 GitHub **预发布**形态发布，其内容见下方 `[1.0.2]` 段。）_
+### feat(companion)：内置插件在界面里第一次可管 —— 新增自研伴随插件 `dsh-builtin-manager`（2026-10-11）
+
+- **需求**：随包内置的插件（原 28 条）在界面上完全管不了——看不到、也关不掉。
+- **为什么看不见（实测）**：插件中心页的分组判据是 `installed = profile.dependencies.includes(name)`
+  与 `optional = 内核常量 OPTIONAL_BUNDLES`，再加 `error !== void 0`；29 条内置件里 **27 条只在
+  `dsh.profile.bundles`、0 条在 `dependencies`**（真实 profile 上量的），三条判据全 false，
+  于是被 `dsh-client-ui-plugin-manager/lib/client.js:3342` 的过滤整批挡在门外。
+- **为什么关不掉（实测，也是本条的落点依据）**：内核那两个开关都只认运行态。包级
+  `setBundleEnabled(false)` 把名字从 bundles 摘掉后，`listBundles` 的行名单
+  （bundles ∪ dependencies ∪ 安装锚点）三处都不含内置件 → **一关就从页面上消失、开不回来**；
+  条目级 `RowSwitch` 的解锁条件 `row.entryId !== void 0` 只认「当前活着的条目」，一关同样锁死
+  （内核返回的 `overrides` 数组页面根本没渲染）。把内置件写进 profile `dependencies` 能常驻，
+  但那是 issue #177 的事故面（孤儿 `@deepseek-ai/*` → boot `ERR_MODULE_NOT_FOUND` + pnpm 404），不走。
+- **改动**：新增自研伴随插件 `assets/plugins/dsh-builtin-manager`（0.1.0，MIT，随包分发，
+  在册 28 → **29**）。页面挂 `settings.plugins.tab` 槽（id `builtin`），逐条列出内置件
+  （名称/说明/启用态）并给复选开关；清单取**交付清单** `COMPANION_PLUGINS`，与运行态无关，
+  所以关着也列得出、也开得回来。启停调 `window.dshDesktop.pluginManager.list / setEnabled`
+  → `dsh:plugin-list` / `dsh:plugin-set-enabled`（契约表既有通道，**零新增桥命令**）→ sidecar
+  `createPluginManager` → `togglePluginInPatch` 写 profile `cordis.patch.yml` 的 `disabled: true`。
+  插件 host 半边刻意留空且不写任何文件——启停保持**单一写者**（本仓库为「两个写者改同一份用户
+  文件」付过两次学费：别名链接劫持 scoped 解析、「同步确保全部在位」覆写用户停用）。
+  生效时机如实写明：**下次启动生效**（patch 层在内核装配期读取）；页面里没有
+  `window.dshDesktop`（浏览器直连内核 / WSL 后端）时只说明原因、不渲染可写开关。
+- **随迁**：`COMPANION_PLUGINS` 追加一条 + 四处逐名 1:1 台账同步（THIRD_PARTY_NOTICES §4.1、
+  builtin-plugins-inventory §一与 §5.2 判定表、README.md / README.en.md 插件表）；
+  `unit-hub-registry` 的「命中补丁面件数」哨兵 27 → 28（29 减 1 条例外）；AGENTS 记一条已知坑，
+  `docs/plugin-center-architecture.md` 新增 §4.7。
+- **验证**：`unit-builtin-manager-client.test.js` 8 例（模块契约与「host 不得写文件」/
+  `normalize` 两种桥形状 + 剔除 + 阳性对照 / 渲染与不可改行置灰 / 成功回写与失败原文上屏且不谎报 /
+  无桥兜底 / 包面 id 同源 / **两条反证**：摘掉 group 过滤则 core 行漏进、摘掉 `ok === false`
+  分支则失败被报成「已保存」）；`unit-companion-disable-override.test.js` 4 例（停用块活过 boot
+  登记并逐条覆盖全量在册件 / 纯登记块必须被迁移清理删掉的反证 / `togglePluginInPatch` → 登记 →
+  再 toggle 的串测 / 卸载行是停用行超集且同样活过登记）。真沙箱端到端：`sidecar boot` 五步全绿 →
+  新插件镜像进 profile 且进 `bundles`（`plugin-list` 报 31 行、companion 组 29 条）→
+  `plugin-set-enabled dsh-builtin-manager 0` 写入停用行 → **再 boot 一次该行原样在位**，
+  `plugin-list` 的 `enabled` 随之为 false（拉锯消失）。
 
 ## [1.0.2] - 2026-10-11
 

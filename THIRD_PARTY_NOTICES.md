@@ -763,6 +763,7 @@ CI 五个架构的 staging 同口径），装机后首次开机由 boot 的插�
 | dsh-auto-compact | 0.1.1 | MIT |
 | dsh-basics-panel | 0.4.1 | MIT |
 | dsh-better-sidebar | 0.24.1 | MIT |
+| dsh-builtin-manager | 0.1.0 | MIT |
 | dsh-change-review | 0.1.1 | MIT |
 | dsh-easyrewrite | 2.6.0 | MIT |
 | dsh-input-fold | 0.1.1 | MIT |
@@ -779,7 +780,7 @@ CI 五个架构的 staging 同口径），装机后首次开机由 boot 的插�
 
 ### 4.2 插件自带依赖树（随包进入安装包，此前不在 768 计数内）
 
-28 条插件里只有 `dsh-pocket` 声明 `shipsNodeModules: true`（`scripts/lib/companion-plugins.js`），
+29 条插件里只有 `dsh-pocket` 声明 `shipsNodeModules: true`（`scripts/lib/companion-plugins.js`），
 其内层 `node_modules` 是 git 跟踪的正件依赖树，随内置线一并进安装包。
 下表按包目录现场读取 `package.json` 重算（26 个唯一 `包名@版本`；`qrcode-terminal` 无 `license` 字段，
 按其包内 `LICENSE` 文本记为 Apache-2.0）：
