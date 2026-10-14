@@ -145,9 +145,9 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   再取中央目录解析（几 MB，无需拖整包）；`.sha256` 边车直接 GET 即可读内容。
 - **稳定性三原则（评审默认立场）**：① 客户端必须能打开，装配失败终态恢复页而非退出；
   ② 兼容性不报错，意外以日志收场（`panics.log`）不以崩溃收场；③ 用户数据不动。
-- 文档里的测试基线数字常滞后。**现值（2026-10-12 实测，内置插件管理页 `dsh-builtin-manager` 落地后）**：
-  `scripts/test/` 194 个测试文件，`npm test` = 2077 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
-  与网络浮动（本次全量实测 pass 2067 / skip 10，差额来自 `example.com` 真实网络用例），
+- 文档里的测试基线数字常滞后。**现值（2026-10-14 实测，首启引导两条 guard 补丁落地后）**：
+  `scripts/test/` 195 个测试文件，`npm test` = 2092 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
+  与网络浮动（本次全量实测 pass 2082 / skip 10，差额来自 `example.com` 真实网络用例），
   skip 逐条都是环境缺料而非缺陷（pristine 夹具缺 `@openai/codex` / `@earendil-works/pi-ai`、
   openclaw 双轨的兄弟目录 `../openclaw-dsh-bridge/` 不在盘、本机无 `D:\workspace\dsh-pack` 克隆、
   真实网络、`.tmp-kernel` 构建产物不可用）——一律以现跑输出为准，**pass 与 fail 才是判据**。
@@ -217,6 +217,24 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   （repair/sync/patches/compat-pin/preflight）成功路径上的 anchor-missing 告警整段丢弃——
   现已逐行转进 `desktop.log`（上限 400 行、超出留末尾并显式注明截断量，
   `supervisor.rs::sidecar_boot_log_lines`），一次 boot 实测 115 行 / 15KB。
+- **第三段同型静默在首启引导（2026-10-14 实测）：步骤推进挂在渲染时间线上，冻结时既不报错也不动**。
+  内核 `dsh-client-ui-settings-account/lib/client.js` 的 welcome「开始设置」→ `go('credit')` →
+  `update()` 写成功后，**页面自己**要等 `element.animate(...).finished` resolve 才 `setStep(targetStep)`
+  （rejection 被空函数吞），而 `busy = … || step !== targetStep`。本机内嵌 Chromium 表面在
+  `visibilityState=hidden` 下实测：3.4 秒内 `document.timeline.currentTime` 推进 **0ms**、动画
+  `playState=running / currentTime=0`、`finished` 始终 PENDING，同期 `setTimeout(3000)` 正常到点
+  ——**冻结只发生在渲染时间线，JS 照跑**。最小化 / 关到托盘 / 被遮挡 / RDP / GPU 合成退化都会进这个
+  状态，`prefers-reduced-motion`（系统关掉「动画效果」）的用户走即时回落，所以报障只出现在「部分机型」。
+  界面表现就是「点了没反应」：按钮永久 disabled、`state.error` 不触发（写入是成功的）、没有重试按钮。
+  另一条同源静默：`update()/complete()` 有五条 guard 直接 `return false`，而调用点把返回值丢弃、
+  控制器区间内零日志——命中即与上面无法区分。两条 guard 组补丁已把这件事变得可观测：
+  `onboarding-step-progress-timeout`（400ms 有界回落，真走回落才打 `[onboarding-timeline]`）与
+  `onboarding-guard-report`（报出命中哪条 guard，返回值与控制流一字不动）。**页面侧的落盘通道是既有
+  `page_error` 命令**（eprintln + `supervisor::file_log` → desktop.log，不依赖 `DSH_TAURI_DIAG`；
+  bridge-shim 的 alert polyfill 早就在用）——排查任何「客户端半边失败」时先想这条，别新建桥命令。
+  另记：内核要求宿主提供 `globalThis.dshOnboarding`（`open/close/setBounds/hasApiKey/setActive`）与
+  `globalThis.dshPlatform`，**我们的壳两处都没实现**（全仓 0 命中）→ 桌面端拿不到内嵌「充值/用量」页
+  （`canRecharge=false` 置灰）、API-key 探测恒抛被吞。碰引导或充值链路前先确认要不要补这两座桥。
 - **profile 里的 pnpm `npm:` 别名链接会劫持 scoped 解析——mac 端 9 插件 failed to load 的真根因（2026-10-11 取证）**：
   `profiles/web/node_modules/@deepseek-ai/cosmokit -> ../cosmokit` 把 scoped 规格符指到未 scoped 的
   `cosmokit@1.8.1`（没有 `createVolatile`，payload 的 `@deepseek-ai/cosmokit@1.8.5` 才有），于是 importer

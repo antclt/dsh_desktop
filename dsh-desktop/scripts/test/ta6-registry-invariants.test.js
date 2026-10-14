@@ -29,6 +29,7 @@ const path = require('node:path');
 const registry = require('../lib/patch-registry');
 const adapters = require('../lib/patch-adapters');
 const loaderIsolation = require('../lib/loader-isolation');
+const onboardingResilience = require('../lib/onboarding-resilience');
 const resolver = require('../lib/patch-target-resolver');
 
 const { PATCH_SPECS } = registry;
@@ -39,6 +40,7 @@ const IMPL_SOURCES = [
   path.join(LIB_DIR, 'runtime-patches.js'),
   path.join(LIB_DIR, 'patch-adapters.js'),
   path.join(LIB_DIR, 'loader-isolation.js'),
+  path.join(LIB_DIR, 'onboarding-resilience.js'),
   path.join(LIB_DIR, 'journal-history-patches.js'),
   path.join(LIB_DIR, 'chat-scroll-patches.js'),
   path.join(LIB_DIR, 'assembly-resilience-patches.js'),
@@ -84,17 +86,20 @@ function resolverRelConstants() {
 test('A. file spec transform 均为函数且来自收口导出（无内联孤儿）', () => {
   const adapterExports = new Set(Object.values(adapters).filter((v) => typeof v === 'function'));
   const loaderExports = new Set(Object.values(loaderIsolation).filter((v) => typeof v === 'function'));
+  const onboardingExports = new Set(Object.values(onboardingResilience).filter((v) => typeof v === 'function'));
   const fileSpecs = PATCH_SPECS.filter((s) => s.kind === 'file');
+  // 47 = 45 ＋ onboarding-step-progress-timeout ＋ onboarding-guard-report
+  // （2026-10-14「点击开始设置没反应」两条：步骤推进不再依赖出帧 + guard 静默拒绝报成因）。
   // 45 = 43 ＋ loader-import-failure-report ＋ prompt-admission-reason-report
   // （2026-10-10 两条「静默失败原文上身」诊断补丁，见 E 的 60 基线说明）。
   // 43 = 44（rc.2 重靶后的 file 型规格数）− image-send-fix（2026-10 随识图插件
   // 整体退役；64 项总盘中 root 15 + file 43 = 58，另见 E）。
-  assert.equal(fileSpecs.length, 45, `file spec 应有 45 个，得 ${fileSpecs.length}`);
+  assert.equal(fileSpecs.length, 47, `file spec 应有 47 个，得 ${fileSpecs.length}`);
   for (const spec of fileSpecs) {
     assert.equal(typeof spec.transform, 'function', `${spec.id} 缺 transform`);
     assert.ok(
-      adapterExports.has(spec.transform) || loaderExports.has(spec.transform),
-      `${spec.id} 的 transform 不在 patch-adapters / loader-isolation 导出清单中（内联孤儿）`,
+      adapterExports.has(spec.transform) || loaderExports.has(spec.transform) || onboardingExports.has(spec.transform),
+      `${spec.id} 的 transform 不在 patch-adapters / loader-isolation / onboarding-resilience 导出清单中（内联孤儿）`,
     );
   }
 });
@@ -204,12 +209,16 @@ test('E. order 全局唯一、组内升序、补丁间依赖序成立', () => {
   //   「只为已退役插件存在」一类；transform 与锚点常量同批从 patch-adapters 删除，
   //   靶常量 SESSION_CTRL_INDEX_PKG_REL 仍由 history-page-size 使用故保留。
   //   cli:true 计数不受影响（它是 cli:false）。
+  // 62 = 60 ＋ onboarding-step-progress-timeout（order 162）＋ onboarding-guard-report
+  // （order 164）：首启引导「点击开始设置没反应」两条（2026-10-14 实测：设置写成功了，
+  // 但步骤推进挂在 element.animate().finished 上，隐藏/未合成页面的渲染时间线整段停摆
+  // ⇒ busy 恒真 ⇒ 整页按钮 disabled 且零报错）。均 cli:false，cli:true 计数不变。
   // 60 = 58 ＋ loader-import-failure-report（order 148）＋ prompt-admission-reason-report
   // （order 150）：两条「静默失败原文上身」诊断补丁（2026-10-10，mac 端 9 插件
   // failed to load 与发送文件恒报 prompt rejected 两轮发布查不下去的直接原因——
   // rc.2 导入失败只进 cordis 内存环形缓冲、非核心条目不再抛 StartupError，真因
   // 三重静默）。均 cli:false，故 cli:true 计数不变。
-  assert.equal(PATCH_SPECS.length, 60, 'spec 总数应为 60');
+  assert.equal(PATCH_SPECS.length, 62, 'spec 总数应为 62');
   const orders = PATCH_SPECS.map((s) => s.order);
   assert.equal(new Set(orders).size, orders.length, 'order 必须全局唯一');
   const byId = Object.fromEntries(PATCH_SPECS.map((s) => [s.id, s]));

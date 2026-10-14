@@ -33,6 +33,7 @@ const IMPL_SOURCES = [
   path.join(LIB_DIR, 'runtime-patches.js'),
   path.join(LIB_DIR, 'patch-adapters.js'),
   path.join(LIB_DIR, 'loader-isolation.js'),
+  path.join(LIB_DIR, 'onboarding-resilience.js'),
   path.join(__dirname, '..', 'patch-session-manage.js'),
   path.join(__dirname, '..', '..', 'profile-bundle-heal.js'),
 ].map((f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } });
@@ -74,6 +75,10 @@ const INVERSE_PAIR_HINTS = {
   //  prompt 那条是整行替换兜底 throw），回滚都走 npm ci 即 pristine。
   'loader-import-failure-report': ['LOADER_IMPORT_CATCH_OLD', 'LOADER_IMPORT_CATCH_NEW'],
   'prompt-admission-reason-report': ['PROMPT_ADMISSION_CATCHALL_OLD', 'PROMPT_ADMISSION_CATCHALL_NEW'],
+  // 2026-10-14 首启引导两条：① 整段替换动画门控块（FROM/TO 成对，回滚=pristine）；
+  // ② 双站点（helper 追加 + 调用点替换），三常量齐备才算覆盖。
+  'onboarding-step-progress-timeout': ['STEP_GATE_OLD', 'STEP_GATE_NEW'],
+  'onboarding-guard-report': ['GUARD_HELPER_ANCHOR', 'GUARD_CALLS_OLD', 'GUARD_CALLS_NEW'],
 };
 
 const MULTI_SITE = new Set([
@@ -86,6 +91,7 @@ const MULTI_SITE = new Set([
   'content-has-image-guard',  // 多靶：dsh-llm contentHasImage + dsh-tools result.content.some
   'shell-description-compat',  // 多点：shell(pwsh/bash) + run_code(dsh-tools) 各 schema 删 required:true + validate 兜底
   'chat-scroll-autoload-older', // 双注入：ChatView 内 useRef+useEffect(IO) + flow column 哨兵 div
+  'onboarding-guard-report',    // 双站点：controller 生命周期前追加 helper + update/complete 调用点替换
   'pi-ai-responses-tool-name-sanitize', // 六点注入：出站 grammar/function 分支 + 回放两处 + 入站两处槽位
   'pi-ai-tool-name-wire', // 三点注入：toolsOf 出站洗名 + 回程两处 case "tool-call" 还原
 ]);
@@ -132,8 +138,11 @@ const EXPECTED_NON_VENDORED = [
 // （2026-10-10 静默失败诊断两条）：靶 cordis-plugin-loader 与
 // dsh-api-session-controller 都在 vendor/dsh-kernel 离线闭包内，两条各带
 // FROM/TO 常量对（见上表），回滚 = npm ci 即 pristine，不新增盲区。
-test('审计 1：分类覆盖全部 45 个 file transform（无回滚盲区）', () => {
-  assert.equal(fileSpecs.length, 45);
+// 47 = 45 ＋ onboarding-step-progress-timeout ＋ onboarding-guard-report
+// （2026-10-14 首启引导两条）：靶 dsh-client-ui-settings-account/lib/client.js
+// 同样在离线闭包内，两条都带 FROM/TO 常量对，回滚 = npm ci 即 pristine。
+test('审计 1：分类覆盖全部 47 个 file transform（无回滚盲区）', () => {
+  assert.equal(fileSpecs.length, 47);
   const report = [];
   for (const spec of fileSpecs) {
     const pair = INVERSE_PAIR_HINTS[spec.id];

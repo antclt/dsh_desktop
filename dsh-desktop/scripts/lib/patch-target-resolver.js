@@ -78,6 +78,9 @@ const ATTACH_LOCAL_REL = path.join('dsh-attachment-local', 'lib', 'index.js');
 const LLM_PKG_REL = path.join('dsh-llm', 'lib', 'index.js');
 // loader 自动隔离补丁目标（cordis-plugin-loader 是 @deepseek-ai scope 下的包）。
 const LOADER_PKG_REL = path.join('cordis-plugin-loader', 'lib', 'index.js');
+// 首启引导补丁目标（@deepseek-ai/dsh-client-ui-settings-account 的浏览器半边）：
+// 「开始设置」卡死与 guard 静默拒绝都落在这份 client bundle 里。
+const UI_SETTINGS_ACCOUNT_PKG_REL = path.join('dsh-client-ui-settings-account', 'lib', 'client.js');
 const APP_BOOT_PKG_REL = path.join('dsh-app-boot', 'lib', 'index.js');
 // agent-preset 未知 id 回落补丁目标。0.2.0-rc.2：dsh-agent-presets 已拆成
 // dsh-agent-preset（声明）+ dsh-agent-preset-registry（注册表，resolve/retain 的
@@ -328,6 +331,7 @@ module.exports = {
   ATTACH_LOCAL_REL,
   LLM_PKG_REL,
   LOADER_PKG_REL,
+  UI_SETTINGS_ACCOUNT_PKG_REL,
   APP_BOOT_PKG_REL,
   AGENT_PRESET_FALLBACK_PKG_RELS,
   PROMPT_CONTEXT_LITERAL_PKG_RELS,

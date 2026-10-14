@@ -171,8 +171,11 @@ for (const spec of fileSpecs) {
 //   存在，transform 与锚点常量同批删除）。
 // 45 = 43 ＋ loader-import-failure-report ＋ prompt-admission-reason-report
 //   （2026-10-10 静默失败「原文上身」两条诊断补丁，靶均在离线内核闭包内）。
-test('契约面完整性：45 个 file transform 全部被本文件覆盖', () => {
-  assert.equal(fileSpecs.length, 45);
+// 47 = 45 ＋ onboarding-step-progress-timeout ＋ onboarding-guard-report
+//   （2026-10-14 首启引导「点击开始设置没反应」两条，靶
+//   dsh-client-ui-settings-account/lib/client.js 同在离线内核闭包内）。
+test('契约面完整性：47 个 file transform 全部被本文件覆盖', () => {
+  assert.equal(fileSpecs.length, 47);
 });
 
 // 反「静默停摆」哨兵：诚实跳过集合必须恰为已知的 5 条非 vendored 目标——

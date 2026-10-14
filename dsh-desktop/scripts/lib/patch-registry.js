@@ -98,6 +98,7 @@ const {
   ATTACH_LOCAL_REL,
   APP_BOOT_PKG_REL,
   LOADER_PKG_REL,
+  UI_SETTINGS_ACCOUNT_PKG_REL,
   AGENT_PRESET_FALLBACK_PKG_RELS,
   PROMPT_CONTEXT_LITERAL_PKG_RELS,
   KERNEL_WEB_INDEX_REL,
@@ -220,6 +221,13 @@ const {
   transformLoaderImportFailureReport,
   transformPromptAdmissionReasonReport,
 } = require('./loader-isolation');
+
+const {
+  ONBOARDING_STEP_TIMEOUT_MARKER,
+  ONBOARDING_GUARD_REPORT_MARKER,
+  transformOnboardingStepProgressTimeout,
+  transformOnboardingGuardReport,
+} = require('./onboarding-resilience');
 
 /** 通用「已应用」日志主体（多数运行时补丁沿用）。 */
 const alreadySkip = (file) => '已应用，跳过 ' + file;
@@ -607,6 +615,49 @@ const PATCH_SPECS = [
       prefix: 'prompt 准入异常原文',
       doneLog: (file) => '已注入准入异常诊断到 ' + file,
       failLog: (file, err) => 'prompt 准入异常原文注入失败: ' + err.message,
+    },
+  },
+  {
+    // 首启引导「点击开始设置没反应」（Windows 部分机型，2026-10-14 实测根因）：
+    // 步骤推进挂在 element.animate().finished 上，渲染时间线停摆时永不 settle，
+    // busy = step !== targetStep 恒真 ⇒ 整页按钮 disabled 而设置其实已写成功。
+    id: 'onboarding-step-progress-timeout',
+    group: 'guard',
+    order: 162,
+    kind: 'file',
+    layout: 'guard',
+    wslLayout: 'guard',
+    pkgRel: UI_SETTINGS_ACCOUNT_PKG_REL,
+    transform: transformOnboardingStepProgressTimeout,
+    marker: ONBOARDING_STEP_TIMEOUT_MARKER,
+    requires: [],
+    failPolicy: 'warn',
+    cli: false,
+    logs: {
+      prefix: '引导步骤推进有界回落',
+      doneLog: (file) => '已注入引导步骤有界回落到 ' + file,
+      failLog: (file, err) => '引导步骤推进有界回落注入失败: ' + err.message,
+    },
+  },
+  {
+    // 同一条引导链的第二处：update()/complete() 五条 guard 直接 return false，
+    // 调用点丢弃返回值、控制器区间零日志（实测）——命中即彻底静默。只报成因，不动控制流。
+    id: 'onboarding-guard-report',
+    group: 'guard',
+    order: 164,
+    kind: 'file',
+    layout: 'guard',
+    wslLayout: 'guard',
+    pkgRel: UI_SETTINGS_ACCOUNT_PKG_REL,
+    transform: transformOnboardingGuardReport,
+    marker: ONBOARDING_GUARD_REPORT_MARKER,
+    requires: [],
+    failPolicy: 'warn',
+    cli: false,
+    logs: {
+      prefix: '引导 guard 成因上报',
+      doneLog: (file) => '已注入引导 guard 成因上报到 ' + file,
+      failLog: (file, err) => '引导 guard 成因上报注入失败: ' + err.message,
     },
   },
   // -------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-10T14:31:19.071Z",
+  "generatedAt": "2026-10-14T11:43:13.121Z",
   "kernelRoot": "@deepseek-ai",
-  "markerCount": 82,
+  "markerCount": 84,
   "surface": [
     {
       "file": "cordis-plugin-loader/lib/index.js",
@@ -165,8 +165,10 @@
     },
     {
       "file": "dsh-client-ui-settings-account/lib/client.js",
-      "sha256": "81b0b302cc2ad65f",
+      "sha256": "0395789c1ed94db5",
       "markers": [
+        "onboarding silent update/complete guards report which guard fired",
+        "onboarding step advance must not depend on a rendering frame",
         "the profile"
       ]
     },

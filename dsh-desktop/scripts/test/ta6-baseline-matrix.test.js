@@ -46,9 +46,12 @@ const FORM = kernel.packageVersion;
 // 的设置命名空间，识图插件退役后无可达路径；同批删除 patch-adapters 的
 // IMAGE_SEND_* / VISION_KEY_* / VISION_TOGGLE_* 常量，靶常量本身仍在册）
 // → 60 = 58 ＋ loader-import-failure-report ＋ prompt-admission-reason-report
-// （2026-10-10 静默失败「原文上身」两条诊断补丁，见 patch-registry 注释）。
+// （2026-10-10 静默失败「原文上身」两条诊断补丁，见 patch-registry 注释）
+// → 62 = 60 ＋ onboarding-step-progress-timeout ＋ onboarding-guard-report
+// （2026-10-14 首启引导「点击开始设置没反应」：步骤推进不再依赖出帧 + guard 静默
+// 拒绝报成因，见 onboarding-resilience.js 头部实测记录）。
 // 逐项理由见 ta6-registry-invariants.test.js 的 E。
-const SPEC_COUNT = 60;
+const SPEC_COUNT = 62;
 
 /** 与 kernel-pin 同版的 pristine 闭包根；不在场返回 null（调用侧响亮失败）。 */
 function formRoot() {
@@ -117,9 +120,9 @@ function integrityProblems(ids, baseline) {
 
 // ===========================================================================
 // 基线快照（2026-10-05 重录：0.2.0-rc.2 形态 = .tmp-kernel/.consumer-0.2.0-rc.2
-// 的 npm 闭包解包树，45 file + 15 root = 60 项（image-send-fix 已于 2026-10 随
+// 的 npm 闭包解包树，47 file + 15 root = 62 项（image-send-fix 已于 2026-10 随
 // 识图插件退役，其 'changed' 行同批摘除），逐项由本文件 computeMatrix 真跑
-// 录入，不是手工填值。判定构成：40 changed / 15 root / 5 target-absent，
+// 录入，不是手工填值。判定构成：42 changed / 15 root / 5 target-absent，
 // 零 anchor-missing、零 already、零 THROW —— 与 scripts/patch-deps.js 的
 // 「失配 0 / 失败 0」实况同源，两者互为对账。）
 //
@@ -158,6 +161,8 @@ const BASELINE = {
     'fail-loud-isolation': 'changed',
     'loader-import-failure-report': 'changed',
     'prompt-admission-reason-report': 'changed',
+    'onboarding-step-progress-timeout': 'changed',
+    'onboarding-guard-report': 'changed',
     'manual-sort-drag-fix': 'changed',
     'credentials-initial-retry': 'changed',
     'credentials-absent-guidance': 'changed',

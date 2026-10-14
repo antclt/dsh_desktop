@@ -2527,5 +2527,6 @@ module.exports = {
     REASONING_ROW_COLLAPSE_MARKER,
     SESSION_UNKNOWN_EVENT_TOLERANCE_MARKER,
     ...require('./loader-isolation').markers,
+    ...require('./onboarding-resilience').markers,
   },
 };

@@ -19,6 +19,53 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
 
 ## [Unreleased]
 
+### fix(kernel-patch)：Windows 部分机型「点击开始设置没反应」——引导步骤推进不再被渲染时间线扣住（2026-10-14）
+
+- **症状**：首启引导的「开始设置」（内核 `@deepseek-ai/dsh-client-ui-settings-account` 的
+  welcome CTA，文案 `client.js:2717`）点了毫无反应，不报错、不转圈、也没有重试按钮；远端仓库
+  没有同类 issue（按 开始设置 / 没反应 / 引导 / onboarding 等词搜过，最接近的是 0.4.1 时代
+  #129「点提交就卡住」，不是同一条）。
+- **真因（实测，不是读码推断）**：设置**写成功了**，卡的是页面自己。引导步骤推进挂在
+  `element.animate(...).finished` 上（`client.js:3852-3874`，rejection 被空函数吞掉），
+  而 `busy = … || step !== targetStep`（`:3851`）。本机内嵌 Chromium 表面在文档 hidden 时实测：
+  3.4 秒内 `document.timeline.currentTime` 只推进 **0ms**、动画 `playState=running / currentTime=0`、
+  `finished` 始终 **PENDING**，同期 `setTimeout(3000)` 正常到点——**冻结只发生在渲染时间线，JS 照跑**。
+  于是 `step` 永远停在 welcome ⇒ `busy` 恒真 ⇒ 整页按钮 disabled；而错误面板只在 `state.error`
+  时出现（`:4027`），这次写入没失败，所以什么提示都没有 ⇒ 用户读到「没反应」。
+  最小化 / 关到托盘（我们 `closeToTray` 缺省 true）/ 被遮挡 / RDP / GPU 合成退化都会进这个状态，
+  而系统里关掉「动画效果」（`prefers-reduced-motion`）的用户走即时回落不受影响——这就是「部分机型」。
+- **第二条同源静默**：`controller.update()/complete()` 有五条 guard 直接 `return false`
+  （`:3109-3111`、`:3135`），调用点 `update: (change) => controller.update(change)`（`:4462-4463`）
+  把返回值丢弃、控制器区间内零日志（实测 grep 计数 0）——命中即彻底静默，与上面那条在界面上不可区分。
+- **改动（两条 guard 组补丁，靶 `dsh-client-ui-settings-account/lib/client.js`）**：
+  - `onboarding-step-progress-timeout`（order 162）：步骤推进改成「动画完成 **或** 400ms 到点」
+    谁先到算谁；只有真的走了回落才留一行 `[onboarding-timeline]`（带 visibility/playState）。
+    原生的两条即时回落（`animate` 不存在 / `prefers-reduced-motion`）一字未动。
+  - `onboarding-guard-report`（order 164）：guard 拒绝时把**命中了哪一条**报出去
+    （`disposed / completing / saving-in-flight / account=<status> / progress=undefined / progress=done`），
+    返回值与控制流不动（`.then(ok => (report(ok), ok))` 原样透传）。
+  - 诊断通道用**既有** `page_error` 命令（GUI 子系统下唯一的页面落盘口：eprintln +
+    `supervisor::file_log` → desktop.log），不依赖 `DSH_TAURI_DIAG`、不新增桥命令；
+    浏览器直连内核时回落 `console.warn`。两条各自带 reporter，不共享函数——若 ② 因版本漂移
+    anchor-missing 而 ① 引 ② 定义的符号，注入体自己就会 ReferenceError，把可观测性做成新故障源。
+- **顺带查实的宿主桥缺口（本条未修，只登记）**：内核要求宿主提供 `globalThis.dshOnboarding`
+  （`open/close/setBounds/hasApiKey/setActive`）与 `globalThis.dshPlatform`，全仓 0 命中——
+  桌面端因此拿不到内嵌「充值 / 用量」页（`canRecharge=false` → 去充值置灰，`:4317/:4339/:4461`），
+  引导里的 API-key 探测恒抛「desktop login bridge unavailable」（被 catch 吞掉，`:4159-4162`）。
+- **随迁**：`patch-registry` 60 → **62**（file 45 → 47，root 15 不变；两条件均 `cli:false`）；
+  计数哨兵同批（ta6-registry-invariants A/E、ta6-baseline-matrix `SPEC_COUNT` 与 BASELINE 两行
+  「changed」= pristine 闭包真跑判定、ta6-heal-rollback-audit 审计 1 的 45 → 47 + FROM/TO 常量对、
+  ta3-boot-chain `applyAll(60)` → `(62)`）；新增靶路径常量 `UI_SETTINGS_ACCOUNT_PKG_REL`，
+  两个 marker 经 `onboarding-resilience.markers` 汇入 `patch-adapters.markers`（单一数据源哨兵要求）。
+- **验证**：`unit-onboarding-resilience.test.js` 12 例——冻结场景真的跑起来（假时钟 + 假桥），
+  断言 400ms 内步骤推进过去且留下一行诊断；正常出帧不抢跑、不多发诊断、cleanup 摘掉定时器；
+  七种 guard 组合各报对各成因、`ok!==false` 时零上报、返回值透传；**反证两条**：换回未打补丁的
+  原文片段（`STEP_GATE_OLD`）在冻结时间线下 `setStep` 永不被调（＝症状复现）、helper 变空操作时
+  诊断归零；再加真字节锚点命中 + 二次应用 `already`（幂等）+ 版本漂移必须报 `anchor-missing`
+  + 注入后 bundle 过 `node --check`。
+
+
+
 ### feat(companion)：内置插件在界面里第一次可管 —— 新增自研伴随插件 `dsh-builtin-manager`（2026-10-11）
 
 - **需求**：随包内置的插件（原 28 条）在界面上完全管不了——看不到、也关不掉。
