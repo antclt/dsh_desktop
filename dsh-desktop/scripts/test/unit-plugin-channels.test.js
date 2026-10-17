@@ -198,7 +198,6 @@ test('真数据：§4.2 身份列与本地 package.json 的 repository 自述面
     'dsh-better-sidebar': 'omdsh-dev/dsh-better-sidebar',
     'dsh-easyrewrite': 'renzic-stone/dsh-easyrewrite',
     'dsh-pocket': 'shaobeichen/dsh-pocket',
-    'dsh-reasoning-effort': 'hanaayane/dsh-reasoning-effort',
     'dsh-prompt-optimizer': 'winditer/dsh-prompt-optimizer',
   };
   const silent = ['billion-context-dsh', 'dsh-session-manager', 'dsh-input-history', 'dsh-synapse'];

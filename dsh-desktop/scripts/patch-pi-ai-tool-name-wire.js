@@ -6,8 +6,9 @@
  * `name: tool.name` 原样塞进请求（openai-completions / openai-responses-shared /
  * azure-openai-responses / openai-codex-responses / bedrock-converse-stream /
  * google-shared / mistral-conversations），逐个打补丁等于长期追上游的尾巴。
- * 而内核把工具交给 pi-ai 前只有一个收口 `toolsOf()`，回程转成 harness content
- * 也只有两个 `case "tool-call"`，三处一起改即全 provider 生效。
+ * 而内核把工具交给 pi-ai 前只有一个收口 `piTool()`（0.2.1 起 toolsOf 与增量
+ * toolsAdded 都走它），回程转成 harness content 也只有两个 `case "tool-call"`，
+ * 三处一起改即全 provider 生效。
  *
  * 触发场景（在野）：dsh-cardian 注册 cardian.backlinks / cardian.doctor /
  * cardian.export / cardian.import / cardian.recall / cardian.reindex /
@@ -45,15 +46,18 @@ const HELPER = [
   '',
 ].join('\n');
 
-// 锚点：出站收口 + 回程两处 + 一个稳定的注入位置（toolsOf 之前）。
+// 锚点：出站收口 + 回程两处 + 一个稳定的注入位置（piTool 之前）。
 const ANCHORS = [
   {
     id: 'toolsOf-outbound',
-    // 只锚「return + name:」两行：0.2.0-rc.2 在 toolsOf 开头插了一行 deferLoading
-    // 守卫（throw LlmError），带函数签名的三行锚点因此失配；两行形态在 0.1.6 与
-    // rc.2 上都恰好命中一次，比追上游的行序更耐漂移。
-    needle: '\treturn options.tools?.map((tool) => ({\n\t\tname: tool.name,',
-    replace: '\treturn options.tools?.map((tool) => ({\n\t\tname: __dshPiWireToolName(tool.name),',
+    // 0.2.0-rc.2 只锚「toolsOf 的 return + name:」两行（rc.2 在 toolsOf 开头插了
+    // deferLoading 守卫，带函数签名的三行锚点失配）。0.2.1-rc.1 上游又把 map 回调
+    // 提成了具名函数：toolsOf 现在是
+    //   return options.tools?.filter((tool) => !tool.deferLoading).map(piTool);
+    // 且 piTool 还被 1325 行的 toolsAdded.push(piTool(tool)) 复用——所以收口改锚
+    // piTool 的返回体（name: tool.name 那两行），一处覆盖两条调用路径。
+    needle: '\treturn {\n\t\tname: tool.name,',
+    replace: '\treturn {\n\t\tname: __dshPiWireToolName(tool.name),',
   },
   {
     id: 'toolcall-inbound',
@@ -73,8 +77,12 @@ function patchSource(src) {
   if (missing.length > 0) return { changed: false, src, missing };
   let out = src;
   for (const a of ANCHORS) out = out.split(a.needle).join(a.replace);
-  // helper 注入在 toolsOf 定义之前（模块作用域，函数提升不影响使用点）。
-  out = out.replace('function toolsOf(options) {', HELPER + 'function toolsOf(options) {');
+  // helper 注入在 piTool 定义之前（模块作用域，函数提升不影响使用点）。收口点一旦
+  // 改名，注入必须与三处改写一起判失配——只改引用不注入 helper 会得到一份引用
+  // 未定义函数的坏文件。
+  const injectAt = 'function piTool(tool) {';
+  if (!out.includes(injectAt)) return { changed: false, src, missing: ['helper-inject-piTool'] };
+  out = out.replace(injectAt, HELPER + injectAt);
   return { changed: true, src: out };
 }
 

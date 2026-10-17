@@ -11,7 +11,7 @@
 // 补丁在 dsh-llm 注入 prepareAdapterCall 守卫：缺失回落基类语义 + 升级指引。
 //
 // 覆盖：
-//   1. 锚点命中 payload pristine 源（0.1.1-rc.2 dsh-llm/lib/index.js）；
+//   1. 锚点命中 payload pristine 源（与 kernel-pin 同版 dsh-llm/lib/index.js）；
 //   2. transform 产物可被 node --check 解析；
 //   3. 幂等（二遍 already）/ 锚点缺失 anchor-missing 不改写；
 //   4. 守卫行为（vm 执行真实注入产物，非复述实现）：
@@ -30,21 +30,24 @@ const { spawnSync } = require('node:child_process');
 const { transformAdapterPrepareCallGuard, markers } = require('../lib/patch-adapters');
 const { PATCH_SPECS, getSpecsByCli } = require('../lib/patch-registry');
 const { LLM_PKG_REL, resolvePatchTargets } = require('../lib/patch-target-resolver');
+const { findPristineFile } = require('../lib/pristine-kernel-roots');
 
 const MARKER = 'dsh-desktop fix: adapter prepareCall guard';
-// payload 内核包 pristine 副本（0.1.1-rc.2 dsh-llm）。
+// payload 内核包 pristine 副本（与 kernel-pin 同版的 dsh-llm，走收口的 pristine 根
+// 探测，不再硬编码某棵一次性 stage 树）。
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
-const PRISTINE_FILE = path.join(
-  REPO_ROOT, '.tmp-rc2-stage',
-  'node_modules', '@deepseek-ai', 'dsh-llm', 'lib', 'index.js'
-);
+const PRISTINE_FILE = findPristineFile(LLM_PKG_REL);
 
-// 与上游三锚点逐字一致的独立 fixture（payload 缺失时的 fallback；tab 缩进）。
+// 与上游 0.2.1-rc.1 三锚点逐字一致的独立 fixture（payload 缺失时的 fallback；tab 缩进）。
+// 0.2.1 起 prepareCall(config, signal, configure) 先把 provider/model 解变成本地量，
+// 调用点因此从 config.provider/config.model 变成裸 provider/model。
 const PRISTINE_SRC = [
   'var LlmRuntime = class {',
-  '\tasync prepareCall(config, signal) {',
-  '\t\tconst registration = this.registration(config.provider);',
-  '\t\tconst adapterCall = await registration.adapter.prepareCall(config.provider, config.model, signal);',
+  '\tasync prepareCall(config, signal, configure) {',
+  '\t\tsignal?.throwIfAborted();',
+  '\t\tconst { provider, model, ...controls } = config;',
+  '\t\tconst registration = this.registration(provider);',
+  '\t\tconst adapterCall = await registration.adapter.prepareCall(provider, model, signal);',
   '\t\treturn adapterCall;',
   '\t}',
   '\tregistration(provider) {',
@@ -81,14 +84,14 @@ function tmpdir(t, prefix) {
 // 1-3：锚点命中 pristine / 语法合法 / 幂等。
 // ---------------------------------------------------------------------------
 
-test('锚点命中 payload pristine 源（0.1.1-rc.2 dsh-llm/lib/index.js）', () => {
+test('锚点命中 payload pristine 源（与 kernel-pin 同版的 dsh-llm/lib/index.js）', () => {
   const src = pristineSource();
   const out = transformAdapterPrepareCallGuard(src, 'index.js');
   assert.equal(out.status, 'changed', 'pristine 源应命中锚点');
   assert.ok(out.src.includes(MARKER), '产物应含 marker 注释');
   assert.ok(out.src.includes('async prepareAdapterCall(adapter, provider, model, signal) {'), '产物应注入守卫方法');
-  // 两调用点均改走守卫。
-  assert.ok(out.src.includes('await this.prepareAdapterCall(registration.adapter, config.provider, config.model, signal);'), 'prepareCall 主路径调用点应改走守卫');
+  // 两调用点均改走守卫（0.2.1：prepareCall 主路径传的是解构后的本地量 provider/model）。
+  assert.ok(out.src.includes('await this.prepareAdapterCall(registration.adapter, provider, model, signal);'), 'prepareCall 主路径调用点应改走守卫');
   assert.ok(out.src.includes('await this.prepareAdapterCall(adapter, options.provider, options.model, options.signal);'), 'adapterStream 直连路径调用点应改走守卫');
   // 原始裸调用点消失。
   assert.ok(!out.src.includes('await registration.adapter.prepareCall('), '原始 prepareCall 裸调用点应被替换');

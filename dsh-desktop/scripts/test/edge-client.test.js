@@ -118,9 +118,10 @@ function loadClient(http = {}) {
   // 立即求值 factory，落到与旧 register 相同的捕获路径，断言语义不变。
   const fakeCtx = {
     slots: {
-      register(slotInfo, Component) { dockComponent = Component; },
+      // 按槽名筛选：0.2.0 起客户端还往 settings.general.item 注册两行开关。
+      register(slotInfo, Component) { if (slotInfo.name === 'conversation.composer.dock') dockComponent = Component; },
       inject(key, factory) {
-        if (key !== 'conversation.composer.dock') throw new Error('unexpected slot key: ' + key);
+        if (key !== 'conversation.composer.dock' && key !== 'settings.general.item') throw new Error('unexpected slot key: ' + key);
         factory();
       },
     },

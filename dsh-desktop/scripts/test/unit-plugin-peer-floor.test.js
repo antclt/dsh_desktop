@@ -70,12 +70,14 @@ test('反证：oracle 非空转 —— 收紧的旧 peer 区间必须判拒，�
   const runtime = boot.getDshRuntimeVersion();
   const base = { name: 'synthetic-plugin', version: '1.0.0', private: true };
 
-  // 必须判拒：上限收到 rc.1 之前（本轮修前的 billion-context-dsh 形态）。
+  // 必须判拒：上限收到 0.2.0-rc.1 之前（本轮修前的 billion-context-dsh 形态）。
   const denied = evaluate({
     ...base,
     peerDependencies: { '@deepseek-ai/dsh': '^0.1.0', '@deepseek-ai/dsh-compaction': '>=0.1.5-alpha.1 <0.1.6-0' },
   }, {}, runtime);
-  assert.ok(denied && Object.keys(denied.peers).length === 2, '收紧区间未判拒（oracle 空转，全绿无意义）');
+  // 0.2.1-rc.1 起 evaluatePluginCompatibility 的失败明细字段从 peers 改名 requirements
+  // （实测 issue 键面：name / version / runtimeVersion / requirements / exempted）。
+  assert.ok(denied && Object.keys(denied.requirements).length === 2, '收紧区间未判拒（oracle 空转，全绿无意义）');
   assert.equal(denied.exempted, false, '合成 manifest 不该自带豁免');
 
   // 必须放行的四种形态（本轮实际采用的就是 ①③，②④ 是上游常见形态）。
@@ -119,7 +121,7 @@ test('在册舰队：以 pin 内核版本的 peer 判定必须 0 拒挂（DSH-0.
     const peers = dshFamilyPeers(hit.manifest);
     if (peers.length) { withFamily++; familyKeys += peers.length; }
     const issue = evaluate(hit.manifest, {}, runtime);
-    if (issue) denied.push(`${entry.id} (${hit.dir}) ${hit.manifest.name}@${hit.manifest.version} → ${JSON.stringify(issue.peers)}`);
+    if (issue) denied.push(`${entry.id} (${hit.dir}) ${hit.manifest.name}@${hit.manifest.version} → ${JSON.stringify(issue.requirements)}`);
   }
 
   // 清单↔源 1:1（与 unit-hub-registry 的收口用例同向，这里证明本守卫真的覆盖到全部条目）。
@@ -127,10 +129,11 @@ test('在册舰队：以 pin 内核版本的 peer 判定必须 0 拒挂（DSH-0.
   assert.equal(COMPANION_PLUGINS.length, 29, '在册条目数已变（本守卫的阈值与台账需随迁）');
   assert.equal(byName.size, 29, `assets/plugins 源目录数 ${byName.size} 与清单不同数`);
 
-  // 覆盖哨兵：29 条里 12 条声明 dsh 族 peer（实测 47 个键）。若掉到个位数说明读取脱靶，
+  // 覆盖哨兵：29 条里 12 条声明 dsh 族 peer（0.2.1-rc.1 实测 38 个键；上一条基线是 30 条
+  // 13 条 48 键，差额即退役的 dsh-reasoning-effort 那一条）。若掉到个位数说明读取脱靶，
   // 「0 拒挂」就只是因为什么都没判。
   assert.ok(withFamily >= 10, `只有 ${withFamily} 条声明 dsh 族 peer，采集已脱靶`);
-  assert.ok(familyKeys >= 40, `只核到 ${familyKeys} 个 dsh 族 peer 键，采集已脱靶`);
+  assert.ok(familyKeys >= 35, `只核到 ${familyKeys} 个 dsh 族 peer 键，采集已脱靶`);
 
   assert.deepEqual(denied, [],
     `以下插件会被内核静默禁用（peer 与 ${runtime} 不兼容）：\n  ${denied.join('\n  ')}`);
@@ -150,7 +153,7 @@ test('反向捕获力：把在册插件的真实 peer 收回旧上界，舰队�
       `夹具失败：${pkg} 现在不声明 ${key}，本用例需随迁`);
     const mutated = { ...hit.manifest, peerDependencies: { ...hit.manifest.peerDependencies, [key]: oldRange } };
     const issue = evaluate(mutated, {}, runtime);
-    assert.ok(issue && issue.peers[key] === oldRange,
+    assert.ok(issue && issue.requirements[key] === oldRange,
       `${pkg} 的 ${key} 收回 ${oldRange} 后仍判兼容 —— 放宽才是绿的承重墙，判据必须能咬住它`);
     // 现值必须与旧上界不同，否则这条反证是空转的。
     assert.notEqual(hit.manifest.peerDependencies[key], oldRange,

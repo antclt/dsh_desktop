@@ -51,7 +51,7 @@ const FORM = kernel.packageVersion;
 // （2026-10-14 首启引导「点击开始设置没反应」：步骤推进不再依赖出帧 + guard 静默
 // 拒绝报成因，见 onboarding-resilience.js 头部实测记录）。
 // 逐项理由见 ta6-registry-invariants.test.js 的 E。
-const SPEC_COUNT = 62;
+const SPEC_COUNT = 61;
 
 /** 与 kernel-pin 同版的 pristine 闭包根；不在场返回 null（调用侧响亮失败）。 */
 function formRoot() {
@@ -119,33 +119,34 @@ function integrityProblems(ids, baseline) {
 }
 
 // ===========================================================================
-// 基线快照（2026-10-05 重录：0.2.0-rc.2 形态 = .tmp-kernel/.consumer-0.2.0-rc.2
-// 的 npm 闭包解包树，47 file + 15 root = 62 项（image-send-fix 已于 2026-10 随
-// 识图插件退役，其 'changed' 行同批摘除），逐项由本文件 computeMatrix 真跑
-// 录入，不是手工填值。判定构成：42 changed / 15 root / 5 target-absent，
+// 基线快照（2026-10-17 重录：0.2.1-rc.1 形态 = .tmp-kernel/.consumer-0.2.1-rc.1
+// 的 npm 闭包解包树（node scripts/install-pristine-kernel.mjs 按 vendor tarball
+// 离线解出 350 包），47 file + 14 root = 61 项，逐项由本文件 computeMatrix 真跑
+// 录入，不是手工填值。判定构成：42 changed / 14 root / 5 target-absent，
 // 零 anchor-missing、零 already、零 THROW —— 与 scripts/patch-deps.js 的
-// 「失配 0 / 失败 0」实况同源，两者互为对账。）
+// 「写入 74 处 / 失配 0 / 失败 0 / 共 61 项」实况同源，两者互为对账。）
 //
-// 与旧代快照的差异（rc.2 真闭包 vs 旧 stage 树；逐条都是「旧值来自残缺树或双
-// 前缀口径」的纠正，不是锚点漂移）：
-//   · runtime-flash-fix / credentials-absent-guidance /
-//     slot-legacy-key / slot-error-isolation / history-page-size /
-//     journal-prepend-continuity / chat-scroll-autoload-older /
-//     reasoning-row-collapse-width / session-unknown-event-tolerance /
-//     claude-local-bin-fallback → 现 'changed'：旧 stage 树缺对应包；
-//     （image-send-fix 当时也在此列，2026-10 随识图插件整体退役，行已摘）
-//   · terminal-interrupt-escalation / profile-bundle-guard-appboot /
-//     agent-preset-fallback / pi-ai-tool-name-wire → 现 'changed'：旧值是重靶前
-//     的失配/双前缀口径残留；
-//   · atomic-write-orphan-lock / model-image-input / loader-tree-isolation /
-//     fallback-heal-isolation / settings-section-guard /
-//     profile-bundle-guard-profileboot → 已从注册表摘除，不再出现在本快照；
-//   · image-send-fix → 2026-10 内置伴随插件批量拆除时摘除（只为已退役的识图插件
-//     存在），本快照不再覆盖；
-//   · profile-patch-layer-guard → 新增行（取代 profile-boot 半边）。
+// 与 rc.2 快照（42 changed / 15 root / 5 target-absent = 62）的差异，逐条是换代
+// 本身的量变，不是判据放宽：
+//   · pi-ai-opencode-go-models → 整条退役（root 行同批摘除，root 因此 15→14）：
+//     0.2.1 带来的 pi-ai 0.87.1→1.3.0 里端点与 catalog 都不再有该型号；
+//   · journal-prepend-continuity → 仍 'changed'，但靶文件迁移：dsh-api-gateway 把
+//     lib/client.js 拆成 client.node.js + client.browser.js，两半各命中一次；
+//   · agent-preset-fallback → 仍 'changed'，靶从 lib/index.js + lib/invariant.js
+//     收成只有 lib/index.js（上游删了 invariant）；
+//   · pi-ai-tool-name-wire → 仍 'changed'，出站收口点从 toolsOf 的 map 回调换成
+//     具名 piTool（toolsOf 与增量 toolsAdded 共用它）；
+//   · chat-scroll-autoload-older → 仍 'changed'，靠 chat-scroll-patches 新增的
+//     世代 C 锚点（data-chat-motion 那两行）命中；
+//   · adapter-prepare-call-guard → 仍 'changed'，上游 prepareCall 签名改为
+//     (provider, model, signal)，锚点随之重取；
+//   · loader-import-failure-report → 仍 'changed'，cordis-plugin-loader 1.0.6 把
+//     局部量 exports 改名 moduleNamespace，catch 体锚点同步；
+//   · profile-bundle-guard-appboot → 仍 'changed'，上游 app-boot 新增
+//     dropRetiredBundles 包裹，守卫改为在其返回值上做同样的容错回落。
 // ===========================================================================
 const BASELINE = {
-  '0.2.0-rc.2': {
+  '0.2.1-rc.1': {
     'slot-legacy-key': 'changed',
     'slot-unkeyed-compat': 'changed',
     'slot-error-isolation': 'changed',
@@ -160,15 +161,15 @@ const BASELINE = {
     'loader-activation-isolation': 'changed',
     'fail-loud-isolation': 'changed',
     'loader-import-failure-report': 'changed',
-    'prompt-admission-reason-report': 'changed',
-    'onboarding-step-progress-timeout': 'changed',
-    'onboarding-guard-report': 'changed',
     'manual-sort-drag-fix': 'changed',
+    'prompt-admission-reason-report': 'changed',
     'credentials-initial-retry': 'changed',
     'credentials-absent-guidance': 'changed',
     'device-auth-guidance': 'changed',
     'kernel-web-boot-watchdog': 'changed',
     'plugin-inventory-tab-merge': 'changed',
+    'onboarding-step-progress-timeout': 'changed',
+    'onboarding-guard-report': 'changed',
     'web-search-baseurl': 'root',
     'menu-viewport': 'root',
     'session-manage': 'root',
@@ -176,7 +177,6 @@ const BASELINE = {
     'session-persistence': 'root',
     'workspace-pin': 'root',
     'tool-source-compat': 'root',
-    'pi-ai-opencode-go-models': 'root',
     'pi-ai-credits': 'root',
     'pi-ai-overflow-message': 'root',
     'agent-preset-fallback': 'changed',
@@ -191,12 +191,6 @@ const BASELINE = {
     'content-has-image-guard': 'changed',
     'session-header-scan-guard': 'changed',
     'session-load-graceful': 'changed',
-    // codex / pi-ai 系靶不属 @deepseek-ai scope，也不在 vendor/dsh-kernel 离线闭包
-    // 内（pi-ai 是宿主可选依赖，install-pristine-kernel 不解包它）→ 恒
-    // target-absent。真实字节判定见各自单测：unit-patch-tool-source-compat
-    // （codex/claude 回落）、unit-pi-ai-*（4xx dump / tool-schema sanitize /
-    // responses tool-name / quota-not-retryable）。claude-local-bin-fallback 的靶
-    // 是 @deepseek-ai 包，故同组里只有 codex 一条落 target-absent。
     'codex-local-bin-fallback': 'target-absent',
     'claude-local-bin-fallback': 'changed',
     'skill-dirs-compat': 'changed',

@@ -38,7 +38,8 @@ const MARKER = 'dsh-desktop fix: agent-preset-fallback';
 // pristine 内核包源：vendored kernel-pin 版本 tarball（vendor/dsh-kernel/，升级即换版）。
 // 0.2.0-rc.2：预设 roster 包 dsh-agent-presets 已拆成 dsh-agent-preset（声明）+
 // dsh-agent-preset-registry（注册表）。resolve 的硬抛点在 registry，故本测试的靶包、
-// pkgDir 与断言全部随迁为 registry（仍是 lib/index.js + lib/invariant.js 双文件）。
+// pkgDir 与断言全部随迁为 registry（0.2.1-rc.1 起只剩 lib/index.js 单靶：上游删了同源
+// lib/invariant.js）。
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const VENDOR_TARBALL = path.join(
   REPO_ROOT, 'dsh-desktop', 'vendor', 'dsh-kernel',
@@ -120,7 +121,7 @@ function tmpdir(t, prefix) {
 // 1-3：锚点命中 pristine / 语法合法 / 幂等。
 // ---------------------------------------------------------------------------
 
-test('锚点命中 payload pristine 源（index.js 与同源 invariant.js 双文件）', () => {
+test('锚点命中 payload pristine 源（registry lib/index.js）', () => {
   // payload 缺失（精简 checkout）时退回内联 fixture，不静默通过。
   const sources = PRISTINE_FILES.length > 0
     ? PRISTINE_FILES.map((f) => [f, fs.readFileSync(f, 'utf8')])
@@ -136,7 +137,7 @@ test('锚点命中 payload pristine 源（index.js 与同源 invariant.js 双文
   }
 });
 
-test('payload pristine 双文件均存在时逐文件覆盖（index.js 必在）', { skip: PRISTINE_FILES.length === 0 }, () => {
+test('payload pristine 源在位时逐文件覆盖（index.js 必在）', { skip: PRISTINE_FILES.length === 0 }, () => {
   const rels = PRISTINE_FILES.map((f) => path.relative(PRISTINE_REGISTRY_DIR, f).split(path.sep).join('/'));
   assert.ok(rels.includes('lib/index.js'), '运行时实际加载的 lib/index.js 必须被覆盖');
 });
@@ -343,8 +344,9 @@ test('registry：agent-preset-fallback 规格装配与布局正确', () => {
   assert.equal(markers.AGENT_PRESET_FALLBACK_MARKER, MARKER, 'marker 单一数据源导出');
   assert.deepEqual(
     AGENT_PRESET_FALLBACK_PKG_RELS.map((r) => r.split(path.sep).join('/')),
-    ['dsh-agent-preset-registry/lib/index.js', 'dsh-agent-preset-registry/lib/invariant.js'],
-    '目标双文件：运行时入口 index.js + 同源 invariant.js'
+    ['dsh-agent-preset-registry/lib/index.js'],
+    '目标单文件：0.2.1-rc.1 起上游删了同源 lib/invariant.js（全包 0 处 ./invariant 导出），'
+    + '再挂一条靶只会在每次 boot 产一条 target-absent 噪声',
   );
   // CLI 清单不受影响（cli:false 不进 getSpecsByCli）。
   assert.ok(!getSpecsByCli().some((s) => s.id === 'agent-preset-fallback'));
@@ -381,13 +383,11 @@ test('applyAll 集成：payload pristine 副本首遍 changed、次遍 already�
   assert.equal(run1.errors.length, 0, '首遍不应有规格级异常: ' + JSON.stringify(run1.errors));
   assert.equal(run1.failed, 0, '首遍不应有逐文件失败');
   const file1 = path.join(pkgDir, 'lib', 'index.js');
-  const file2 = path.join(pkgDir, 'lib', 'invariant.js');
   const after1 = fs.readFileSync(file1, 'utf8');
   assert.ok(after1.includes(MARKER), '首遍应已写入 index.js 回落代码');
-  assert.ok(fs.readFileSync(file2, 'utf8').includes(MARKER), '首遍应已写入 invariant.js 回落代码');
-  assert.ok(run1.changed >= 2, '首遍至少写入双文件（changed=' + run1.changed + '）');
+  assert.ok(run1.changed >= 1, '首遍应写入靶文件（changed=' + run1.changed + '）');
   // 产物语法合法（真实落盘文件复检）。
-  for (const f of [file1, file2]) {
+  for (const f of [file1]) {
     const res = spawnSync(process.execPath, ['--check', f], { encoding: 'utf8' });
     assert.strictEqual(res.status, 0, f + ' 落盘产物必须语法合法: ' + (res.stderr || ''));
   }
@@ -397,6 +397,5 @@ test('applyAll 集成：payload pristine 副本首遍 changed、次遍 already�
   assert.equal(run2.errors.length, 0, '次遍不应有规格级异常: ' + JSON.stringify(run2.errors));
   assert.equal(run2.failed, 0, '次遍不应有逐文件失败');
   assert.equal(transformAgentPresetFallback(fs.readFileSync(file1, 'utf8'), file1).status, 'already', '次遍 index.js 应 already');
-  assert.equal(transformAgentPresetFallback(fs.readFileSync(file2, 'utf8'), file2).status, 'already', '次遍 invariant.js 应 already');
   assert.equal(fs.readFileSync(file1, 'utf8'), after1, '次遍不得重复注入（字节不变）');
 });

@@ -89,9 +89,9 @@ function parseRustActs() {
   return acts;
 }
 
-test('TA7-1a bridge-api.md §2.3 act 表 → menu.rs：单向差集为空（含 toggle 展开共 15 项）', () => {
+test('TA7-1a bridge-api.md §2.3 act 表 → menu.rs：单向差集为空（含 toggle 展开共 14 项）', () => {
   const md = parseMdActs();
-  assert.strictEqual(md.size, 15, `契约 act 计数（toggle 展开）: ${[...md]}`);
+  assert.strictEqual(md.size, 14, `契约 act 计数（toggle 展开）: ${[...md]}`);
   const missing = diff(md, parseRustActs());
   assert.deepStrictEqual(missing, [], '契约有而实装缺的 act');
 });
@@ -155,10 +155,15 @@ test('TA7-1c act 返回 payload 字段：md「返回」列字面量 ↔ menu.rs 
   assert.deepStrictEqual(driftSeen.sort(), expectedDrift.sort(), '已知返回字段漂移集变化（消账或新增漂移）');
 });
 
-test('TA7-1d toggle 合并行语义键：四个 settings 键在 menu.rs 有映射与返回', () => {
-  for (const key of ['notifyOnTurnEnd', 'closeToTray', 'showBalanceDock', 'autoInstallUpdates']) {
+test('TA7-1d toggle 合并行语义键：三个 settings 键在 menu.rs 有映射与返回', () => {
+  for (const key of ['notifyOnTurnEnd', 'closeToTray', 'autoInstallUpdates']) {
     assert.ok(menuRs.includes(`"${key}"`), `settings 键 ${key} 缺失（toggle_key 映射或返回）`);
   }
+  // toggle-balance / showBalanceDock 2026-10-16 退役：act 摘出 arm、键摘出
+  // toggle_key；switch 唯一落点是 dsh-balance 插件的 Config 设置条目。
+  // 按「登记形态」判：menu.rs 自身的退役说明与 None 断言是散文，不算登记。
+  assert.ok(!/"toggle-balance"\s*(?:\||=>)/.test(menuRs), 'toggle-balance act 已退役（不得再登记 match 臂）');
+  assert.ok(!menuRs.includes('showBalanceDock'), 'showBalanceDock 键已退役（menu.rs 不得残留）');
 });
 
 // ----------------------------------------------------------------------------

@@ -101,7 +101,7 @@ test('防护类补丁与包级补丁均已登记（无遗漏 apply*）', () => {
     'profile-patch-guard', 'profile-bundle-guard-appboot', 'profile-patch-layer-guard',
     'plugin-inventory-tab-merge',
     'web-search-baseurl', 'menu-viewport', 'open-project-dir',
-    'session-persistence', 'tool-source-compat', 'pi-ai-opencode-go-models',
+    'session-persistence', 'tool-source-compat',
     'pi-ai-credits', 'pi-ai-reasoning-defaults', 'pi-ai-overflow-message',
     'settings-models-resilience',
     'bundle-arrival-retry', 'agent-loop-scheduler-guard',
@@ -110,17 +110,19 @@ test('防护类补丁与包级补丁均已登记（无遗漏 apply*）', () => {
   for (const id of expected) assert.ok(ids.has(id), `遗漏补丁 ${id}`);
 });
 
-test('getSpecsByCli：返回 26 个 cli:true 补丁（8 runtime + 4 数据完整性 + 1 设置写入韧性 + 3 内核韧性 + 1 pi-ai 超限文案 + 2 本地二进制回落 + 1 skill 目录兼容 + 1 pi-ai 4xx 落盘 + 1 工作区标签闪跳 + 3 pi-ai 工具名/配额系 + 1 空工具名指引 + 1 会话持久化 + 1 工具源兼容）', () => {
+test('getSpecsByCli：返回 25 个 cli:true 补丁（8 runtime + 3 数据完整性 + 1 设置写入韧性 + 3 内核韧性 + 1 pi-ai 超限文案 + 2 本地二进制回落 + 1 skill 目录兼容 + 1 pi-ai 4xx 落盘 + 1 工作区标签闪跳 + 3 pi-ai 工具名/配额系 + 1 空工具名指引 + 1 会话持久化 + 1 工具源兼容）', () => {
   const specs = getSpecsByCli();
-  // 26 = 28（上一基线）− atomic-write-orphan-lock − model-image-input（rc.2 退役两条，
-  // 均 cli:true 规格）；guard 组仍为 false，只在桌面壳运行时应用（image-send 一族
+  // 25 = 26（上一基线）− pi-ai-opencode-go-models（0.2.1 退役：端点与 catalog 都
+  // 不再有 deepseek-v4-flash-vision-exp，补丁前提消失）；此前 26 = 28（rc.2 基线）
+  // − atomic-write-orphan-lock − model-image-input（两条 rc.2 退役，均 cli:true）；
+  // guard 组仍为 false，只在桌面壳运行时应用（image-send 一族
   // 曾属此类，2026-10 随识图插件整体退役，不影响本计数）。
-  assert.equal(specs.length, 26, 'cli 清单应恰为 26 项');
+  assert.equal(specs.length, 25, 'cli 清单应恰为 25 项');
   const expected = new Set([
     'slot-legacy-key', 'slot-unkeyed-compat', 'slot-error-isolation',
     'runtime-flash-fix', 'shell-description-compat',
     'attachment-mime-trust', 'session-persistence',
-    'tool-source-compat', 'pi-ai-opencode-go-models', 'pi-ai-credits',
+    'tool-source-compat', 'pi-ai-credits',
     'pi-ai-reasoning-defaults', 'pi-ai-overflow-message',
     'settings-models-resilience',
     'bundle-arrival-retry', 'agent-loop-scheduler-guard',
@@ -176,7 +178,6 @@ test('getSpecsByCli：每个 spec 的 transform/apply 与 patch-adapters 导出�
   const rootApplyMap = {
     'session-persistence': adapters.rootAppliers.patchSessionPersistence,
     'tool-source-compat': adapters.rootAppliers.patchToolSourceCompat,
-    'pi-ai-opencode-go-models': adapters.rootAppliers.patchPiAiOpencodeGoModels,
     'pi-ai-credits': adapters.rootAppliers.patchPiAiCredits,
     'pi-ai-reasoning-defaults': adapters.rootAppliers.patchPiAiReasoningDefaults,
     'pi-ai-overflow-message': adapters.rootAppliers.patchPiAiOverflowMessage,

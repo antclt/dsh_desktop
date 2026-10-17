@@ -243,14 +243,32 @@ const PERSISTENCE_CORRUPT_MARKER = 'dsh-desktop-corrupt-guard-v1';
 // （assertNoRetiredHeaderFields、生成文件名与 header 版本不符 :3081、
 // assertStoredIdentity），单个坏文件仍会以 throw 掀掉整棵 plugin tree 初始化。
 // 语义照旧：读首行失败一律告警跳过该会话，不击穿启动扫描。
+// 0.2.1-rc.1 重锚：listArtifacts 的读首行 catch 不再 `continue`，而是
+// `return { selected, metadata: void 0 }`（消费侧 `if (metadata === void 0) continue`
+// 等效跳过）。上游白名单两类的先行分支原样保留，本补丁的增量不变：其余裸 Error
+// （assertNoRetiredHeaderFields、生成文件名与 header 版本不符、assertStoredIdentity 等）
+// 也告警跳过——否则它以 settleLimited 的 rejected 回来，下面 `throw outcome.reason`
+// 照样掀掉整棵 plugin tree 初始化。
 const PERSISTENCE_CORRUPT_OLD =
-  '\t\t\t} catch (error) {\n\t\t\t\tif (error instanceof SessionFormatUnsupportedError || error instanceof SessionPersistenceCorruptionError) continue;\n\t\t\t\tthrow error;\n\t\t\t}';
+  '\t\t\t} catch (error) {\n' +
+  '\t\t\t\tif (error instanceof SessionFormatUnsupportedError || error instanceof SessionPersistenceCorruptionError) return {\n' +
+  '\t\t\t\t\tselected,\n' +
+  '\t\t\t\t\tmetadata: void 0\n' +
+  '\t\t\t\t};\n' +
+  '\t\t\t\tthrow error;\n' +
+  '\t\t\t}';
 const PERSISTENCE_CORRUPT_NEW = [
   '\t\t\t} catch (error) {',
-  '\t\t\t\tif (error instanceof SessionFormatUnsupportedError || error instanceof SessionPersistenceCorruptionError) continue;',
+  '\t\t\t\tif (error instanceof SessionFormatUnsupportedError || error instanceof SessionPersistenceCorruptionError) return {',
+  '\t\t\t\t\tselected,',
+  '\t\t\t\t\tmetadata: void 0',
+  '\t\t\t\t};',
   '\t\t\t\t// ' + PERSISTENCE_CORRUPT_MARKER + ': 损坏会话日志告警跳过，不得击穿启动扫描。',
   '\t\t\t\tconsole.warn(`[dsh-session-persistence] skipping corrupt session log: ${selected.sourcePath} (${error?.message ?? error})`);',
-  '\t\t\t\tcontinue;',
+  '\t\t\t\treturn {',
+  '\t\t\t\t\tselected,',
+  '\t\t\t\t\tmetadata: void 0',
+  '\t\t\t\t};',
   '\t\t\t}',
 ].join('\n');
 

@@ -18,9 +18,10 @@
 // useEffect(IO)，二者均无条件、位于组件顶层 hook 序列中，hook 顺序稳定；② 在
 // flow column 的 children 首位插入哨兵 div。
 //
-// 两世代锚点（0.2.0-rc.2 把 ChatView 的滚动逻辑拆成了 useChatViewport /
+// 三代锚点（0.2.0-rc.2 把 ChatView 的滚动逻辑拆成了 useChatViewport /
 // useChatScroll / ChatNavigation，翻页入口由局部 loadOlderAnchored() 变成
-// scroll.loadEarlier()，scrollerOf() 助手被内联成 list.closest(...)）：按世代
+// scroll.loadEarlier()，scrollerOf() 助手被内联成 list.closest(...)；0.2.1-rc.1 又在
+// flow column 开标签里插入 data-chat-motion，使 jsx 锚点换代）：按世代
 // 成对命中才应用，绝不允许 hooks 与 jsx 取自不同世代。
 // ---------------------------------------------------------------------------
 
@@ -82,8 +83,23 @@ const INJECT_JSX_V1 = ANCHOR_JSX_V1 + '\n' + [
   '\t\t\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("div", { ref: olderSentinelRef, "aria-hidden": true, style: { height: 1 } }),',
 ].join('\n');
 
-// 世代表顺序即优先级：先 rc.2（现行 pin），再回落到 v1 形态。
+// --- 世代 C：0.2.1-rc.1（现行 pin）---
+// hooks 注入点与 rc.2 逐字相同（ChatView 的 return JSX 头两行没动）；flow column 的
+// 开标签在 data-chat-flow 与 children 之间多了 `data-chat-motion`（collapseTiming 偏好
+// 落地的那个属性），所以只有 jsx 锚点需要换代——按「同世代成对命中」的规矩另立一代，
+// 不与 rc.2 的 jsx 混用。
+const ANCHOR_JSX_V2 = [
+  '\t\t\t\t\t\t\t\t"data-chat-flow": "",',
+  '\t\t\t\t\t\t\t\t"data-chat-motion": deferCompletedTurns && scroll.initialized && (running || motionTail || pendingInputs.length > 0) ? "" : void 0,',
+  '\t\t\t\t\t\t\t\tchildren: [',
+].join('\n');
+const INJECT_JSX_V2 = ANCHOR_JSX_V2 + '\n' + [
+  '\t\t\t\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("div", { ref: olderSentinelRef, "aria-hidden": true, style: { height: 1 } }),',
+].join('\n');
+
+// 世代表顺序即优先级：先 0.2.1（现行 pin），再 rc.2，最后回落到 v1 形态。
 const CHAT_AUTOLOAD_GENERATIONS = [
+  { id: '0.2.1', hooks: ANCHOR_HOOKS_RC2, hooksInjection: INJECT_HOOKS_RC2, jsx: ANCHOR_JSX_V2, jsxInjection: INJECT_JSX_V2 },
   { id: 'rc.2', hooks: ANCHOR_HOOKS_RC2, hooksInjection: INJECT_HOOKS_RC2, jsx: ANCHOR_JSX_RC2, jsxInjection: INJECT_JSX_RC2 },
   { id: '0.1.6', hooks: ANCHOR_HOOKS_V1, hooksInjection: INJECT_HOOKS_V1, jsx: ANCHOR_JSX_V1, jsxInjection: INJECT_JSX_V1 },
 ];

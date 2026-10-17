@@ -194,9 +194,12 @@ test('审计 5：诚实跳过集合恰为已知 5 条非闭包 marker transform�
 });
 
 test('审计 3：root 应用器只碰 node_modules（npm ci 整体可恢复）', () => {
-  // 15 = 17（上一基线）− atomic-write-orphan-lock（上游原生 takeOverExitedLock）
-  // − model-image-input（上游原生 inputModalities），两条 rootAppliers 接线同批摘除。
-  assert.equal(rootSpecs.length, 15);
+  // 14 = 15（rc.2 基线）− pi-ai-opencode-go-models（0.2.1-rc.1 起端点目录整形换血：
+  // 37 个 id、无 vision-exp 后缀、catalog 回 `chat:<id>` 裸键，上游已自带该映射，
+  // 补丁失去存在理由，rootAppliers 接线同批摘除）。
+  // 更早：17 → 15 是 atomic-write-orphan-lock（上游原生 takeOverExitedLock）
+  // 与 model-image-input（上游原生 inputModalities）两条同批退役。
+  assert.equal(rootSpecs.length, 14);
   for (const spec of rootSpecs) {
     assert.equal(spec.layout, 'nm-roots', `${spec.id} 应为 nm-roots 布局`);
     assert.equal(spec.wslLayout, 'nm-roots', `${spec.id} WSL 布局也应为 nm-roots`);

@@ -32,11 +32,14 @@ const { SESSION_FORMAT_VERSION } = require('@deepseek-ai/dsh-session');
 const DESKTOP_ROOT = path.resolve(__dirname, '..', '..');
 const TARGET = path.join(DESKTOP_ROOT, 'node_modules', '@deepseek-ai', PERSISTENCE_PKG_REL);
 
-// rc.1 起内核 bundle 只 `JsonlSessionPersistence as default`（具名导出退役）。
-// 两种形态都拿不到时必须硬失败点名，不能再退化成 undefined.prototype 的隐晦报错。
+// rc.1 起内核 bundle 只 `JsonlSessionPersistence as default`；0.2.1-rc.1 起连
+// default 也没有了（具名导出只剩 plugin entry 的 Config/name/apply）。类本身仍在
+// 模块作用域（`var JsonlSessionPersistence = class …`），所以行为用例改由
+// loadFullStackKernel 在临时副本末尾追加一条具名 export 来取——不碰真实文件。
 function persistenceClassOf(mod) {
   const Klass = mod.JsonlSessionPersistence ?? mod.default;
-  assert.equal(typeof Klass, 'function', '内核模块应导出 JsonlSessionPersistence（rc.1 起为 default 导出）');
+  assert.equal(typeof Klass, 'function',
+    '内核模块应能取到 JsonlSessionPersistence（0.2.1 起由测试侧追加的具名 export 提供）');
   return Klass;
 }
 
@@ -66,7 +69,8 @@ async function loadFullStackKernel(t) {
   }
   const file = path.join(path.dirname(TARGET),
     'index.recovery-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.mjs');
-  fs.writeFileSync(file, src);
+  // 末尾追加具名 export，让用例能拿到不再导出的持久化类（只作用于这份临时副本）。
+  fs.writeFileSync(file, src + '\nexport { JsonlSessionPersistence };\n');
   t.after(() => fs.rmSync(file, { force: true }));
   return import(pathToFileURL(file).href);
 }

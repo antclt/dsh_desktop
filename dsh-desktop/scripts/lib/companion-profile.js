@@ -44,7 +44,7 @@ const PLUGIN_FILES = [
 // semver：契约校验、版本比较、市场回执）——现存配套件的 package.json 既不声明
 // 也不 require 它们（实测 grep 零命中）。保留的 schemastery/cosmokit/yaml 与两个
 // @deepseek-ai 条目仍由 better-sidebar / basics-panel / openclaw-bridge /
-// prompt-custom / reasoning-effort / side-session / subagent-lens /
+// prompt-custom / side-session / subagent-lens /
 // super-injector 声明使用。sharp（原生模块）不在此列：由 loader 经安装根
 // node_modules 解析，避免 @img 平台二进制的多平台同步问题。
 const VENDOR_DEPS = [

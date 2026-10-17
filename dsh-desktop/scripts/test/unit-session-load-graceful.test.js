@@ -131,7 +131,9 @@ async function loadTransformedKernel(t) {
   const r = transformSessionLoadGraceful(src, srcFile);
   assert.equal(r.status, 'changed', '内核源应命中本补丁锚点');
   const file = path.join(path.dirname(srcFile), 'index.k6test-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.mjs');
-  fs.writeFileSync(file, r.src);
+  // 末尾追加具名 export：0.2.1-rc.1 起 bundle 连 default 都不再暴露这个类
+  // （导出只剩 plugin entry 的 Config/name/apply），类本身仍在模块作用域。
+  fs.writeFileSync(file, r.src + '\nexport { JsonlSessionPersistence };\n');
   t.after(() => fs.rmSync(file, { force: true }));
   return import(pathToFileURL(file).href);
 }
@@ -157,13 +159,15 @@ function headerLine() {
 
 /**
  * 从动态装载的内核模块解析持久化类。
- * rc.1 起 bundle 尾行是 `export { JsonlCompressionSchema, JsonlSessionPersistence as default }`
- * ——具名导出退役、只剩 default（alpha.5 时代两者都在）。保留对具名形态的兼容，
- * 但两条都拿不到时必须硬失败（不得静默退化成 undefined.prototype 的 TypeError）。
+ * rc.1 的 bundle 尾行还有 `JsonlSessionPersistence as default`；0.2.1-rc.1 起连
+ * default 也退役了（只导出 plugin entry），所以由 loadTransformedKernel 在临时副本
+ * 末尾追加一条具名 export 取回。保留对 default 形态的兼容，但两条都拿不到时必须
+ * 硬失败（不得静默退化成 undefined.prototype 的 TypeError）。
  */
 function persistenceClassOf(mod) {
   const Klass = mod.JsonlSessionPersistence ?? mod.default;
-  assert.equal(typeof Klass, 'function', '内核模块应导出 JsonlSessionPersistence（rc.1 起为 default 导出）');
+  assert.equal(typeof Klass, 'function',
+    '内核模块应能取到 JsonlSessionPersistence（0.2.1 起由测试侧追加的具名 export 提供）');
   return Klass;
 }
 
@@ -420,22 +424,21 @@ test('回归：叠加 torn-tail/corrupt-guard/K5 后本补丁仍命中、三 mar
   assert.ok(out.includes(CORRUPT_MARKER), 'corrupt-guard marker 应保留');
   assert.ok(out.includes(K5_MARKER), 'K5 header 扫描缓存 marker 应保留');
   assert.ok(out.includes(MARKER), '本补丁 marker 应存在');
-  // rc.2 形态：corrupt-guard 不注入独立的 `catch (corruptError)` 块（alpha.5 形
-  // 态），而是改写 listGenerations 既有的 `catch (error)`——保留内核自己的「白名单
-  // 类先行 continue」那行，再补告警 + continue。rc.2 把白名单从单类
-  // （SessionFormatUnsupportedError）扩成两类（|| SessionPersistenceCorruptionError，
-  // 后者是 rc.1 起 header 扫描越界/撕裂抛的损坏类），断言按可选两类别形态匹配，
-  // 并单独钉住第二类必须在内——漏了它，header 撕裂的会话会把启动扫描整个击穿。
+  // 0.2.1-rc.1 形态：corrupt-guard 仍改写 listArtifacts 里包住 readGenerationHeader
+  // 的 `catch (error)`，但上游把「跳过」从 continue 换成了 `return { selected,
+  // metadata: void 0 }`（消费侧 `if (metadata === void 0) continue` 等效）。
+  // 白名单第二类（SessionPersistenceCorruptionError，rc.1 起 header 扫描越界/撕裂抛的
+  // 损坏类）必须在内——漏了它，header 撕裂的会话会把启动扫描整个击穿。
   assert.ok(
-    /try \{\n\t+header = await this\.readGenerationHeader\(selected, void 0, signal\);\n\t+\} catch \(error\) \{\n\t+if \(error instanceof SessionFormatUnsupportedError(?: \|\| error instanceof SessionPersistenceCorruptionError)?\) continue;\n\t+\/\/ dsh-desktop-corrupt-guard-v1/.test(out),
-    'corrupt-guard 应改写在既有 catch(error) 且保留格式版本先行 continue',
+    /try \{\n\t+return \{\n\t+selected,\n\t+metadata: await this\.readGenerationHeader\(selected, void 0, signal\)\n\t+\};\n\t+\} catch \(error\) \{\n\t+if \(error instanceof SessionFormatUnsupportedError \|\| error instanceof SessionPersistenceCorruptionError\) return \{\n\t+selected,\n\t+metadata: void 0\n\t+\};\n\t+\/\/ dsh-desktop-corrupt-guard-v1/.test(out),
+    'corrupt-guard 应改写在既有 catch(error) 且保留白名单两类的先行 return',
   );
   assert.ok(
-    out.includes('error instanceof SessionPersistenceCorruptionError) continue;'),
-    'rc.2 白名单必须含 SessionPersistenceCorruptionError（单类别 continue 是 rc.1 前的旧形态）',
+    out.includes('error instanceof SessionPersistenceCorruptionError) return {'),
+    '白名单必须含 SessionPersistenceCorruptionError（continue 单类别是 rc.2 前的旧形态）',
   );
   assert.ok(out.includes('skipping corrupt session log'), 'corrupt-guard warn 跳过文案应保留');
-  assert.match(out, /skipping corrupt session log[^\n]*\n\t+continue;/, 'corrupt-guard 告警后应 continue 跳过该会话');
+  assert.match(out, /skipping corrupt session log[^\n]*\n\t+return \{\n\t+selected,\n\t+metadata: void 0\n\t+\};/, 'corrupt-guard 告警后应 return 空 metadata 跳过该会话');
 });
 
 // ---------------------------------------------------------------------------

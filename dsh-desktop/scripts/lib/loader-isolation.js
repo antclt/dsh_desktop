@@ -310,14 +310,16 @@ function transformFailLoudIsolation(src, file) {
 // 导入错误三重静默，只剩一行「failed to load」。mac 端 9 个伴随插件 + 首启「未能
 // 保存设置」排查两轮发布无果，缺的就是这一行原文。
 // 本补丁只在 catch 体首插入一次 stderr 写入（try 包裹，诊断绝不反噬宿主）。
+// 0.2.1-rc.1（cordis-plugin-loader 1.0.6）把 `_init` 里的局部量 `exports` 改名为
+// `moduleNamespace`（避免遮蔽 CJS 的 exports 语义），锚点首行随之换代。
 const LOADER_IMPORT_CATCH_OLD = [
-  '\t\t\texports = await this.parent.tree.import(this.options.name, this.getOuterStack);',
+  '\t\t\tmoduleNamespace = await this.parent.tree.import(this.options.name, this.getOuterStack);',
   '\t\t} catch (error) {',
   '\t\t\tthis.ctx.logger.error(error);',
 ].join('\n');
 
 const LOADER_IMPORT_CATCH_NEW = [
-  '\t\t\texports = await this.parent.tree.import(this.options.name, this.getOuterStack);',
+  '\t\t\tmoduleNamespace = await this.parent.tree.import(this.options.name, this.getOuterStack);',
   '\t\t} catch (error) {',
   '\t\t\ttry {',
   '\t\t\t\tconst _ir = [];',

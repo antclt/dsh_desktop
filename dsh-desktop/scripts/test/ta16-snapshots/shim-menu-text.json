@@ -16,10 +16,6 @@
       "label": "关闭时最小化到托盘"
     },
     {
-      "act": "toggle-balance",
-      "label": "显示余额/本轮费用"
-    },
-    {
       "act": "toggle-auto-update",
       "label": "自动安装客户端更新"
     },
@@ -113,7 +109,6 @@
     "</span><button class=\"dch-copy\" data-copy=\"gitee\" title=\"复制地址\">复制</button></div>",
     "会话完成通知",
     "关闭时最小化到托盘",
-    "显示余额/本轮费用",
     "自动安装客户端更新",
     "自定义图标…",
     "恢复默认图标",

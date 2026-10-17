@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // journal-stream 历史续读补丁（BUG1「历史对话加载不完整」根因之一）。
 //
-// 靶：@deepseek-ai/dsh-api-gateway/lib/client.js 的 RemoteJournalStream.prepend()。
+// 靶：@deepseek-ai/dsh-api-gateway 的 RemoteJournalStream.prepend()。
 // 内核把「历史页与当前窗口不连续（!follows）」一律 fail-soft：publish
 // entries:[] + hasMore:false 并 throw。session-controller 侧 prependWindow 遂把
 // hasMore 永久锁死为 false，loadOlder / loadThrough 立即停摆——表现即「上滑到顶、
@@ -25,41 +25,59 @@
 
 const JOURNAL_PREPEND_MARKER = 'dsh-desktop compat: continue history past seq gap';
 
-// OLD：不连续守卫的条件行（唯一）。制表符缩进，与 gateway/lib/client.js :1032 逐字节对齐。
-const JOURNAL_PREPEND_OLD = [
-  '\t\t\t\tif (tail !== void 0 && before !== void 0 && !this.options.follows(this.options.last(tail), before)) {',
-].join('\n');
+// 锚点：不连续守卫的 if 行（每个客户端恰好一处）。0.2.1-rc.1 起 dsh-api-gateway 把
+// lib/client.js 拆成 client.node.js + client.browser.js 两份 bundle，两份缩进不同
+// （node 半边 2 个制表符 / browser 半边 4 个）。前导空白按命中行实际捕获、不写死——
+// 写死任一固定缩进等于只修一半，另一半历史仍断头。
+const JOURNAL_PREPEND_GUARD_TAIL =
+  'if (tail !== void 0 && before !== void 0 && !this.options.follows(this.options.last(tail), before)) {';
+// 收窄后的守卫（与上方逐字同前缀，只多一个 compare 合取；写成字面量以免程序化拼串把
+// if 的右括号吃掉——吃掉就是语法错误，bundle 直接炸）。
+const JOURNAL_PREPEND_NARROWED_TAIL =
+  'if (tail !== void 0 && before !== void 0 && !this.options.follows(this.options.last(tail), before) && this.options.compare(this.options.last(tail), before) >= 0) {';
+const JOURNAL_PREPEND_RE = new RegExp(
+  '^(\\t+)' + JOURNAL_PREPEND_GUARD_TAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$',
+  'gm',
+);
 
-// NEW：三行说明注释 + 收窄后的守卫条件（仅对 overlap/straddle 触发 fail-soft）。
-const JOURNAL_PREPEND_NEW = [
-  '\t\t\t\t// ' + JOURNAL_PREPEND_MARKER + '.',
-  '\t\t\t\t// Restrict the fail-soft lock+throw to overlapping/straddle pages (last(tail) >= before).',
-  '\t\t\t\t// A pure seq gap (fork hole) now falls through to the normal prepend branch below: publish',
-  '\t\t\t\t// the strictly-older accepted entries, advance firstCursor, and report real hasMore, so history',
-  '\t\t\t\t// keeps paging past fork discontinuities instead of locking the window at the first hole.',
-  '\t\t\t\tif (tail !== void 0 && before !== void 0 && !this.options.follows(this.options.last(tail), before) && this.options.compare(this.options.last(tail), before) >= 0) {',
-].join('\n');
+// 说明注释 + 收窄后的守卫条件（仅对 overlap/straddle 触发 fail-soft），逐行套命中处的缩进。
+function journalPrependReplacement(indent) {
+  return [
+    indent + '// ' + JOURNAL_PREPEND_MARKER + '.',
+    indent + '// Restrict the fail-soft lock+throw to overlapping/straddle pages (last(tail) >= before).',
+    indent + '// A pure seq gap (fork hole) now falls through to the normal prepend branch below: publish',
+    indent + '// the strictly-older accepted entries, advance firstCursor, and report real hasMore, so history',
+    indent + '// keeps paging past fork discontinuities instead of locking the window at the first hole.',
+    indent + JOURNAL_PREPEND_NARROWED_TAIL,
+  ].join('\n');
+}
 
 function transformJournalPrependContinuity(src, file) {
   if (src.includes(JOURNAL_PREPEND_MARKER)) return { status: 'already' };
-  const hit = src.split(JOURNAL_PREPEND_OLD).length - 1;
-  if (hit === 0) {
-    return { status: 'anchor-missing', detail: '未找到 journal-stream 断头锚点（版本可能已变更），跳过 ' + file };
+  const hits = src.match(JOURNAL_PREPEND_RE);
+  // 只接受唯一命中；0 处=版本漂移，>1 处=锚点被复制，宁可 anchor-missing 也不误改。
+  if (!hits || hits.length !== 1) {
+    return {
+      status: 'anchor-missing',
+      detail: '未找到 journal-stream 断头锚点（版本可能已变更），跳过 ' + file,
+    };
   }
-  // 只接受唯一命中；多处命中说明锚点被复制，宁可 anchor-missing 也不误改。
-  if (hit > 1) {
-    return { status: 'anchor-missing', detail: 'journal-stream 断头锚点命中 ' + hit + ' 处（非唯一），跳过 ' + file };
-  }
-  const patched = src.replace(JOURNAL_PREPEND_OLD, () => JOURNAL_PREPEND_NEW);
+  const indent = hits[0].slice(0, hits[0].indexOf('if ('));
+  const patched = src.replace(JOURNAL_PREPEND_RE, () => journalPrependReplacement(indent));
   if (patched === src) {
-    return { status: 'anchor-missing', detail: '未找到 journal-stream 断头锚点（版本可能已变更），跳过 ' + file };
+    return {
+      status: 'anchor-missing',
+      detail: '未找到 journal-stream 断头锚点（版本可能已变更），跳过 ' + file,
+    };
   }
   return { status: 'changed', src: patched };
 }
 
 module.exports = {
   JOURNAL_PREPEND_MARKER,
-  JOURNAL_PREPEND_OLD,
-  JOURNAL_PREPEND_NEW,
+  JOURNAL_PREPEND_GUARD_TAIL,
+  JOURNAL_PREPEND_NARROWED_TAIL,
+  JOURNAL_PREPEND_RE,
+  journalPrependReplacement,
   transformJournalPrependContinuity,
 };

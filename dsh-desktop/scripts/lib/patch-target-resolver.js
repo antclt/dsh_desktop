@@ -34,9 +34,13 @@ const FLASH_PKG_REL = path.join('dsh-api-session-controller', 'lib', 'client.js'
 // 2026-10 随 dsh-vision 批量退役下线。
 const SESSION_CTRL_INDEX_PKG_REL = path.join('dsh-api-session-controller', 'lib', 'index.js');
 // journal-stream 历史续读补丁落点：RemoteJournalStream.prepend()（断头锁死 hasMore
-// 的分支）所在的服务端流式客户端。经 @deepseek-ai/dsh-api-gateway/client 子路径加载
-// 的 lib/client.js（bundle 版，保留可读标识符 + protocolViolation$1 重命名符号）。
-const GATEWAY_CLIENT_PKG_REL = path.join('dsh-api-gateway', 'lib', 'client.js');
+// 的分支）所在的客户端。0.2.1-rc.1 起 dsh-api-gateway 把 lib/client.js 拆成
+// lib/client.node.js + lib/client.browser.js（锚点各 1 处、逐字相同），两半都纳靶：
+// 桌面运行时走 node 半边，浏览器包侧走 browser 半边，漏一半就是一侧历史仍断头。
+const GATEWAY_CLIENT_PKG_RELS = [
+  path.join('dsh-api-gateway', 'lib', 'client.node.js'),
+  path.join('dsh-api-gateway', 'lib', 'client.browser.js'),
+];
 // 聊天自动翻页补丁落点：ChatView（手动「加载更早」按钮 / listRef 滚动容器 / loadOlderAnchored）
 // 所在的客户端 UI 包。运行时经 dsh-client-ui-chat/lib/client.js（bundle 版，保留
 // 可读 React hooks 调用与标识符）加载。
@@ -84,12 +88,12 @@ const UI_SETTINGS_ACCOUNT_PKG_REL = path.join('dsh-client-ui-settings-account', 
 const APP_BOOT_PKG_REL = path.join('dsh-app-boot', 'lib', 'index.js');
 // agent-preset 未知 id 回落补丁目标。0.2.0-rc.2：dsh-agent-presets 已拆成
 // dsh-agent-preset（声明）+ dsh-agent-preset-registry（注册表，resolve/retain 的
-// not-found 硬抛在这里）。lib/index.js 是运行时经 exports "." 实际加载的入口；
-// lib/invariant.js 为同源产物（exports "./invariant"，锚点文本一致），无人加载但
-// 一并覆盖，防未来消费方走 /invariant 出口时漏保护。
+// not-found 硬抛在这里）。lib/index.js 是运行时经 exports "." 实际加载的入口。
+// 0.2.1-rc.1：同源产物 lib/invariant.js 已从上包删除（exports 表里也没有该出口），
+// 原先「一并覆盖防未来走 /invariant 出口」的第二靶随之摘掉——留着只会每 boot 报一条
+// fileGone 空警。
 const AGENT_PRESET_FALLBACK_PKG_RELS = [
   path.join('dsh-agent-preset-registry', 'lib', 'index.js'),
-  path.join('dsh-agent-preset-registry', 'lib', 'invariant.js'),
 ];
 // prompt 插值 name-invalid 字面透传补丁目标（dsh-system-prompt）：lib/index.js
 // 是运行时经 exports "." 实际加载的入口（interpolate() 所在，锚点 :117-118）。
@@ -307,7 +311,7 @@ module.exports = {
   LAYOUTS,
   FLASH_PKG_REL,
   SESSION_CTRL_INDEX_PKG_REL,
-  GATEWAY_CLIENT_PKG_REL,
+  GATEWAY_CLIENT_PKG_RELS,
   UI_CHAT_CLIENT_PKG_REL,
   API_SETTINGS_CONTROLLER_PKG_REL,
   CONVERSATION_PKG_REL,

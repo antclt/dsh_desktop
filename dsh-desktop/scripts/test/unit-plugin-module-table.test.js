@@ -18,7 +18,7 @@
 //   2. 未守卫的成员取用 ∈ pin 内核该包导出面；
 //   3. dsh.client 的 inject/external 声明的包必须在 pin 树里存在（幽灵声明 = client bundle
 //      整册静默不加载，症状与 peer 拒挂同族）；
-//   4. 正文不出现 `ctx.get("<已移除服务 id>")`（kernel-pin.services.removed 12 条）。
+//   4. 正文不出现 `ctx.get("<已移除服务 id>")`（kernel-pin.services.removed 13 条）。
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -199,9 +199,10 @@ test('插件 dsh.client 的 inject/external 声明必须都能在 pin 内核安�
     const j = JSON.parse(fs.readFileSync(mf, 'utf8'));
     for (const s of lib.clientSpecs(j)) rows.push({ dir: d, ...s });
   }
-  // 覆盖哨兵：rc.2 + better-sidebar 0.24.1 实测 57 条声明（inject 49 + external 8），阈值取约六成。
-  // 上一轮记的 56（inject 46 + external 10）差在换代：它的 inject 涨到 5 条、两条 primitives 图标
-  // external 随 `primitives-icons.ts` 垫片一起撤掉。台账见 docs/builtin-plugins-inventory.md §5.1。
+  // 覆盖哨兵：0.2.1-rc.1 + 在册 29 条实测 50 条声明（inject 42 + external 8），阈值取约六成。
+  // rc.2 那轮记的 57 = inject 49 + external 8，少的 7 条 inject 全属 2026-10-17 退役件 dsh-reasoning-effort；
+  // 再上一轮 56 = inject 46 + external 10，差在 better-sidebar 换代：它的 inject 涨到 5 条、两条
+  // primitives 图标 external 随 `primitives-icons.ts` 垫片一起撤掉。台账见 docs/builtin-plugins-inventory.md §5.1。
   assert.ok(rows.length >= 30, `只采到 ${rows.length} 条 dsh.client 声明，采集已脱靶`);
   const ghosts = rows.filter((r) => !lib.specInstalled(r.spec, ctx))
     .map((r) => `${r.dir}: ${r.kind} → ${r.spec}`);

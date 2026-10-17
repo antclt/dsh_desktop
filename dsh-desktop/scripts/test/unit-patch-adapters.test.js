@@ -102,10 +102,17 @@ test('transformDirectoryPickerWslBrowse：真实包三态 + WSL 判定行为（W
   const fnMatch = patchedSrc.match(/function resolveDirectoryPickerBackend\(facts\) \{[\s\S]*?\n\}/);
   assert.ok(fnMatch, 'resolveDirectoryPickerBackend 应可整段抽出');
   const present = (value) => value !== undefined && value !== '';
-  const resolve = new Function('present', fnMatch[0] + '\nreturn resolveDirectoryPickerBackend;')(present);
+  // 0.2.1-rc.1 起 resolver 第一行多了 `!isLoopbackHost(facts.bindHost) → browse`，
+  // 该谓词由上游从 dsh-host-webserver 导入。这里注入内核真身而不是另写一份近似实现
+  // ——判据必须由真语义承担，否则用例是在替一条不存在的契约作证。
+  const { isLoopbackHost } = require('@deepseek-ai/dsh-host-webserver');
+  const resolve = new Function('present', 'isLoopbackHost', fnMatch[0] + '\nreturn resolveDirectoryPickerBackend;')(present, isLoopbackHost);
   // 0.1.5-rc.1 重锚：resolver 的 SSH 判定由 facts.env.SSH_CONNECTION/SSH_TTY 探测
   // 改为 boot 期实算的 facts.ssh 布尔（契约变更，fixture 须显式给 ssh）。
-  const facts = (env, ssh = false) => ({ bindHost: '127.0.0.1', platform: 'linux', env, linuxChooser: true, ssh });
+  const facts = (env, ssh = false, extra = {}) => ({
+    bindHost: '127.0.0.1', platform: 'linux', env, linuxChooser: true, ssh,
+    allowsRemoteAuthorities: false, ...extra,
+  });
   // WSL（WSLg DISPLAY=:0 + Microsoft 注入标记）：强制 browse（修复目标）。
   assert.equal(resolve(facts({ DISPLAY: ':0', WSL_INTEROP: '/run/WSL_INTEROP' })), 'browse');
   assert.equal(resolve(facts({ DISPLAY: ':0', WAYLAND_DISPLAY: 'wayland-0', WSL_DISTRO_NAME: 'Ubuntu' })), 'browse');
@@ -113,4 +120,7 @@ test('transformDirectoryPickerWslBrowse：真实包三态 + WSL 判定行为（W
   assert.equal(resolve(facts({ DISPLAY: ':0' })), 'native');
   // SSH 形态仍 browse（原行为不变；ssh 现由 facts.ssh 承载）。
   assert.equal(resolve(facts({ DISPLAY: ':0', SSH_CONNECTION: '10.0.0.1 50000 10.0.0.2 22' }, true)), 'browse');
+  // 0.2.1 新增前置判据的两条边界：非回环绑定与远程授权都必须 browse。
+  assert.equal(resolve(facts({ DISPLAY: ':0' }, false, { bindHost: '10.0.0.2' })), 'browse');
+  assert.equal(resolve(facts({ DISPLAY: ':0' }, false, { allowsRemoteAuthorities: true })), 'browse');
 });

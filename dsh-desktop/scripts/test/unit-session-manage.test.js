@@ -65,7 +65,12 @@ test('全链一次应用：6 个目标文件写入且关键产物齐备', (t) =>
   // 2. 宿主控制器：命令 + 门面 + 依赖注入 + fs 侧清理。
   assert.ok(ctrlHost.includes('async deleteSession(request)'), 'deleteSession 命令应注入');
   assert.ok(ctrlHost.includes('return this.commands.deleteSession(request)'), '控制器门面应转发');
-  assert.ok(ctrlHost.includes('static inject = ["typert", "workspaceRegistry", "agents", "sessions", "sessionPersistence"]'), 'inject 应补齐三个服务');
+  // 0.2.1：上游把 inject 数组改成多行并加列 remoteAccess，注入体按新形状补齐三个服务。
+  // 仍按引用取生产常量（TARGETS 里那条替换的 insert），不在测试里另抄字面串。
+  const injectItem = TARGETS.find((t) => t.rel.join('/') === ['@deepseek-ai', 'dsh-api-workspace-controller', 'lib', 'index.js'].join('/'))
+    .replacements.find((r) => r.anchor.trimStart().startsWith('static inject = ['));
+  assert.ok(injectItem, 'TARGETS 应有 inject 那条替换');
+  assert.ok(ctrlHost.includes(injectItem.insert), 'inject 应补齐 agents/sessions/sessionPersistence 三个服务');
   assert.ok(ctrlHost.includes('import { rm } from "node:fs/promises"'), '应注入目录移除依赖');
   assert.ok(ctrlHost.includes('"cannot delete a running session: stop it first"'), '应拒绝运行中会话');
   // 3. typert 协议三处同步：宿主 STRICT 分发描述符。
@@ -75,8 +80,12 @@ test('全链一次应用：6 个目标文件写入且关键产物齐备', (t) =>
   assert.ok(ctrlClient.includes('async deleteSession(sessionId)'), 'controller client 应注入模型方法');
   assert.ok(ctrlClient.includes('commandError("session delete"'), 'controller client 应注入门面错误串');
   // 5. api-remotes：remote.workspace.deleteSession 的 schema + descriptor。
-  assert.ok(remotes.includes('"@deepseek-ai/dsh-api-workspace-controller#workspace/deleteSession"'), 'remotes 应注册 deleteSession 描述符');
+  // 0.2.1 起描述符从「数组 + id 字段」改成「'<namespace>/<method>' 键控对象」，
+  // 断言随之改按键名取。
+  assert.ok(remotes.includes('"workspace/deleteSession": {'), 'remotes 应注册 deleteSession 描述符');
   assert.ok(remotes.includes('WorkspaceDeleteSessionRequest'), 'remotes 应含请求类型符号');
+  assert.ok(remotes.includes('_deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_parameter_0_strict$schema'),
+    'remotes 应含 strict 入参 schema（strictCodec.create 的引用目标，缺一个就是半个注入）');
   // 6. 页内：slot 注册 + 组件 + 注入闭包 + zh/en。
   assert.ok(ui.includes('id: "delete"') && ui.includes('order: 450'), '页内应注册 order 450 的删除行');
   assert.ok(ui.includes('function DeleteSessionMenuItem('), '页内应注入删除组件');
@@ -122,7 +131,8 @@ test('逐锚点反证：任一锚缺失 → 该包整体不落盘，其余包照
 test('锚点唯一性 + 链式安全（insert 必须原样保留自己的锚）', () => {
   // 唯一豁免：inject 声明是「就地改写数组元素」而非追加，原生那一行不可能原样保留。
   // 它幂等靠 insert 自身判完成、跨补丁靠别的包各写各的文件，不与本页内补丁抢锚。
-  const MUTATES = ['static inject = [' ];
+  // 0.2.1 起上游把该声明改成制表符缩进的多行数组，故判据先 trimStart 再比前缀。
+  const MUTATES = ['static inject = ['];
   const fixtures = buildFixtures();
   TARGETS.forEach((target, ti) => {
     const fx = fixtures[ti].text;
@@ -131,7 +141,7 @@ test('锚点唯一性 + 链式安全（insert 必须原样保留自己的锚）'
       assert.equal(hits, 1, `T${ti} 锚 #${ri} 应命中 1 次，实为 ${hits}：${r.anchor.slice(0, 50)}`);
       if (!r.insert.includes(r.anchor)) {
         assert.ok(
-          MUTATES.some((head) => r.anchor.startsWith(head)),
+          MUTATES.some((head) => r.anchor.trimStart().startsWith(head)),
           `T${ti} 锚 #${ri} 的 insert 未保留锚 —— 与共享同一原生锚的补丁会互相挤掉`
         );
       }

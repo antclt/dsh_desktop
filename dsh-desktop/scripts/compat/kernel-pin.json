@@ -1,8 +1,8 @@
 {
   "compatLayerVersion": "1.0.0-rc.2.1",
   "kernel": {
-    "tag": "dsh-v0.2.0-rc.2",
-    "packageVersion": "0.2.0-rc.2",
+    "tag": "dsh-v0.2.1-rc.1",
+    "packageVersion": "0.2.1-rc.1",
     "acquisition": "offline-tarball",
     "vendorDir": "vendor/dsh-kernel",
     "upstream": "https://github.com/deepseek-ai/deepseek-harness",
@@ -144,6 +144,11 @@
         "id": "cordis-plugin-logger-console",
         "removedInKernel": "0.2.0-rc.2",
         "reason": "上游 rc.2 未再发布；仅作为 dsh-session-telemetry-otel 的 devDependency 出现，运行期零引用"
+      },
+      {
+        "id": "webRuntime",
+        "removedInKernel": "0.2.1-rc.1",
+        "reason": "ctx 服务键下线：rc.2 由 dsh-web-app 的 ctx.provide(WEB_RUNTIME_SERVICE=\"webRuntime\") 提供（该包 0.2.1 里只 provide(\"webApp\")），0.2.1-rc.1 全闭包 grep \"webRuntime\" 0 命中。它的唯一消费面 trustedHosts（HTTP 栅栏用的非回环 authority 清单）迁到 @deepseek-ai/dsh-client-connection 的 connection 服务（HostConnectionService.trustedHosts + isTrusted()，rc.2 与 0.2.1 双代实测在位）。连带事故：dsh-better-sidebar / dsh-basics-panel 宿主半边仍 inject ['webRuntime'] → fiber 永久 pending 被 loader-isolation 静默隔离 → /sidebar/*、/basics/* 一条路由都不挂 → 资源管理器 POST /sidebar/api/fs.trees 落进 dsh-host-frontend-static 的 GET-only 兜底拿到空体 405，而 boot 五步全绿、stderr 零 failed to load。判据锁 scripts/test/unit-plugin-inject-services.test.js。"
       }
     ]
   },

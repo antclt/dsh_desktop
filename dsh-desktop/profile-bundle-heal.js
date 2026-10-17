@@ -294,7 +294,9 @@ const { writeFileAtomic } = require('./scripts/lib/patch-io');
 //      loadProfileDirectory 的 bundles 读取都在 try 头之前，抛错即启动失败页）；
 //   ② `dsh.profile.bundles` 被写成非数组（for…of 在 try 头，同样击穿启动）。
 const APP_BOOT_PROFILE_MANIFEST_ANCHOR = '\tnormalizeShippedProfile(name, dir, readProfileManifest(binName, dir));';
-const APP_BOOT_BUNDLES_ANCHOR = '\tconst bundles = readProfileManifest(binName, dir).dsh?.profile?.bundles ?? [];';
+// 0.2.1-rc.1 起上游在 bundles 读取前插了一道 dropRetiredBundles（把已退役 bundle 名从
+// profile manifest 里摘掉并**回写文件**）。安全读取必须把它包住，否则退役清理会随补丁失活。
+const APP_BOOT_BUNDLES_ANCHOR = '\tconst bundles = dropRetiredBundles(dir, readProfileManifest(binName, dir)).dsh?.profile?.bundles ?? [];';
 
 // 注入位置：composeEntries 函数声明前（模块作用域内所有被用符号均可见）。
 const APP_BOOT_INSERT_ANCHOR = 'function composeEntries(layers, warn = () => {}) {';
@@ -332,7 +334,7 @@ const APP_BOOT_GUARD_CODE = [
   '\t}',
   '}',
   'function loadProfileBundlesSafe(binName, name, dir) {',
-  '\tconst bundles = loadProfileManifestSafe(binName, name, dir).dsh?.profile?.bundles ?? [];',
+  '\tconst bundles = dropRetiredBundles(dir, loadProfileManifestSafe(binName, name, dir)).dsh?.profile?.bundles ?? [];',
   '\tif (Array.isArray(bundles)) return bundles;',
   '\tprocess.stderr.write(`' + '${binName}: profile ${JSON.stringify(name)}: dsh.profile.bundles must be an array (got ${typeof bundles}); booting without bundle layers — fix the profile manifest or run \'dsh plugin --profile ${name} install\'\\n`' + ');',
   '\treturn [];',

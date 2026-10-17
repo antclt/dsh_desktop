@@ -89,8 +89,25 @@ const HOST_IMPORT_INSERT = 'import { DirectoryPickerError } from "@deepseek-ai/d
 // 三个服务均为内核根作用域服务（agents：dsh-goal/file-reference-local 同名注入；
 // sessions：dsh-session:1674；sessionPersistence：dsh-session-persistence:1478），
 // 与 workspaceRegistry 同域，inject 可解析。
-const HOST_INJECT_ANCHOR = 'static inject = ["typert", "workspaceRegistry"];';
-const HOST_INJECT_INSERT = 'static inject = ["typert", "workspaceRegistry", "agents", "sessions", "sessionPersistence"];';
+// 0.2.1-rc.1 重锚：上游把单行数组改写成多行、并新增 "remoteAccess"，故锚点取
+// 五行形态（rc.2 的单行字面串在此已 0 命中）。
+const HOST_INJECT_ANCHOR = [
+  '\t\tstatic inject = [',
+  '\t\t\t"remoteAccess",',
+  '\t\t\t"typert",',
+  '\t\t\t"workspaceRegistry"',
+  '\t\t];',
+].join('\n');
+const HOST_INJECT_INSERT = [
+  '\t\tstatic inject = [',
+  '\t\t\t"remoteAccess",',
+  '\t\t\t"typert",',
+  '\t\t\t"workspaceRegistry",',
+  '\t\t\t"agents",',
+  '\t\t\t"sessions",',
+  '\t\t\t"sessionPersistence"',
+  '\t\t];',
+].join('\n');
 
 // 3b. WorkspaceCommands：在原生 unarchiveSession 命令之后、pinSession 之前插入
 // deleteSession 命令。0.2.0-rc.2 重锚：archiveSession 与 unarchiveSession 之间
@@ -109,15 +126,81 @@ const HOST_CTRL_INSERT = "\t\tunarchiveSession(request) {\n\t\t\treturn this.com
 // ---------------------------------------------------------------------------
 // 4. dsh-api-workspace-controller/lib/typert.host.js：STRICT 分发描述符
 // ---------------------------------------------------------------------------
-// 4a. schema 常量（原生 unarchiveSession_result 之后、TYPERT 导出之前插入
-// deleteSession 的 parameter/result schema；unarchive 系 schema 0.1.6 已原生）。
-const TYPERT_HOST_SCHEMA_ANCHOR = "let _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema$value\nconst _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema$value ??= z.object({\n  'archivedSessionIds': z.array(z.intersection(z.string(), z.unknown())).readonly(),\n}))";
-const TYPERT_HOST_SCHEMA_INSERT = "let _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema$value\nconst _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema$value ??= z.object({\n  'archivedSessionIds': z.array(z.intersection(z.string(), z.unknown())).readonly(),\n}))\nlet _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_parameter_0$schema$value\nconst _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_parameter_0$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_parameter_0$schema$value ??= z.object({\n  'sessionId': z.intersection(z.string(), z.unknown()).readonly(),\n}))\nlet _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_result$schema$value\nconst _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_result$schema = () => (_deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_result$schema$value ??= z.object({\n  'deleted': z.boolean().readonly(),\n}))";
+// 0.2.1-rc.1 重锚（两处结构性变化）：
+//   · descriptors 从「数组 + {id, service, namespace, method}」改成「以
+//     '<namespace>/<method>' 为键的对象」，每个参数还补了 strictCodec + 内联 jsonSchema；
+//   · 载荷 schema 不再包 z.intersection(z.string(), z.unknown())，改直写 z.string()，
+//     且 parameter / result（宽松段）与 parameter_strict（strictObject 段）分两段落款。
+// 锚点一律只取「原生 unarchiveSession 自己的块/收尾」，注入体 = 锚点原文 + 追加内容，
+// 因此 insert 原样保留 anchor（unit-session-manage 的「链式安全」不变量：不与共享同一
+// 原生锚的其它补丁互相挤掉）。这些块在各自文件里实测唯一。
+const TW = '_deepseek_ai_dsh_api_workspace_controller_workspace_';
+/** 宽松对象 schema 常量块（生成器形态：let $value + const = () => (…??= z.object({…}))）。 */
+const hostLooseSchema = (name, body) =>
+  `let ${TW}${name}$schema$value\nconst ${TW}${name}$schema = () => (${TW}${name}$schema$value ??= z.object({\n  '${body[0]}': ${body[1]},\n}))`;
+/** strictObject 参数 schema 常量块。 */
+const hostStrictSchema = (name, body) =>
+  `let ${TW}${name}_strict$schema$value\nconst ${TW}${name}_strict$schema = () => (${TW}${name}_strict$schema$value ??= z.strictObject({\n  '${body[0]}': ${body[1]},\n}))`;
 
-// 4b. invocation 条目（原生 unarchiveSession 描述符之后、数组闭合前插入
-// deleteSession 描述符；unarchive 描述符 0.1.6 已原生，sourceLocation line 119）。
-const TYPERT_HOST_INVOKE_ANCHOR = "        create: _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema,\n      },\n      sourceLocation: {\"file\":\"packages/api/workspace-controller/src/index.ts\",\"line\":165,\"column\":3},\n    },";
-const TYPERT_HOST_INVOKE_INSERT = "        create: _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema,\n      },\n      sourceLocation: {\"file\":\"packages/api/workspace-controller/src/index.ts\",\"line\":165,\"column\":3},\n    },\n    {\n      id: '@deepseek-ai/dsh-api-workspace-controller#workspace/deleteSession',\n      service: 'workspaceController',\n      namespace: 'workspace',\n      method: 'deleteSession',\n      invocation: { kind: 'direct' },\n      parameters: [\n        {\n          name: 'request',\n          wire: 'request',\n          source: 'json',\n          codec: {\n            mode: 'strict',\n            typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionRequest',\n            create: _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_parameter_0$schema,\n          },\n        },\n      ],\n      result: {\n        mode: 'strict',\n        typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionValue',\n        create: _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_result$schema,\n      },\n      sourceLocation: {\"file\":\"packages/api/workspace-controller/src/index.ts\",\"line\":999,\"column\":3},\n    },";
+// 4a. 宽松段：unarchiveSession_result 之后插 deleteSession 的 parameter_0 + result。
+const TYPERT_HOST_SCHEMA_ANCHOR =
+  hostLooseSchema('unarchiveSession_result', ['archivedSessionIds', 'z.array(z.string()).readonly()']);
+const TYPERT_HOST_SCHEMA_INSERT = [
+  TYPERT_HOST_SCHEMA_ANCHOR,
+  hostLooseSchema('deleteSession_parameter_0', ['sessionId', 'z.string().readonly()']),
+  hostLooseSchema('deleteSession_result', ['deleted', 'z.boolean().readonly()']),
+].join('\n');
+
+// 4a-2. strictObject 段：unarchiveSession_parameter_0_strict 之后插 deleteSession 同名块
+// （descriptor 的 strictCodec.create 要引用它，缺一个就是半个注入）。
+const TYPERT_HOST_STRICT_ANCHOR =
+  hostStrictSchema('unarchiveSession_parameter_0', ['sessionId', 'z.string().readonly()']);
+const TYPERT_HOST_STRICT_INSERT = [
+  TYPERT_HOST_STRICT_ANCHOR,
+  hostStrictSchema('deleteSession_parameter_0', ['sessionId', 'z.string().readonly()']),
+].join('\n');
+
+// 4b. descriptor 条目（原生 'workspace/unarchiveSession' 收尾之后插 deleteSession 条目；
+// 锚点取该条目的 sourceLocation(line 170) + 收尾两行，实测全文件唯一）。
+const TYPERT_HOST_INVOKE_ANCHOR = [
+  '      sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":170,"column":3},',
+  '    },',
+].join('\n');
+const TYPERT_HOST_INVOKE_INSERT = [
+  TYPERT_HOST_INVOKE_ANCHOR,
+  "    'workspace/deleteSession': {",
+  "      service: 'workspaceController',",
+  "      description: 'Permanently delete one Session (log and attachments included).',",
+  '      invocation: { kind: \'direct\' },',
+  '      parameters: [',
+  '        {',
+  "          name: 'request',",
+  "          description: 'Session identity to delete.',",
+  "          source: 'json',",
+  '          codec: {',
+  "            mode: 'strict',",
+  "            typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionRequest',",
+  `            create: ${TW}deleteSession_parameter_0$schema,`,
+  '            jsonSchema: {"type":"object","properties":{"sessionId":{"type":"string"}},"required":["sessionId"],"additionalProperties":true},',
+  '          },',
+  '          strictCodec: {',
+  "            mode: 'strict',",
+  "            typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionRequest',",
+  `            create: ${TW}deleteSession_parameter_0_strict$schema,`,
+  '            jsonSchema: {"type":"object","properties":{"sessionId":{"type":"string"}},"required":["sessionId"],"additionalProperties":false},',
+  '          },',
+  '        },',
+  '      ],',
+  '      result: {',
+  "        mode: 'strict',",
+  "        typeSymbol: '@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionValue',",
+  `        create: ${TW}deleteSession_result$schema,`,
+  "        description: 'deletion confirmation.',",
+  '        jsonSchema: {"type":"object","properties":{"deleted":{"type":"boolean"}},"required":["deleted"],"additionalProperties":true},',
+  '      },',
+  '      sourceLocation: {"file":"packages/api/workspace-controller/src/index.ts","line":999,"column":3},',
+  '    },',
+].join('\n');
 
 // ---------------------------------------------------------------------------
 // 5. dsh-api-workspace-controller/lib/client.js：客户端模型/服务门面
@@ -135,15 +218,94 @@ const CLIENT_CTRL_INSERT = "\t\t\tasync unarchiveSession(sessionId) {\n\t\t\t\tc
 // ---------------------------------------------------------------------------
 // 6. dsh-api-remotes/lib/client.js：客户端 remote 注册表 bundle
 // ---------------------------------------------------------------------------
-// 6a. schema 常量（原生 unarchiveSession_result 之后、TYPERT_REMOTE$2 之前插入
-// deleteSession 的 parameter/result schema；unarchive 系 schema 0.1.6 已原生）。
-const REMOTES_SCHEMA_ANCHOR = "\t\tlet _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema$value;\n\t\tconst _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema$value ??= object({ \"archivedSessionIds\": array(intersection(string(), unknown())).readonly() });";
-const REMOTES_SCHEMA_INSERT = "\t\tlet _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema$value;\n\t\tconst _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema$value ??= object({ \"archivedSessionIds\": array(intersection(string(), unknown())).readonly() });\n\t\tlet _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_parameter_0$schema$value;\n\t\tconst _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_parameter_0$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_parameter_0$schema$value ??= object({ \"sessionId\": intersection(string(), unknown()).readonly() });\n\t\tlet _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_result$schema$value;\n\t\tconst _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_result$schema = () => _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_result$schema$value ??= object({ \"deleted\": boolean().readonly() });";
+// 0.2.1-rc.1 重锚：与 4 节同型漂移——descriptors 改键控对象、参数补 strictCodec +
+// jsonSchema、载荷 schema 去 intersection；另有两点 bundle 侧差异：zod 走 `zod.z.`
+// 命名空间前缀，且每条 schema 语句以分号收尾、缩进为制表符。
+/** 客户端 bundle 的宽松对象 schema 常量行（单行 + 分号）。 */
+const remotesLooseSchema = (name, body) =>
+  `\t\tlet ${TW}${name}$schema$value;\n\t\tconst ${TW}${name}$schema = () => ${TW}${name}$schema$value ??= zod.z.object({ ${body} });`;
+/** 客户端 bundle 的 strictObject 参数 schema 常量行。 */
+const remotesStrictSchema = (name, body) =>
+  `\t\tlet ${TW}${name}_strict$schema$value;\n\t\tconst ${TW}${name}_strict$schema = () => ${TW}${name}_strict$schema$value ??= zod.z.strictObject({ ${body} });`;
 
-// 6b. descriptor 条目（原生 unarchiveSession 描述符之后、数组闭合前插入
-// deleteSession 描述符；unarchive 描述符 0.1.6 已原生，sourceLocation line 119）。
-const REMOTES_INVOKE_ANCHOR = "\t\t\t\t\t\tcreate: _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema\n\t\t\t\t\t},\n\t\t\t\t\tsourceLocation: {\n\t\t\t\t\t\t\"file\": \"packages/api/workspace-controller/src/index.ts\",\n\t\t\t\t\t\t\"line\": 165,\n\t\t\t\t\t\t\"column\": 3\n\t\t\t\t\t}\n\t\t\t\t},";
-const REMOTES_INVOKE_INSERT = "\t\t\t\t\t\tcreate: _deepseek_ai_dsh_api_workspace_controller_workspace_unarchiveSession_result$schema\n\t\t\t\t\t},\n\t\t\t\t\tsourceLocation: {\n\t\t\t\t\t\t\"file\": \"packages/api/workspace-controller/src/index.ts\",\n\t\t\t\t\t\t\"line\": 165,\n\t\t\t\t\t\t\"column\": 3\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\t{\n\t\t\t\t\tid: \"@deepseek-ai/dsh-api-workspace-controller#workspace/deleteSession\",\n\t\t\t\t\tservice: \"workspaceController\",\n\t\t\t\t\tnamespace: \"workspace\",\n\t\t\t\t\tmethod: \"deleteSession\",\n\t\t\t\t\tinvocation: { kind: \"direct\" },\n\t\t\t\t\tparameters: [{\n\t\t\t\t\t\tname: \"request\",\n\t\t\t\t\t\twire: \"request\",\n\t\t\t\t\t\tsource: \"json\",\n\t\t\t\t\t\tcodec: {\n\t\t\t\t\t\t\tmode: \"strict\",\n\t\t\t\t\t\t\ttypeSymbol: \"@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionRequest\",\n\t\t\t\t\t\t\tcreate: _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_parameter_0$schema\n\t\t\t\t\t\t}\n\t\t\t\t\t}],\n\t\t\t\t\tresult: {\n\t\t\t\t\t\tmode: \"strict\",\n\t\t\t\t\t\ttypeSymbol: \"@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionValue\",\n\t\t\t\t\t\tcreate: _deepseek_ai_dsh_api_workspace_controller_workspace_deleteSession_result$schema\n\t\t\t\t\t},\n\t\t\t\t\tsourceLocation: {\n\t\t\t\t\t\t\"file\": \"packages/api/workspace-controller/src/index.ts\",\n\t\t\t\t\t\t\"line\": 999,\n\t\t\t\t\t\t\"column\": 3\n\t\t\t\t\t}\n\t\t\t\t},";
+// 6a. 宽松段 + strict 段（各锚「unarchive 自己的块」，注入体=锚点原文+追加，
+// 与 4 节同理由：insert 必须原样保留 anchor）。
+const REMOTES_SCHEMA_ANCHOR =
+  remotesLooseSchema('unarchiveSession_result', '"archivedSessionIds": zod.z.array(zod.z.string()).readonly()');
+const REMOTES_SCHEMA_INSERT = [
+  REMOTES_SCHEMA_ANCHOR,
+  remotesLooseSchema('deleteSession_parameter_0', '"sessionId": zod.z.string().readonly()'),
+  remotesLooseSchema('deleteSession_result', '"deleted": zod.z.boolean().readonly()'),
+].join('\n');
+const REMOTES_STRICT_ANCHOR =
+  remotesStrictSchema('unarchiveSession_parameter_0', '"sessionId": zod.z.string().readonly()');
+const REMOTES_STRICT_INSERT = [
+  REMOTES_STRICT_ANCHOR,
+  remotesStrictSchema('deleteSession_parameter_0', '"sessionId": zod.z.string().readonly()'),
+].join('\n');
+
+// 6b. descriptor 条目（原生 "workspace/unarchiveSession" 的 sourceLocation(line 170)
+// 收尾之后插 deleteSession 条目；该收尾实测全文件唯一）。
+const REMOTES_INVOKE_ANCHOR = [
+  '\t\t\t\t\tsourceLocation: {',
+  '\t\t\t\t\t\t"file": "packages/api/workspace-controller/src/index.ts",',
+  '\t\t\t\t\t\t"line": 170,',
+  '\t\t\t\t\t\t"column": 3',
+  '\t\t\t\t\t}',
+  '\t\t\t\t},',
+].join('\n');
+const REMOTES_INVOKE_INSERT = [
+  REMOTES_INVOKE_ANCHOR,
+  '\t\t\t\t"workspace/deleteSession": {',
+  '\t\t\t\t\tservice: "workspaceController",',
+  '\t\t\t\t\tdescription: "Permanently delete one Session (log and attachments included).",',
+  '\t\t\t\t\tinvocation: { kind: "direct" },',
+  '\t\t\t\t\tparameters: [{',
+  '\t\t\t\t\t\tname: "request",',
+  '\t\t\t\t\t\tdescription: "Session identity to delete.",',
+  '\t\t\t\t\t\tsource: "json",',
+  '\t\t\t\t\t\tcodec: {',
+  '\t\t\t\t\t\t\tmode: "strict",',
+  '\t\t\t\t\t\t\ttypeSymbol: "@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionRequest",',
+  `\t\t\t\t\t\t\tcreate: ${TW}deleteSession_parameter_0$schema,`,
+  '\t\t\t\t\t\t\tjsonSchema: {',
+  '\t\t\t\t\t\t\t\t"type": "object",',
+  '\t\t\t\t\t\t\t\t"properties": { "sessionId": { "type": "string" } },',
+  '\t\t\t\t\t\t\t\t"required": ["sessionId"],',
+  '\t\t\t\t\t\t\t\t"additionalProperties": true',
+  '\t\t\t\t\t\t\t}',
+  '\t\t\t\t\t\t},',
+  '\t\t\t\t\t\tstrictCodec: {',
+  '\t\t\t\t\t\t\tmode: "strict",',
+  '\t\t\t\t\t\t\ttypeSymbol: "@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionRequest",',
+  `\t\t\t\t\t\t\tcreate: ${TW}deleteSession_parameter_0_strict$schema,`,
+  '\t\t\t\t\t\t\tjsonSchema: {',
+  '\t\t\t\t\t\t\t\t"type": "object",',
+  '\t\t\t\t\t\t\t\t"properties": { "sessionId": { "type": "string" } },',
+  '\t\t\t\t\t\t\t\t"required": ["sessionId"],',
+  '\t\t\t\t\t\t\t\t"additionalProperties": false',
+  '\t\t\t\t\t\t\t}',
+  '\t\t\t\t\t\t}',
+  '\t\t\t\t\t}],',
+  '\t\t\t\t\tresult: {',
+  '\t\t\t\t\t\tmode: "strict",',
+  '\t\t\t\t\t\ttypeSymbol: "@deepseek-ai/dsh-api-workspace-controller/types#WorkspaceDeleteSessionValue",',
+  `\t\t\t\t\t\tcreate: ${TW}deleteSession_result$schema,`,
+  '\t\t\t\t\t\tdescription: "deletion confirmation.",',
+  '\t\t\t\t\t\tjsonSchema: {',
+  '\t\t\t\t\t\t\t"type": "object",',
+  '\t\t\t\t\t\t\t"properties": { "deleted": { "type": "boolean" } },',
+  '\t\t\t\t\t\t\t"required": ["deleted"],',
+  '\t\t\t\t\t\t\t"additionalProperties": true',
+  '\t\t\t\t\t\t}',
+  '\t\t\t\t\t},',
+  '\t\t\t\t\tsourceLocation: {',
+  '\t\t\t\t\t\t"file": "packages/api/workspace-controller/src/index.ts",',
+  '\t\t\t\t\t\t"line": 999,',
+  '\t\t\t\t\t\t"column": 3',
+  '\t\t\t\t\t}',
+  '\t\t\t\t},',
+].join('\n');
 
 // ---------------------------------------------------------------------------
 // 7. dsh-client-ui-workspace：会话行菜单「删除对话」+ 翻译
@@ -264,6 +426,7 @@ const TARGETS = [
     rel: ['@deepseek-ai', 'dsh-api-workspace-controller', 'lib', 'typert.host.js'],
     replacements: [
       { anchor: TYPERT_HOST_SCHEMA_ANCHOR, insert: TYPERT_HOST_SCHEMA_INSERT },
+      { anchor: TYPERT_HOST_STRICT_ANCHOR, insert: TYPERT_HOST_STRICT_INSERT },
       { anchor: TYPERT_HOST_INVOKE_ANCHOR, insert: TYPERT_HOST_INVOKE_INSERT },
     ],
   },
@@ -278,6 +441,7 @@ const TARGETS = [
     rel: ['@deepseek-ai', 'dsh-api-remotes', 'lib', 'client.js'],
     replacements: [
       { anchor: REMOTES_SCHEMA_ANCHOR, insert: REMOTES_SCHEMA_INSERT },
+      { anchor: REMOTES_STRICT_ANCHOR, insert: REMOTES_STRICT_INSERT },
       { anchor: REMOTES_INVOKE_ANCHOR, insert: REMOTES_INVOKE_INSERT },
     ],
   },

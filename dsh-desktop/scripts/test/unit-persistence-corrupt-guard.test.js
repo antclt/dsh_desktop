@@ -34,9 +34,10 @@ const {
 // 此前这里镜像了一份 rc.1 字节，rc.2 重锚后成了第二处漂移源（5 条用例全红，
 // 而 patch-deps 是绿的——红区根本没在测生产锚点）。真实字节仍命中由下面的
 // 「pristine 哨兵」用例守着。
-// rc.1→rc.2 沿革：header 读取下沉进 readGenerationHeader(selected)，corrupt-guard
-// 的锚点是「listArtifacts 包住该调用的 catch(error)」——保留
-// SessionFormatUnsupportedError 先行 continue，其余告警 + continue。
+// rc.1→rc.2→0.2.1 沿革：header 读取下沉进 readGenerationHeader(selected)，
+// corrupt-guard 的锚点始终是「listArtifacts 包住该调用的 catch(error)」；0.2.1 起
+// 上游把跳过形态从 `continue` 改成 `return { selected, metadata: void 0 }`，本补丁
+// 跟着改返回，语义（告警 + 跳过该会话）不变。
 const CORRUPT_OLD = PERSISTENCE_CORRUPT_OLD;
 const FRAME_LOOP_OLD = PERSISTENCE_FRAME_LOOP_OLD;
 const WRITE_OLD = PERSISTENCE_WRITE_OLD;
@@ -48,20 +49,22 @@ const FULL_SRC = [FRAME_LOOP_OLD, WRITE_OLD, COMPLETE_CHECK, CORRUPT_OLD].join('
 test('transformPersistenceCorruptGuard：匹配 → 改写 catch 跳过损坏会话', () => {
   const changed = transformPersistenceCorruptGuard(CORRUPT_OLD, 't.js');
   assert.equal(changed.status, 'changed');
-  // 注入的核心语义：损坏读失败在该 catch 内被降级为「告警 + continue」，
-  // 格式版本不兼容的先行 continue 分支保留，原先的无条件下钻 throw error 消失。
+  // 注入的核心语义：损坏读失败在该 catch 内被降级为「告警 + 跳过该会话」，
+  // 格式版本不兼容的先行分支保留，原先的无条件下钻 throw error 消失。
   assert.ok(changed.src.includes(PERSISTENCE_CORRUPT_MARKER), '应写入 corrupt-guard marker');
   assert.ok(changed.src.includes('} catch (error) {'), '应改写既有 catch 而非另起块');
-  // rc.2：上游在这一层原生白名单了两类可读错误（格式不支持 / 持久化损坏），
-  // 本补丁的增量是「其余裸 Error 也告警跳过」，故先行 continue 是两类的形态。
-  assert.ok(changed.src.includes('if (error instanceof SessionFormatUnsupportedError || error instanceof SessionPersistenceCorruptionError) continue;'),
-    '上游白名单两类的先行 continue 应原样保留');
+  // 0.2.1：上游在这一层原生白名单了两类可读错误（格式不支持 / 持久化损坏），
+  // 跳过形态是 return { selected, metadata: void 0 }（消费侧据此 continue）。
+  // 本补丁的增量是「其余裸 Error 也告警跳过」，故先行分支原样保留。
+  assert.ok(changed.src.includes('if (error instanceof SessionFormatUnsupportedError || error instanceof SessionPersistenceCorruptionError) return {'),
+    '上游白名单两类的先行 return 应原样保留');
   assert.ok(changed.src.includes('skipping corrupt session log'), '告警文案应含 skipping corrupt session log');
-  assert.ok(changed.src.includes('${selected.sourcePath}'), '告警应点出损坏会话文件（rc.1 取径 selected.sourcePath）');
-  assert.ok(changed.src.includes('continue;'), '损坏时应 continue 跳过该会话');
-  // 原「throw error」整句不再存在于该 catch（已被告警 + continue 取代）。
+  assert.ok(changed.src.includes('${selected.sourcePath}'), '告警应点出损坏会话文件（取径 selected.sourcePath）');
+  assert.equal((changed.src.match(/metadata: void 0/g) || []).length, 2,
+    '两条跳过返回都在位（上游白名单一条 + 本补丁告警后一条）');
+  // 原「throw error」整句不再存在于该 catch（已被告警 + 跳过取代）。
   assert.ok(!changed.src.includes(CORRUPT_OLD), '旧的 throw error 收尾 catch 应被改写');
-  assert.ok(!/} catch \(error\) \{\n\t+if \(error instanceof SessionFormatUnsupportedError\) continue;\n\t+throw error;/.test(changed.src),
+  assert.ok(!/} catch \(error\) \{\n\t+if \(error instanceof SessionFormatUnsupportedError[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\n\t+throw error;/.test(changed.src),
     'catch 内不得残留无条件 throw error（击穿启动扫描的正是它）');
 });
 
@@ -176,7 +179,7 @@ const { findPristineFile, describePristineRoots } = require('../lib/pristine-ker
 
 const persistencePristine = findPristineFile(PERSISTENCE_PKG_REL);
 
-test('pristine 哨兵：两个锚点在真实 rc.2 内核字节里仍命中', {
+test('pristine 哨兵：两个锚点在真实 0.2.1 内核字节里仍命中', {
   skip: persistencePristine ? false : '无 pristine ' + PERSISTENCE_PKG_REL + '（查过 ' + describePristineRoots() + '）',
 }, () => {
   const src = fs.readFileSync(persistencePristine, 'utf8');

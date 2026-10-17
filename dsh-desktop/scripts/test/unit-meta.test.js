@@ -39,7 +39,10 @@ test('workspace-anchor 插件按预期注册工作区锚点', () => {
   const anchor = fs.readFileSync(path.join(repoRoot, 'assets', 'plugins', 'dsh-workspace-anchor', 'lib', 'index.js'), 'utf8');
   assert.ok(anchor.includes('name: "dsh:workspace-anchor"'), '插件应注册 dsh:workspace-anchor 节');
   assert.ok(anchor.includes('order: 1'), '锚点应紧跟 persona（order 1）');
-  assert.ok(anchor.includes('Workspace: {{cwd}}.'), '锚点应渲染会话 cwd');
+  // 0.2.1-rc.1 起内核不再注册 {{cwd}} 变量，锚点文本改由插件自己填 header.cwd
+  // （行为与反证在 unit-workspace-anchor-cwd 用真渲染函数打）——这里只锁文本面形状。
+  assert.ok(anchor.includes('Workspace: ${cwd}.'), '锚点应把会话 cwd 填进「Workspace: <路径>.」');
+  assert.ok(anchor.includes('interpolate: false'), '锚点须关插值，避免装配期再扫它');
   assert.ok(anchor.includes('reference material, not a new project root'), '锚点应包含「搜索命中不是新项目根」规则');
   // 另一半（6 个 complete-persona 预设的 persona 文本里写同一锚点）随 v1.0.0
   // 随包预设退役一并撤除——assets/agent-presets 已不在仓库里。

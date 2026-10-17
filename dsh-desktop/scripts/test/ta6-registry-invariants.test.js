@@ -13,7 +13,7 @@
 //      某个路径常量覆盖（白名单化记录既有内联漂移，新漂移即红）；
 //   E. order 全局唯一、组内升序、组间依赖序（requires / 已知补丁间依赖的
 //      目标 order 更小）；
-//   F. cli:true 数量恰为 26（哨兵随换代更新，理由逐条记在用例注释里）；
+//   F. cli:true 数量恰为 25（哨兵随换代更新，理由逐条记在用例注释里）；
 //      failPolicy ∈ {warn,degrade}
 //      （注意：治理任务书写的是 {warn,error}，registry 实际词表是
 //      {warn,degrade,fatal(仅注释)}，此处按实际词表断言并作为缺陷记录）；
@@ -107,10 +107,11 @@ test('A. file spec transform 均为函数且来自收口导出（无内联孤儿
 test('B. root spec apply ∈ rootAppliers 值集（绕过收口即红）', () => {
   const appliers = new Set(Object.values(adapters.rootAppliers));
   const rootSpecs = PATCH_SPECS.filter((s) => s.kind === 'root');
-  // 15 = rc.2 重靶后的 root 型规格数（atomic-write-orphan-lock / model-image-input
-  // 两条应用器已随补丁退役，其 rootAppliers 接线同步摘除——死接线会被下面的
-  // 双向断言当场点名）。
-  assert.equal(rootSpecs.length, 15, `root spec 应有 15 个，得 ${rootSpecs.length}`);
+  // 14 = 15（rc.2 重靶后的 root 型规格数）− pi-ai-opencode-go-models（0.2.1-rc.1 退役，
+  // 见 E）；其应用器 patchPiAiOpencodeGoModels 的接线同步摘除——死接线会被下面的
+  // 双向断言当场点名。此前 atomic-write-orphan-lock / model-image-input 两条应用器
+  // 已随补丁退役，rootAppliers 接线同批摘除。
+  assert.equal(rootSpecs.length, 14, `root spec 应有 14 个，得 ${rootSpecs.length}`);
   for (const spec of rootSpecs) {
     assert.equal(typeof spec.apply, 'function', `${spec.id} 缺 apply`);
     assert.ok(appliers.has(spec.apply), `${spec.id} 的 apply 不是 rootAppliers 成员`);
@@ -218,7 +219,12 @@ test('E. order 全局唯一、组内升序、补丁间依赖序成立', () => {
   // failed to load 与发送文件恒报 prompt rejected 两轮发布查不下去的直接原因——
   // rc.2 导入失败只进 cordis 内存环形缓冲、非核心条目不再抛 StartupError，真因
   // 三重静默）。均 cli:false，故 cli:true 计数不变。
-  assert.equal(PATCH_SPECS.length, 62, 'spec 总数应为 62');
+  // 61 = 62 − pi-ai-opencode-go-models（0.2.1-rc.1 退役）：该 root 型规格向 pi-ai 的
+  // opencode-go.json 克隆同族基型补 deepseek-v4-flash-vision-exp，而 0.2.1 带来的
+  // pi-ai 0.87.1→1.3.0 两端都不再有该型号（端点 /zen/go/v1/models 实测 37 条无
+  // vision-exp、deepseek 族只剩 v4.1-flash/v4-pro；catalog 分组改 `chat:<id>` 键形，
+  // 基型条目不存在）。前提消失即连脚本带用例删除，cli:true 计数随之 26→25。
+  assert.equal(PATCH_SPECS.length, 61, 'spec 总数应为 61');
   const orders = PATCH_SPECS.map((s) => s.order);
   assert.equal(new Set(orders).size, orders.length, 'order 必须全局唯一');
   const byId = Object.fromEntries(PATCH_SPECS.map((s) => [s.id, s]));
@@ -270,11 +276,11 @@ test('E3. device-auth 154 与 credentials-absent 153 相邻无干扰', () => {
   );
 });
 
-test('F. cli:true 恰为 26 项；failPolicy ∈ {warn,degrade}', () => {
+test('F. cli:true 恰为 25 项；failPolicy ∈ {warn,degrade}', () => {
   const cliSpecs = registry.getSpecsByCli();
   // 26 = 28（上一基线）− atomic-write-orphan-lock − model-image-input（两条 rc.2 退役，
   // 见 E 的①–⑥）；token-meter-clamp / preset-seat-fix 早在 0.1.5-rc.1 同批退役。
-  assert.equal(cliSpecs.length, 26, 'cli:true 数量（含 skill-dirs-compat + pi-ai-4xx-dump + workspace-chip-label-hold + pi-ai Responses 工具名净化 + pi-ai 工具名 wire 中央收口 + pi-ai 配额耗尽不重试；atomic-write-orphan-lock / model-image-input / token-meter-clamp 已退役）');
+  assert.equal(cliSpecs.length, 25, 'cli:true 数量（含 skill-dirs-compat + pi-ai-4xx-dump + workspace-chip-label-hold + pi-ai Responses 工具名净化 + pi-ai 工具名 wire 中央收口 + pi-ai 配额耗尽不重试；atomic-write-orphan-lock / model-image-input / token-meter-clamp 已退役）');
   for (const s of cliSpecs) assert.equal(s.cli, true);
   for (const spec of PATCH_SPECS) {
     assert.ok(

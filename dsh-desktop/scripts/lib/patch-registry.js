@@ -28,9 +28,9 @@
 //              供 preflight 只读体检复用；
 //   requires   宿主能力依赖（见 host-capabilities.js）；
 //   cli        CLI 同步期（sync-companion-plugins.js --with-patches）是否也应用；
-//              cli:true 现共 26 项（HEAD 原有 8 个 + slot-error-isolation +
-//              session-persistence + tool-source-compat / pi-ai-opencode-go-models
-//              / pi-ai-credits / pi-ai-reasoning-defaults 四个数据完整性补丁
+//              cli:true 现共 25 项（HEAD 原有 8 个 + slot-error-isolation +
+//              session-persistence + tool-source-compat
+//              / pi-ai-credits / pi-ai-reasoning-defaults 三个数据完整性补丁
 //              + bundle-arrival-retry / agent-loop-scheduler-guard 两个内核
 //              韧性补丁 + pi-ai-overflow-message / token-meter-clamp /
 //              atomic-write-orphan-lock / settings-models-resilience /
@@ -81,7 +81,7 @@ const path = require('node:path');
 const {
   FLASH_PKG_REL,
   SESSION_CTRL_INDEX_PKG_REL,
-  GATEWAY_CLIENT_PKG_REL,
+  GATEWAY_CLIENT_PKG_RELS,
   UI_CHAT_CLIENT_PKG_REL,
   SESSION_PERSISTENCE_CORE_PKG_REL,
   SESSION_FORMAT_V0_TO_V1_PKG_REL,
@@ -928,27 +928,14 @@ const PATCH_SPECS = [
     failLog: (root, err) => 'tool source 容错补丁失败(' + root + '): ' + err.message,
   },
   // -------------------------------------------------------------------------
-  // pi-ai opencode-go 模型目录补丁：内置 catalog 落后于端点，缺
-  // deepseek-v4-flash-vision-exp（设置页「获取可用模型」与模型选择器都经
-  // 内置 catalog 作答，故看不到该型号）。向 opencode-go.json 克隆同族基型
-  // deepseek-v4-flash 条目并追加 image 输入；上游重新生成 catalog 收录后经
-  // 「已存在即跳过」自然退役。见 scripts/patch-pi-ai-opencode-go-models.js。
-  // -------------------------------------------------------------------------
-  {
-    id: 'pi-ai-opencode-go-models',
-    group: 'package',
-    order: 230,
-    kind: 'root',
-    layout: 'nm-roots',
-    wslLayout: 'nm-roots',
-    apply: rootAppliers.patchPiAiOpencodeGoModels,
-    marker: null,
-    requires: [],
-    failPolicy: 'warn',
-    cli: true,
-    successLog: (root) => 'opencode-go 模型目录补丁: 已应用到 ' + root,
-    failLog: (root, err) => 'opencode-go 模型目录补丁失败(' + root + '): ' + err.message,
-  },
+  // 【已退役 0.2.1-rc.1】pi-ai opencode-go 模型目录补丁（id
+  // 'pi-ai-opencode-go-models'，脚本 scripts/patch-pi-ai-opencode-go-models.js）：
+  // 它向 opencode-go.json 克隆同族基型补 deepseek-v4-flash-vision-exp。0.2.1 带来
+  // pi-ai 0.87.1→1.3.0，实测两端都不再有这个型号——端点
+  // https://opencode.ai/zen/go/v1/models 返回 37 条（deepseek 族只剩
+  // deepseek-v4.1-flash / deepseek-v4-pro），catalog 的 openai-completions 分组也
+  // 改成 `chat:<id>` 键形且无基型可克隆。补丁的前提（目录落后于端点）已不存在，
+  // 继续留着只会每 boot 报一条 anchor-missing，故连脚本带用例一起删除。
   // -------------------------------------------------------------------------
   // pi-ai 余额判定前置补丁（F2，第三方模型接入反馈）：opencode 等第三方
   // provider 欠费返回 401 + CreditsError("Insufficient balance")，
@@ -1775,7 +1762,7 @@ const PATCH_SPECS = [
     kind: 'file',
     layout: 'runtime-local',
     wslLayout: 'wsl',
-    pkgRel: GATEWAY_CLIENT_PKG_REL,
+    pkgRels: GATEWAY_CLIENT_PKG_RELS,
     transform: transformJournalPrependContinuity,
     marker: JOURNAL_PREPEND_MARKER,
     requires: [],

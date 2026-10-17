@@ -88,8 +88,8 @@ const { patchSessionPersistence } = require('../patch-session-persistence');
 // 清理已内联到 deleteSession，不再单列 session-orphans 补丁）。
 const { patchSessionManage } = require('../patch-session-manage');
 const { patchToolSourceCompat } = require('./tool-source-patch');
-// pi-ai opencode-go 模型目录补丁（opencode-go.json 纯数据补充）。
-const { patchPiAiOpencodeGoModels } = require('../patch-pi-ai-opencode-go-models');
+// 【已退役 0.2.1-rc.1】pi-ai opencode-go 模型目录补丁（deepseek-v4-flash-vision-exp）
+// 连脚本一起删除——端点与 catalog 都不再有该型号，取证见 patch-registry 同位置注释。
 // pi-ai 余额判定前置补丁（F2：第三方 provider 欠费 401+CreditsError 误判 AUTH
 // →「API key is invalid」；此前仅 postinstall 应用，node_modules 刷新即丢，v0.5.3
 // payload 实测缺失，补进 boot 期注册表幂等自愈）。
@@ -1019,7 +1019,9 @@ function transformKernelBootWatchdog(src, file) {
 // 经 already / anchor-missing 自然退役。
 // ---------------------------------------------------------------------------
 const ADAPTER_PREPARE_CALL_GUARD_MARKER = 'dsh-desktop fix: adapter prepareCall guard';
-const ADAPTER_PREPARE_CALL_ANCHOR_PREPARED = '\t\tconst adapterCall = await registration.adapter.prepareCall(config.provider, config.model, signal);';
+// 0.2.1-rc.1 起 prepareCall(config, signal, configure) 先把 provider/model 解构成本地量，
+// 调用点因此从 config.provider/config.model 变成裸 provider/model。
+const ADAPTER_PREPARE_CALL_ANCHOR_PREPARED = '\t\tconst adapterCall = await registration.adapter.prepareCall(provider, model, signal);';
 const ADAPTER_PREPARE_CALL_ANCHOR_DIRECT = '\t\t\t\tconst adapterCall = await adapter.prepareCall(options.provider, options.model, options.signal);';
 // 注入点 = registration(provider) 方法签名（prepareCall 结束之后，避免把
 // prepareCall 的 JSDoc 注释错挂到注入方法上）。
@@ -1054,7 +1056,7 @@ function transformAdapterPrepareCallGuard(src, file) {
   }
   let out = src;
   out = out.replace(ADAPTER_PREPARE_CALL_METHOD_ANCHOR, ADAPTER_PREPARE_CALL_METHOD_INJECTION);
-  out = out.replace(ADAPTER_PREPARE_CALL_ANCHOR_PREPARED, '\t\tconst adapterCall = await this.prepareAdapterCall(registration.adapter, config.provider, config.model, signal);');
+  out = out.replace(ADAPTER_PREPARE_CALL_ANCHOR_PREPARED, '\t\tconst adapterCall = await this.prepareAdapterCall(registration.adapter, provider, model, signal);');
   out = out.replace(ADAPTER_PREPARE_CALL_ANCHOR_DIRECT, '\t\t\t\tconst adapterCall = await this.prepareAdapterCall(adapter, options.provider, options.model, options.signal);');
   return { status: 'changed', src: out };
 }
@@ -2471,7 +2473,6 @@ module.exports = {
     patchSessionPersistence,
     patchSessionManage,
     patchToolSourceCompat,
-    patchPiAiOpencodeGoModels,
     patchPiAiCredits,
     patchPiAiReasoningDefaults,
     patchPiAiOverflowMessage,

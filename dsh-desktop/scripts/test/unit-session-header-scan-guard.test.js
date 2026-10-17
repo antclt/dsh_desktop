@@ -301,15 +301,18 @@ test('回归：corrupt-guard 损坏跳过 + warn 语义保留（叠加应用后 
   const out = r.src;
   assert.ok(out.includes('dsh-desktop-corrupt-guard-v1'), 'corrupt-guard marker 应保留');
   assert.ok(out.includes('skipping corrupt session log'), 'warn 跳过文案应保留');
-  // rc.1→rc.2 形态：corrupt-guard 不再另起 `catch (corruptError)`（alpha.5 形态），而是
-  // 就地改写 listArtifacts 包住 readGenerationHeader 调用的那个 catch(error)：
-  // 上游原生白名单的两类（格式版本不兼容 + 持久化损坏）先行 continue，其余告警 +
-  // continue 跳过该会话——第二类正是我们注入的读上限错误所依赖的收容路径。
+  // 0.2.1-rc.1 形态：corrupt-guard 仍就地改写 listArtifacts 包住 readGenerationHeader
+  // 调用的那个 catch(error)，但上游把「跳过」的写法从 continue 换成了
+  // `return { selected, metadata: void 0 }`（消费侧 `if (metadata === void 0) continue`
+  // 等效）。三要素不变：上游白名单两类的先行 return、我们这条的告警、以及告警后的跳过。
+  // 第二类收容路径正是本补丁读上限错误所依赖的。
   assert.match(out,
-    /try \{\n\t+header = await this\.readGenerationHeader\(selected, void 0, signal\);\n\t+\} catch \(error\) \{\n\t+if \(error instanceof SessionFormatUnsupportedError(?: \|\| error instanceof SessionPersistenceCorruptionError)?\) continue;\n\t+\/\/ dsh-desktop-corrupt-guard-v1[^\n]*\n\t+console\.warn\(`\[dsh-session-persistence\] skipping corrupt session log: \$\{selected\.sourcePath\}[^\n]*\n\t+continue;\n\t+\}/,
-    'corrupt-guard 应包住 readGenerationHeader 调用并保留 版本continue/告警/continue 三要素');
-  assert.ok(out.includes('error instanceof SessionPersistenceCorruptionError) continue;'),
-    'rc.2 上游白名单第二类的 continue 必须原样保留（我们只补不进白名单的那一类）');
+    /try \{\n\t+return \{\n\t+selected,\n\t+metadata: await this\.readGenerationHeader\(selected, void 0, signal\)\n\t+\};\n\t+\} catch \(error\) \{\n\t+if \(error instanceof SessionFormatUnsupportedError \|\| error instanceof SessionPersistenceCorruptionError\) return \{\n\t+selected,\n\t+metadata: void 0\n\t+\};\n\t+\/\/ dsh-desktop-corrupt-guard-v1[^\n]*\n\t+console\.warn\(`\[dsh-session-persistence\] skipping corrupt session log: \$\{selected\.sourcePath\}[^\n]*\n\t+return \{\n\t+selected,\n\t+metadata: void 0\n\t+\};\n\t+\}/,
+    'corrupt-guard 应包住 readGenerationHeader 调用并保留 白名单return/告警/跳过return 三要素');
+  assert.ok(out.includes('error instanceof SessionPersistenceCorruptionError) return {'),
+    '0.2.1 上游白名单第二类的 return 必须原样保留（我们只补不进白名单的那一类）');
+  assert.ok(!/} catch \(error\) \{\n\t+if \(error instanceof SessionFormatUnsupportedError[^\n]*\n[\s\S]{0,200}?\n\t+throw error;\n\t+\}/.test(out),
+    'listArtifacts 的 catch 不得保留无条件 throw error（settleLimited 会把它变成 rejected，下面 throw outcome.reason 照样击穿扫描）');
   // 读行走 helper 且仍在 try 内（helper 的 stat/读上限抛错经 readGenerationHeader
   // 保留的重抛上抛，最终被 corrupt-guard 吸收，不击穿扫描）。
   const READ_CALL = 'first = await this.readHeaderLineCached(selected.sourcePath, signal);';

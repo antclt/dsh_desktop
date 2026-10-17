@@ -199,10 +199,11 @@ test('recoverManifestBundles: 追加缺失登记并补回 dependencies，保留�
 // `for (const packageName of bundles) try {…} catch { skippedBundles.push(…) }` +
 // reportSkippedBundles），原 `bundles.map(...)` 严格装配块随之消失；本守卫只补
 // 仍留在 try 之外的两处——profile 自己的 manifest 读取、`dsh.profile.bundles`
-// 非数组。合成源按 rc.2 宿主包裹（签名里没有 name 形参，profile 名以
-// basename(dir) 派生）。
+// 非数组。合成源按宿主包裹（签名里没有 name 形参，profile 名以 basename(dir) 派生）。
+// 0.2.1-rc.1：上游在 bundles 读取前插了 dropRetiredBundles(dir, manifest)（摘掉已退役
+// bundle 名并回写文件），锚点随之换成这一行——守卫必须包住它，否则退役清理会随补丁失活。
 const SYNTHETIC_APP_MANIFEST = '\tnormalizeShippedProfile(name, dir, readProfileManifest(binName, dir));';
-const SYNTHETIC_APP_BUNDLES = '\tconst bundles = readProfileManifest(binName, dir).dsh?.profile?.bundles ?? [];';
+const SYNTHETIC_APP_BUNDLES = '\tconst bundles = dropRetiredBundles(dir, readProfileManifest(binName, dir)).dsh?.profile?.bundles ?? [];';
 const SYNTHETIC_APP_INSERT = 'function composeEntries(layers, warn = () => {}) {';
 
 test('applyAppBootBundleGuard: 合成源命中锚点并替换', () => {
@@ -218,10 +219,14 @@ test('applyAppBootBundleGuard: 合成源命中锚点并替换', () => {
     '}',
   ].join('\n');
   const out = applyAppBootBundleGuard(src);
-  assert.equal(out.changed, true, 'rc.2 两处严格读取锚点应命中');
+  assert.equal(out.changed, true, '两处严格读取锚点应命中');
   assert.ok(out.src.includes(PROFILE_BUNDLE_GUARD_MARKER), '应写入幂等标记');
   assert.ok(out.src.includes('function loadProfileManifestSafe(binName, name, dir)'), '应注入 manifest 自愈读取');
   assert.ok(out.src.includes('function loadProfileBundlesSafe(binName, name, dir)'), '应注入 bundles 非数组降级');
+  // 0.2.1 新增锁：安全读取里必须仍包着上游的 dropRetiredBundles（退役清理不能被绕过）。
+  assert.ok(
+    out.src.includes('\tconst bundles = dropRetiredBundles(dir, loadProfileManifestSafe(binName, name, dir)).dsh?.profile?.bundles ?? [];'),
+    'loadProfileBundlesSafe 应包住 dropRetiredBundles');
   assert.ok(out.src.includes('\tnormalizeShippedProfile(name, dir, loadProfileManifestSafe(binName, name, dir));'),
     'manifest 调用点应替换');
   assert.ok(out.src.includes('\tconst bundles = loadProfileBundlesSafe(binName, basename(dir), dir);'),
