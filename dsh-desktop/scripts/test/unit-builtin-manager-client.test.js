@@ -8,13 +8,21 @@
 // 又只认「当前活着的条目」。所以本页走桌面壳已接线的 dsh:plugin-list / dsh:plugin-set-enabled，
 // 文件写入只有 sidecar 一个写者。
 //
+// 0.2.0 重做（用户裁定「搜索+筛选+单列表」）后本套件同步重写：
+//   - 页面改为「工具栏（搜索+重新读取）+ 状态筛选（带计数）+ 单列表卡片行」，
+//     全套内核原语（Button/Input/SegmentedControl/Switch/Tag + 官方图标）。
+//   - 原语在测试里是**桩**：真原语需要 clsx 等运行期依赖，迷你挂载器解不了；
+//     桩只做「可被 walk 找到、props 即行为」这件事——Switch 的点击语义按真实实现
+//     逐字复刻（onClick 即 onChange(!checked)），驱动入口与真机一致。
+//   - 行内反馈按 data-plugin-id 作用域断言（成功/失败只落在对应行，不再全页咬字样）。
+//
 // 挂载方式与 unit-prompt-custom-client 同族：本机没有 jsdom / react-test-renderer，用仓库里
 // 真实的 React 18 + react/jsx-runtime，通过 React 内部 dispatcher 槽位手驱
 // useState/useCallback/useEffect，把真实 client 源码里的组件跑起来。证据强度记为
 // 「真实插件源码 + 复刻渲染夹具（非浏览器语义，仅本组件用到的钩子面）」——不冒充浏览器实测。
 //
-// 反证在文件末尾两条：摘掉 group 过滤、摘掉 ok===false 分支，判据必须按预期变形
-//（否则前面的用例是在为不存在的守卫作证）。
+// 反证四条在文件末尾：摘掉 group 过滤、摘掉 ok===false 分支、摘掉自锁分支、摘掉搜索过滤，
+// 判据必须按预期变形（否则前面的用例是在为不存在的守卫作证）。
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -31,9 +39,30 @@ const CLIENT_FILE = path.join(PKG_DIR, 'lib', 'client.js');
 const HOST_FILE = path.join(PKG_DIR, 'lib', 'index.js');
 const PATCH_FILE = path.join(PKG_DIR, 'cordis.patch.yml');
 
+// ---------------------------------------------------------------------------
+// 内核原语桩：桩体不渲染（夹具只读 props），组件身份用于在树里定位。
+// Switch 的桩保留真实实现的关键约定：用户点击 = onChange(!checked)。
+// ---------------------------------------------------------------------------
+const StubButton = function Button() { return null; };
+const StubInput = function Input() { return null; };
+const StubSegmentedControl = function SegmentedControl() { return null; };
+const StubSwitch = function Switch() { return null; };
+const StubTag = function Tag() { return null; };
+const StubIcon = function Icon() { return null; };
+const primitivesStub = {
+  Button: StubButton,
+  Input: StubInput,
+  SegmentedControl: StubSegmentedControl,
+  Switch: StubSwitch,
+  Tag: StubTag,
+  IconRefreshOutlineRegular: StubIcon,
+  IconSearchOutlineRegular: StubIcon
+};
+
 const fakeRequire = (name) => {
   if (name === 'react') return React;
   if (name === 'react/jsx-runtime') return jsxRuntime;
+  if (name === '@deepseek-ai/dsh-client-ui-primitives') return primitivesStub;
   throw new Error('client 不得 require 模块：' + name);
 };
 
@@ -170,12 +199,37 @@ function walk(node, fn) {
   fn(node);
   if (node.props && node.props.children !== undefined) walk(node.props.children, fn);
 }
-/** 页面上所有 checkbox（每个内置插件一行一个开关）。 */
+/** 树上所有开关（真原语 Switch 的桩；点击语义与实现一致）。 */
 function switches(node) {
   const out = [];
-  walk(node, (n) => { if (n.type === 'input' && n.props && n.props.type === 'checkbox') out.push(n); });
+  walk(node, (n) => { if (n.type === StubSwitch) out.push(n); });
   return out;
 }
+/** 单条插件卡片（行内作用域断言用；卡片带 data-plugin-id）。 */
+function cards(node) {
+  const out = [];
+  walk(node, (n) => { if (n.props && typeof n.props['data-plugin-id'] === 'string') out.push(n); });
+  return out;
+}
+function cardOf(tree, id) {
+  const hit = cards(tree).filter((c) => c.props['data-plugin-id'] === id);
+  assert.equal(hit.length, 1, '行 ' + id + ' 的卡片必须唯一命中');
+  return hit[0];
+}
+function segmented(tree) {
+  const out = [];
+  walk(tree, (n) => { if (n.type === StubSegmentedControl) out.push(n); });
+  assert.equal(out.length, 1, '页面上应恰有一个状态筛选控件');
+  return out[0];
+}
+function searchInput(tree) {
+  const out = [];
+  walk(tree, (n) => { if (n.type === StubInput) out.push(n); });
+  assert.equal(out.length, 1, '页面上应恰有一个搜索框');
+  return out[0];
+}
+/** 模拟真实 Switch 的点击：onClick = () => onChange(!checked)。 */
+function clickSwitch(sw) { sw.props.onChange(!sw.props.checked); }
 
 const row = (over) => ({
   id: 'better-sidebar', name: 'dsh-better-sidebar', description: '侧栏工作台',
@@ -184,11 +238,16 @@ const row = (over) => ({
 
 // ---------------------------------------------------------------------------
 
-test('模块契约：host 半边不写文件，client 半边把页注册进 settings.plugins.tab', () => {
+test('模块契约：host 半边不写文件，client 半边把页注册进 settings.plugins.tab（原语 + 无硬编码色）', () => {
   const host = fs.readFileSync(HOST_FILE, 'utf8');
   // 单一写者是本功能的前提：host 侧若出现写文件，就会出现「页面显示开着、文件里写着关」的分叉。
   assert.doesNotMatch(host, /writeFileSync|writeFileAtomic|appendFile/, 'host 半边不得写文件（启停只有 sidecar 一个写者）');
   assert.match(host, /export const name = 'dsh-builtin-manager'/);
+
+  const clientSrc = fs.readFileSync(CLIENT_FILE, 'utf8');
+  assert.match(clientSrc, /require\("@deepseek-ai\/dsh-client-ui-primitives"\)/,
+    '视觉必须走内核设计系统原语（与其它设置页同语言）');
+  assert.doesNotMatch(clientSrc, /#[0-9a-fA-F]{6}\b/, '不得出现硬编码十六进制颜色（颜色只能取 --dsw-* 变量）');
 
   const { exports, registration } = loadPanel({}, { exposeInternals: true });
   assert.equal(typeof exports.apply, 'function', 'apply 必须是函数');
@@ -220,11 +279,11 @@ test('normalize：两种桥返回形状都收，非内置组与坏行剔除（�
   assert.equal(normalize({ plugins: 'nope' }).length, 0, '形状不对时不得抛，交空集');
 });
 
-test('渲染：逐条列出内置件与启停态，不可改的行置灰并说明原因', async () => {
+test('渲染：工具栏 + 计数 + 卡片行（状态 Tag 与锁定原因并存）', async () => {
   const bridge = {
     list: async () => ([
       row({ id: 'better-sidebar' }),
-      row({ id: 'compaction-acp', name: '@deepseek-ai/dsh-compaction-acp', enabled: false }),
+      row({ id: 'compaction-acp', name: '@deepseek-ai/dsh-compaction-acp', enabled: false, description: '压缩' }),
       row({ id: 'locked-one', name: 'dsh-locked', toggleable: false })
     ]),
     setEnabled: async () => ({ ok: true })
@@ -232,46 +291,119 @@ test('渲染：逐条列出内置件与启停态，不可改的行置灰并说�
   const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
   const tree = await createMounter(Component, {}).settle();
 
-  const sw = switches(tree);
-  assert.equal(sw.length, 3, '三条内置件应渲染三个开关');
-  assert.equal(sw[0].props.checked, true, '第一条应为启用');
-  assert.equal(sw[1].props.checked, false, '第二条应为停用');
-  assert.equal(sw[2].props.disabled, true, '不可改的行的开关必须 disabled');
-  const text = textAll(tree);
-  assert.ok(text.includes('共 3 条内置插件'), '计数与实际渲染条数必须同源: ' + text.slice(0, 80));
-  assert.ok(text.includes('下次启动'), '必须写明生效时机: ' + text.slice(0, 160));
+  assert.equal(cards(tree).length, 3, '三条内置件应渲染三张卡片');
+  assert.equal(switches(tree).length, 3, '每张卡片一个开关');
+
+  const c1 = cardOf(tree, 'better-sidebar');
+  assert.equal(switches(c1)[0].props.checked, true, '第一条应为启用');
+  assert.ok(textAll(c1).includes('已启用'), '状态 Tag 必须逐字给出状态: ' + textAll(c1));
+
+  const c2 = cardOf(tree, 'compaction-acp');
+  assert.equal(switches(c2)[0].props.checked, false, '第二条应为停用');
+  assert.ok(textAll(c2).includes('已停用'), '状态 Tag 必须逐字给出状态: ' + textAll(c2));
+
+  const c3 = cardOf(tree, 'locked-one');
+  assert.equal(switches(c3)[0].props.disabled, true, '不可改的行的开关必须 disabled');
+  const c3text = textAll(c3);
+  assert.ok(c3text.includes('已启用'), '锁定行仍要显示真实状态（原因另起一行，不能顶替状态）: ' + c3text);
+  assert.ok(c3text.includes('不能在这里改'), '锁定行必须说明原因: ' + c3text);
+
+  // 搜索与筛选：控件在位，筛选项计数与数据同源。
+  assert.equal(searchInput(tree).props.placeholder, '搜索名称、标识或描述');
+  const seg = segmented(tree);
+  // 展开一层再 map：options 数组产生在 vm realm，其 .map 结果带 vm 的 Array.prototype，
+  // 直接 deepStrictEqual 会因原型不同假红。
+  assert.deepEqual([...seg.props.options].map((o) => o.label), ['全部 3', '已启用 2', '已停用 1'],
+    '筛选项计数必须与列表同源');
+  assert.ok(textAll(tree).includes('共 3 条内置插件'), '计数与实际渲染条数必须同源: ' + textAll(tree).slice(0, 80));
+  assert.ok(textAll(tree).includes('下次启动生效'), '必须写明生效时机: ' + textAll(tree).slice(0, 160));
 });
 
-test('开关：成功要回写行状态并提示生效时机；失败必须原文上屏且不谎报', async () => {
+test('搜索与筛选：按名称/描述缩列表，计数随动，无命中给出路', async () => {
+  const bridge = {
+    list: async () => ([
+      row({ id: 'better-sidebar', description: '侧栏工作台' }),
+      row({ id: 'easyrewrite', name: 'dsh-easyrewrite', description: '改写草稿', enabled: false }),
+      row({ id: 'locked-one', name: 'dsh-locked', description: '被锁的件' })
+    ]),
+    setEnabled: async () => ({ ok: true })
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  assert.equal(cards(tree).length, 3, '初始应可见全部三条');
+
+  // 搜索：描述命中
+  await searchInput(tree).props.onChange({ target: { value: '侧栏' } });
+  tree = await mounter.settle();
+  assert.deepEqual(cards(tree).map((c) => c.props['data-plugin-id']), ['better-sidebar'], '搜索必须按描述缩列表');
+  assert.ok(textAll(tree).includes('当前显示 1 条'), '筛选态要给显示计数: ' + textAll(tree).slice(0, 120));
+
+  // 清空 → 全量回来
+  await searchInput(tree).props.onChange({ target: { value: '' } });
+  tree = await mounter.settle();
+  assert.equal(cards(tree).length, 3);
+
+  // 状态筛选：只看停用
+  await segmented(tree).props.onChange('off');
+  tree = await mounter.settle();
+  assert.deepEqual(cards(tree).map((c) => c.props['data-plugin-id']), ['easyrewrite'], '停用筛选必须只剩停用行');
+  await segmented(tree).props.onChange('on');
+  tree = await mounter.settle();
+  assert.equal(cards(tree).length, 2, '启用筛选必须只剩启用行');
+  await segmented(tree).props.onChange('all');
+  tree = await mounter.settle();
+
+  // 无命中：给出去路而不是空白
+  await searchInput(tree).props.onChange({ target: { value: 'zzz-不存在' } });
+  tree = await mounter.settle();
+  assert.equal(cards(tree).length, 0, '无命中时列表应为空');
+  assert.ok(textAll(tree).includes('没有匹配的内置插件'), '无命中必须有说明与出路: ' + textAll(tree).slice(0, 160));
+});
+
+test('开关：在途禁用 + 行内反馈；成功回写并挂「已改动」徽标；失败原文上屏且不谎报', async () => {
   const calls = [];
+  let resolveWrite = null;
   let failWith = null;
   const bridge = {
     list: async () => ([row({ id: 'better-sidebar' }), row({ id: 'easyrewrite', name: 'dsh-easyrewrite' })]),
-    setEnabled: async (id, enabled) => {
+    setEnabled: (id, enabled) => {
       calls.push([id, enabled]);
-      if (failWith) return { ok: false, error: failWith };
-      return { ok: true };
+      if (failWith) return Promise.resolve({ ok: false, error: failWith });
+      return new Promise((resolve) => { resolveWrite = resolve; });
     }
   };
   const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
   const mounter = createMounter(Component, {});
   let tree = await mounter.settle();
 
-  await switches(tree)[1].props.onChange({ target: { checked: false } });
-  tree = await mounter.settle();
+  // —— 在途：开关禁用 + 「正在保存…」——
+  clickSwitch(switches(cardOf(tree, 'easyrewrite'))[0]);
+  tree = await mounter.settle(2);
+  assert.equal(switches(cardOf(tree, 'easyrewrite'))[0].props.disabled, true, '写入在途时该行开关必须禁用');
+  assert.ok(textAll(cardOf(tree, 'easyrewrite')).includes('正在保存'), '在途要有明确反馈');
   assert.deepEqual(calls, [['easyrewrite', false]], '必须按 (行 id, enabled) 调桥：id 是 cordis 按行寻址的键，不能传成包名');
-  const afterOk = textAll(tree);
-  assert.ok(afterOk.includes('已保存「dsh-easyrewrite」为停用'), '成功提示要按行名与实际状态措辞: ' + afterOk.slice(0, 200));
-  assert.equal(switches(tree)[1].props.checked, false, '行状态必须跟着实际结果走');
 
-  // 失败路径：sidecar 回 ok:false（例如带自定义配置被拒）时绝不能显示「已保存」
-  failWith = '该插件带自定义配置，禁止卸载: dsh-better-sidebar';
-  await switches(tree)[0].props.onChange({ target: { checked: false } });
+  // —— 成功：行状态回写 + 成功反馈 + 「已改动」徽标，且只落在该行 ——
+  resolveWrite({ ok: true });
   tree = await mounter.settle();
-  const afterFail = textAll(tree);
-  assert.ok(afterFail.includes('带自定义配置'), '失败原文必须上屏: ' + afterFail.slice(0, 220));
-  assert.ok(!afterFail.includes('已保存'), '失败时不得留着任何「已保存」字样（上一次成功的提示也必须被清掉，否则用户读到的是过期结论）;')
-  assert.equal(switches(tree)[0].props.checked, true, '保存失败后行状态不得偷偷翻转');
+  const cEasy = cardOf(tree, 'easyrewrite');
+  assert.equal(switches(cEasy)[0].props.checked, false, '行状态必须跟着实际结果走');
+  assert.equal(switches(cEasy)[0].props.disabled, false, '写完后开关必须恢复可点');
+  assert.ok(textAll(cEasy).includes('已保存「dsh-easyrewrite」为停用'), '成功提示要按行名与实际状态措辞: ' + textAll(cEasy));
+  assert.ok(textAll(cEasy).includes('已改动'), '改过的行进内核半边还等下次启动，必须挂徽标: ' + textAll(cEasy));
+
+  // —— 失败：sidecar 回 ok:false（例如带自定义配置被拒）时绝不能显示「已保存」——
+  failWith = '该插件带自定义配置，禁止卸载: dsh-better-sidebar';
+  clickSwitch(switches(cardOf(tree, 'better-sidebar'))[0]);
+  tree = await mounter.settle();
+  const cFail = cardOf(tree, 'better-sidebar');
+  const failText = textAll(cFail);
+  assert.ok(failText.includes('带自定义配置'), '失败原文必须上屏: ' + failText);
+  assert.ok(!failText.includes('已保存'), '失败行不得出现任何「已保存」字样');
+  assert.ok(!failText.includes('已改动'), '失败不得挂「已改动」徽标');
+  assert.equal(switches(cFail)[0].props.checked, true, '保存失败后行状态不得偷偷翻转');
+  assert.ok(textAll(cardOf(tree, 'easyrewrite')).includes('已保存'), '行内反馈按行独立：前一条成功反馈不因别的行失败被抹掉');
 });
 
 test('自锁：本页自己那条不可停用，且生效时机按实测措辞', async () => {
@@ -286,13 +418,13 @@ test('自锁：本页自己那条不可停用，且生效时机按实测措辞',
   const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
   const tree = await createMounter(Component, {}).settle();
 
-  const sw = switches(tree);
-  assert.equal(sw.length, 2, '两条内置件应渲染两个开关');
-  assert.equal(sw[0].props.disabled, true, '管理页自己那条必须 disabled——关掉它就没有界面能开回来');
-  const text = textAll(tree);
-  assert.ok(text.includes('这是本管理页自己'), '必须说明为什么不能关: ' + text.slice(0, 200));
+  assert.equal(switches(tree).length, 2, '两条内置件应渲染两个开关');
+  assert.equal(switches(cardOf(tree, 'dsh-builtin-manager'))[0].props.disabled, true,
+    '管理页自己那条必须 disabled——关掉它就没有界面能开回来');
+  assert.ok(textAll(cardOf(tree, 'dsh-builtin-manager')).includes('这是本管理页自己'), '必须说明为什么不能关');
   // 实测（2026-10-12 隔离安装布局 + 真内核页面）：disabled 写进去之后**重载页面**就读不到这条了，
   // 只有插件的内核半边才是下次启动。措辞不能一律写成「下次启动生效」。
+  const text = textAll(tree);
   assert.ok(text.includes('刷新页面即更新') && text.includes('下次启动生效'),
     '生效时机要分两层写: ' + text.slice(-260));
   assert.equal(calls.length, 0, '渲染本身不得触发写');
@@ -335,7 +467,7 @@ test('包面一致：bundle 层 loader id 与在册清单同 id，client 入口�
 });
 
 // ---------------------------------------------------------------------------
-// 反证三条：守卫被摘掉时行为必须按预期变形，否则上面的判据是空的
+// 反证四条：守卫被摘掉时行为必须按预期变形，否则上面的判据是空的
 // ---------------------------------------------------------------------------
 
 test('反证 1：摘掉 group 过滤后，core 行会混进列表（证明那条用例真在咬这条判据）', () => {
@@ -359,7 +491,7 @@ test('反证 2：摘掉 ok===false 分支后，失败会被报成「已保存」
   });
   const mounter = createMounter(Component, {});
   let tree = await mounter.settle();
-  await switches(tree)[0].props.onChange({ target: { checked: false } });
+  clickSwitch(switches(tree)[0]);
   tree = await mounter.settle();
   assert.equal(calls.length, 1, '桥必须真的被调用过（否则本条反证是空转）');
   assert.ok(textAll(tree).includes('已保存'), '守卫摘掉后页面会谎报已保存——这正是上面那条断言要防的');
@@ -377,7 +509,23 @@ test('反证 3：摘掉自锁分支后，本页自己那条变成可停用（自
   const mounter = createMounter(Component, {});
   let tree = await mounter.settle();
   assert.equal(switches(tree)[0].props.disabled, false, '守卫摘掉后自己那条就该是可点的');
-  await switches(tree)[0].props.onChange({ target: { checked: false } });
+  clickSwitch(switches(tree)[0]);
   tree = await mounter.settle();
   assert.deepEqual(calls, [['dsh-builtin-manager', false]], '摘掉守卫后「关掉管理页」会被真的写下去');
+});
+
+test('反证 4：摘掉搜索过滤后，查询不再缩列表（搜索那条用例因此在咬真判据）', async () => {
+  const bridge = {
+    list: async () => ([row({ id: 'better-sidebar', description: '侧栏工作台' }), row({ id: 'easyrewrite', name: 'dsh-easyrewrite', description: '改写草稿' })]),
+    setEnabled: async () => ({ ok: true })
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } }, {
+    mutate: (src) => src.replace('if (q === "") return true;', 'if (true) return true;')
+  });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  assert.equal(cards(tree).length, 2, '初始两条都在位（否则本条反证是空转）');
+  await searchInput(tree).props.onChange({ target: { value: 'zzz-不存在' } });
+  tree = await mounter.settle();
+  assert.equal(cards(tree).length, 2, '过滤被摘掉后，无命中的查询也缩不动列表——正是搜索用例要防的');
 });

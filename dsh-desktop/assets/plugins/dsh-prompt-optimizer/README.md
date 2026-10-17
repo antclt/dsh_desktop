@@ -19,6 +19,8 @@ One-click prompt polishing for the DSH composer: select nothing, just type a dra
 - **Zero-config default** — reuses the current session/agent default model (host `agentDefaultModel` + `llm` services), no API key required
 - **Custom endpoint mode** — uncheck "follow session model" and plug in any OpenAI-compatible `/chat/completions` endpoint (base URL + key + model)
 - **Action row on completion** — replace the draft in place, copy, re-optimize, or dismiss
+- **Iterate & expand** — refine the result in place with a follow-up instruction ("shorter", "more formal") or expand it into a structured prompt (task / role & goal / context / steps / output requirements)
+- **Verbatim-preservation check + bounded auto-repair** — a code check extracts every fenced code block, `{{variable}}`, URL and file path from your draft and verifies it survives verbatim in the result; anything dropped triggers **one** bounded repair pass that restores it, and a residual count is shown on the card if it still cannot be preserved
 - **Bilingual UI** — follows the DSH language (中文 / English) live, no reload
 - **Self-hosted config** — settings persist in `~/.dsh/prompt-optimizer-config.json` via a loopback RPC channel, independent of the host settings registry
 - **Dark-mode ready** — all colors follow DSH theme variables; fixed brand blue + white text in deep-night mode

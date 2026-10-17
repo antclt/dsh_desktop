@@ -25,9 +25,32 @@ const HTTP_PREFIX = '/dsh-prompt-optimizer/api';
 const MAX_BODY_BYTES = 1 << 20;
 
 const CHANNEL = '/dsh-prompt-optimizer';
-const CONFIG_PATH = join(homedir(), '.dsh', 'prompt-optimizer-config.json');
+/**
+ * dsh home：内核侧一律按 DSH_HOME 解析（`dsh-home-paths`），桌面壳重定向时也是它。
+ * 本插件历史上直接 `homedir()/.dsh`，于是「会话在 A 处、插件配置在 B 处」——
+ * 2026-10-17 隔离内核实机实测到的是同一件事的另一面：DSH_HOME 指向临时目录的内核，
+ * 读的却是本机真实 `~/.dsh/prompt-optimizer-config.json`（设置与调试日志同理）。
+ * 没有 DSH_HOME 时仍是 `~/.dsh`，真实用户侧行为一字不变。
+ */
+const DSH_HOME = (process.env.DSH_HOME || '').trim() || join(homedir(), '.dsh');
+const CONFIG_PATH = join(DSH_HOME, 'prompt-optimizer-config.json');
+// 项目优化目标（2.3.0）：按项目目录路径键控、本机集中存储——项目目录零写入。
+// 用户在「设置 → Prompt 优化 → 项目优化目标」里为某个项目写下的指令，持久在这份文件里；
+// 键 = 会话头 cwd（内核 workspace 成员判定要求头 cwd 即工作区规范路径）。
+const PROJECTS_PATH = join(DSH_HOME, 'prompt-optimizer-projects.json');
+const MAX_GOAL_CHARS = 4000;
+// 上一轮对话（2.4.0 上下文润色）的读取预算，宿主侧一次性收口，客户端不再二次裁剪。
+// 判据来自真机样本：一条 46 轮的会话日志有 8179 条事件，而「它 / 这个 / 再优化一下」这类
+// 指代只用得上最近几轮；整条倒进润色请求既撞 MAX_BODY_BYTES 也没必要。
+const HISTORY_MAX_TURNS = 6;
+const HISTORY_MAX_TURN_CHARS = 1200;
+const HISTORY_MAX_TOTAL_CHARS = 4000;
+// 冷会话回落只能整读日志再截尾部——jsonl 后端的 stat 实测只回 header/revision/sizeBytes
+// （没有 eventCount，无法定位尾部偏移）。所以先按物理体积设闸：超闸就不读，宁可不带上下文，
+// 也不把内核 node 拖进 OOM（sessions/** 全量扫描炸过一次，见 AGENTS.md 已知坑）。
+const HISTORY_MAX_LOG_BYTES = 4 << 20;
 // 调试日志（诊断宿主流式通道）：每次调用追加一行，定位「正在优化…无产出」
-const DEBUG_LOG = join(homedir(), '.dsh', 'prompt-optimizer-debug.log');
+const DEBUG_LOG = join(DSH_HOME, 'prompt-optimizer-debug.log');
 async function dbg(...args) {
   try {
     await appendFile(DEBUG_LOG, `[${new Date().toISOString()}] ${args.map(String).join(' ')}
@@ -54,6 +77,101 @@ async function writeConfig(config) {
   await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
 }
 
+async function readProjects() {
+  try {
+    const parsed = JSON.parse(await readFile(PROJECTS_PATH, 'utf8'));
+    if (parsed && typeof parsed === 'object' && parsed.projects && typeof parsed.projects === 'object') {
+      return { version: 1, projects: parsed.projects };
+    }
+  } catch {
+    // 首次使用 / 文件损坏：当空表处理（损坏内容不覆盖用户别的数据——整文件本插件独占）
+  }
+  return { version: 1, projects: {} };
+}
+
+async function writeProjects(data) {
+  await mkdir(dirname(PROJECTS_PATH), { recursive: true });
+  await writeFile(PROJECTS_PATH, JSON.stringify(data, null, 2), 'utf8');
+}
+
+/**
+ * 解析会话对应的项目目录（cwd）：活会话头 cwd → sessionPersistence 索引 → null。
+ * 取自 better-sidebar 已验证的解析链（其注释记录了「首请求先于会话附着」的实测：
+ * 活会话查不到时必须回落持久化索引，否则会拿宿主进程 cwd 冒充项目目录）。
+ */
+async function resolveProjectCwd(ctx, sessionId) {
+  if (typeof sessionId !== 'string' || !sessionId) return null;
+  const sessions = ctx.get('sessions');
+  const live = sessions && typeof sessions.get === 'function' ? sessions.get(sessionId) : undefined;
+  const liveCwd = live && live.header ? live.header.cwd : undefined;
+  if (typeof liveCwd === 'string' && liveCwd.trim()) return liveCwd.trim();
+  const persistence = ctx.get('sessionPersistence');
+  if (persistence && typeof persistence.open === 'function') {
+    let handle;
+    try {
+      handle = await persistence.open(sessionId, 'read');
+      const cwd = handle && handle.header ? handle.header.cwd : undefined;
+      if (typeof cwd === 'string' && cwd.trim()) return cwd.trim();
+    } catch {
+      // 会话不在持久化索引（纯内存/已清理）：视为无项目上下文
+    } finally {
+      if (handle && typeof handle.close === 'function') {
+        try { await handle.close(); } catch { /* 尽力释放 */ }
+      }
+    }
+  }
+  return null;
+}
+
+/** 项目展示名：workspaceRegistry 的标题优先（缺失/失败时不返回该字段，客户端回落到路径末段）。 */
+async function projectTitleOf(ctx, cwd) {
+  const registry = ctx.get('workspaceRegistry');
+  if (!registry || typeof registry.resolveByPath !== 'function') return undefined;
+  try {
+    const ws = await registry.resolveByPath(cwd);
+    return ws && typeof ws.title === 'string' && ws.title ? ws.title : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** projectGoal.get/set 的公共实现（HTTP 与 RPC 两个通道共用一份语义）。 */
+async function handleProjectGoal(ctx, endpoint, payload) {
+  const cwd = await resolveProjectCwd(ctx, payload.sessionId);
+  if (!cwd) return err('no-project', 'session has no resolvable project directory');
+  const data = await readProjects();
+  if (endpoint === 'projectGoal.get') {
+    const entry = data.projects[cwd];
+    const title = await projectTitleOf(ctx, cwd);
+    const value = {
+      cwd,
+      instruction: entry && typeof entry.instruction === 'string' ? entry.instruction : '',
+    };
+    if (entry && typeof entry.updatedAt === 'string') value.updatedAt = entry.updatedAt;
+    if (title !== undefined) value.title = title;
+    return ok(value);
+  }
+  // set：空指令 = 清除该项目条目（删键，不写空壳）
+  if (typeof payload.instruction !== 'string') return err('bad-instruction', 'instruction must be a string');
+  const instruction = payload.instruction.trim();
+  if (instruction.length > MAX_GOAL_CHARS) {
+    return err('goal-too-long', `instruction exceeds ${MAX_GOAL_CHARS} characters`);
+  }
+  if (!instruction) {
+    if (cwd in data.projects) {
+      delete data.projects[cwd];
+      await writeProjects(data);
+    }
+    await dbg('projectGoal.set', cwd, 'cleared');
+    return ok({ cwd, instruction: '' });
+  }
+  const updatedAt = new Date().toISOString();
+  data.projects[cwd] = { instruction, updatedAt };
+  await writeProjects(data);
+  await dbg('projectGoal.set', cwd, 'len=' + instruction.length);
+  return ok({ cwd, instruction, updatedAt });
+}
+
 function ok(value) {
   return { ok: true, value };
 }
@@ -62,7 +180,127 @@ function err(code, details) {
   return { ok: false, error: { code, details } };
 }
 
-/** RPC handler：{ok,value}/{ok:false,error}。endpoint: get | set | sessionModel | optimize.start | optimize.poll | optimize.abort */
+/** 内容块 → 纯正文：只取 text 块。reasoning 是思维链、tool-call/image 是结构化调用，
+ *  对「用户上一条到底在说什么」没有信息量，照抄进润色请求反而带噪。 */
+function textOfContent(content) {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('\n')
+    .trim();
+}
+
+/** 派生历史（`Session.deriveMessages()` 的 Message[]）→ 润色可用轮次。
+ *  user 侧按 `source.kind === 'user'` 设闸：内核允许任何生产者以 user 角色注入合成消息
+ *  （文件变更通知、子目录 AGENTS.md、goal 续跑轮……真机日志里实测到 kind:'plugin' 的
+ *  user/message）。那些是「模型看到的」而不是「用户说的」，当成上一条人类意图会把润色带偏。 */
+function turnsFromMessages(messages) {
+  const turns = [];
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (!message || typeof message !== 'object') continue;
+    const kind = message.source && message.source.kind;
+    const text = textOfContent(message.content);
+    if (!text) continue;
+    if (message.role === 'user' && kind === 'user') turns.push({ role: 'user', text });
+    else if (message.role === 'assistant' && kind === 'model') turns.push({ role: 'assistant', text });
+  }
+  return turns;
+}
+
+/** 持久化事件（冷会话回落）→ 轮次。事件形状与派生消息不同：user/message 的正文在
+ *  `data.content`、来源在 `data.source.kind`；assistant/message 的正文在 `data.message.content`、
+ *  来源在 `data.message.source.kind`。同一道 source 闸照搬——同仓库的 dsh-side-session
+ *  那份 extractText 既没有 source 闸、又把 reasoning 块一起 join，它的场景是展示、
+ *  我们的场景是喂模型，不能照抄。 */
+function turnsFromEvents(events) {
+  const turns = [];
+  for (const event of Array.isArray(events) ? events : []) {
+    if (!event || typeof event !== 'object' || !event.data || typeof event.data !== 'object') continue;
+    const data = event.data;
+    if (event.type === 'user/message') {
+      if (!data.source || data.source.kind !== 'user') continue;
+      const text = textOfContent(data.content);
+      if (text) turns.push({ role: 'user', text });
+    } else if (event.type === 'assistant/message') {
+      const message = typeof data.message === 'object' && data.message ? data.message : null;
+      if (!message || !message.source || message.source.kind !== 'model') continue;
+      const text = textOfContent(message.content);
+      if (text) turns.push({ role: 'assistant', text });
+    }
+  }
+  return turns;
+}
+
+/** 收口到预算：单条截断 → 只留尾部 HISTORY_MAX_TURNS 轮 → 总量落不进预算就从最旧一轮继续丢。
+ *  任一环节丢过就置 truncated，客户端据此在卡片上说明「上下文已截断」。 */
+function boundTurns(turns, source) {
+  let shrunk = false;
+  const clipped = turns.map((turn) => {
+    if (turn.text.length <= HISTORY_MAX_TURN_CHARS) return turn;
+    shrunk = true;
+    return { role: turn.role, text: `${turn.text.slice(0, HISTORY_MAX_TURN_CHARS)}…` };
+  });
+  let kept = clipped.slice(-HISTORY_MAX_TURNS);
+  if (kept.length < clipped.length) shrunk = true;
+  let total = kept.reduce((sum, turn) => sum + turn.text.length, 0);
+  while (kept.length > 1 && total > HISTORY_MAX_TOTAL_CHARS) {
+    total -= kept[0].text.length;
+    kept = kept.slice(1);
+    shrunk = true;
+  }
+  return { turns: kept, source, truncated: shrunk };
+}
+
+/** history 的公共实现（HTTP 与 RPC 两通道共用一份语义）：活会话 → 冷会话持久化 → 无上下文。
+ *  三条路径一律不抛，取不到就是空轮次——润色绝不因读不到上下文而停摆
+ *  （与 projectGoal 的 fail-open 同一口径）。 */
+async function handleHistory(ctx, payload) {
+  const sessionId = payload && typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
+  if (!sessionId) return ok(boundTurns([], 'none'));
+  // 1) 活会话：deriveMessages 是内核自己那份「模型看到的历史」——compaction 的 replace
+  //    已经生效，比逐条翻事件日志更贴近用户上下文；且它不在 @deprecated 名单上
+  //    （snapshotEvents/ownEvents/eventAt 都在，别用那三个）。
+  try {
+    const sessions = ctx.get('sessions');
+    const live = sessions && typeof sessions.get === 'function' ? sessions.get(sessionId) : undefined;
+    if (live && typeof live.deriveMessages === 'function') {
+      return ok(boundTurns(turnsFromMessages(live.deriveMessages()), 'live'));
+    }
+  } catch (error) {
+    await dbg('history live threw', sessionId, String((error && error.message) || error));
+  }
+  // 2) 冷会话回落：「首请求先于会话附着」是实测过的（resolveProjectCwd 的注释记着同一件事）。
+  //    read 句柄不抢所有权，与正在写的句柄并存，所以前台会话正忙时也能读。
+  try {
+    const persistence = ctx.get('sessionPersistence');
+    if (persistence && typeof persistence.open === 'function') {
+      if (typeof persistence.stat === 'function') {
+        const snapshot = await persistence.stat(sessionId);
+        if (snapshot && typeof snapshot.sizeBytes === 'number' && snapshot.sizeBytes > HISTORY_MAX_LOG_BYTES) {
+          await dbg('history skipped: log too large', sessionId, 'bytes=' + snapshot.sizeBytes);
+          return ok(boundTurns([], 'none'));
+        }
+      }
+      let handle;
+      try {
+        handle = await persistence.open(sessionId, 'read');
+        const result = handle && typeof handle.read === 'function' ? await handle.read() : undefined;
+        return ok(boundTurns(turnsFromEvents(result && result.events), 'persistence'));
+      } finally {
+        if (handle && typeof handle.close === 'function') {
+          try { await handle.close(); } catch { /* 尽力释放 */ }
+        }
+      }
+    }
+  } catch (error) {
+    await dbg('history persistence threw', sessionId, String((error && error.message) || error));
+  }
+  return ok(boundTurns([], 'none'));
+}
+
+/** RPC handler：{ok,value}/{ok:false,error}。endpoint: get | set | history | sessionModel | optimize.start | optimize.poll | optimize.abort */
 export function makeHandler(ctx) {
   return async (endpoint, payload = {}) => {
     try {
@@ -75,6 +313,13 @@ export function makeHandler(ctx) {
           const next = { ...current, ...(payload.patch ?? {}) };
           await writeConfig(next);
           return ok(next);
+        }
+        case 'history': {
+          return handleHistory(ctx, payload);
+        }
+        case 'projectGoal.get':
+        case 'projectGoal.set': {
+          return handleProjectGoal(ctx, endpoint, payload);
         }
         case 'sessionModel': {
           // 当前会话/agent 默认模型（零配置取模型；宿主无该服务或无可选模型时明确报错）
@@ -429,6 +674,15 @@ function createApiRoute(getCtx) {
           const next = { ...current, ...(args.patch ?? {}) };
           await writeConfig(next);
           writeJson(res, 200, { ok: true, value: next });
+          return;
+        }
+        case 'history': {
+          writeJson(res, 200, await handleHistory(ctx, args));
+          return;
+        }
+        case 'projectGoal.get':
+        case 'projectGoal.set': {
+          writeJson(res, 200, await handleProjectGoal(ctx, method, args));
           return;
         }
         default:

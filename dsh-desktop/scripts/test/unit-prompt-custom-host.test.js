@@ -223,7 +223,7 @@ async function makeHost(t, opts = {}) {
   return host;
 }
 
-const SHAPE_KEYS = ['enabled', 'mode', 'text'];
+const SHAPE_KEYS = ['cards', 'enabled', 'mode', 'text'];
 const CONFIG_KEYS = ['ok', 'config', 'proto', 'armed', 'agents', 'injected', 'lastError', 'unknownConfigKeys', 'path', 'unknownVariables', 'malformedVariables'];
 const PREVIEW_KEYS = ['ok', 'official', 'effective', 'text', 'scoped', 'agentId', 'sections', 'unknownVariables', 'malformedVariables', 'proto', 'armed', 'agents', 'injected', 'lastError', 'unknownConfigKeys', 'path'];
 const sortedKeys = (o) => Object.keys(o).sort();
@@ -354,7 +354,7 @@ test('磁盘被外部改过：GET /config 回读并让注入形态对齐（armed
 // 2. HTTP 契约（对齐交接文档 01 的字段表）
 // ---------------------------------------------------------------------------
 
-test('GET /config 契约：字段集合精确 + proto=2 + armed/injected 语义', async (t) => {
+test('GET /config 契约：字段集合精确 + proto=3 + armed/injected 语义', async (t) => {
   const h = await makeHost(t, {
     config: { enabled: true, mode: 'replace', text: 'CUSTOM-CONTRACT-MARKER' },
     preAgents: ['agent-1']
@@ -364,8 +364,9 @@ test('GET /config 契约：字段集合精确 + proto=2 + armed/injected 语义'
   const body = res.json();
 
   assert.deepEqual(sortedKeys(body), [...CONFIG_KEYS].sort(), '/config 字段集合必须与契约精确一致');
-  assert.deepEqual(sortedKeys(body.config), [...SHAPE_KEYS].sort(), 'config 形态应为 normalize 后的三字段');
-  assert.equal(body.proto, 2, 'API_PROTO 是宿主/client 错配判据，必须为 2');
+  assert.deepEqual(sortedKeys(body.config), [...SHAPE_KEYS].sort(), 'config 形态应为 normalize 后的四字段（0.4.0 起含 cards）');
+  assert.deepEqual(body.config.cards, [], '无卡片时 cards 为空数组（不是 undefined）');
+  assert.equal(body.proto, 3, 'API_PROTO 是宿主/client 错配判据，0.4.0 起必须为 3');
   assert.equal(body.armed, true);
   assert.equal(body.injected, 1);
   assert.equal(body.agents, 1);
@@ -380,7 +381,7 @@ test('POST /config 生效并落盘；非法请求被拒（400/403/405）', async
   const ok = await h.call(CONFIG_ROUTE, 'POST', { enabled: true, mode: 'append', text: 'POSTED-MARKER' });
   assert.equal(ok.status, 200);
   assert.equal(ok.json().config.text, 'POSTED-MARKER');
-  assert.deepEqual(h.readCfg(), { enabled: true, mode: 'append', text: 'POSTED-MARKER' }, 'POST 应落盘');
+  assert.deepEqual(h.readCfg(), { enabled: true, mode: 'append', text: 'POSTED-MARKER', cards: [] }, 'POST 应落盘');
 
   // 非回环 → 403（本机保护）
   const forbidden = await h.call(CONFIG_ROUTE, 'GET', undefined, '10.0.0.5');
@@ -459,7 +460,7 @@ test('/preview 契约：official/effective 双语义 + sections 键恰好 [name]
   const pv = await h.preview();
 
   assert.equal(pv.ok, true);
-  assert.equal(pv.proto, 2);
+  assert.equal(pv.proto, 3);
   assert.deepEqual(sortedKeys(pv), [...PREVIEW_KEYS].sort(), '/preview 字段集合必须与契约精确一致');
   assert.ok(pv.official.includes(OFFICIAL_PREFIX) && !pv.official.includes('CUSTOM-PREVIEW-MARKER'), 'official = 不含自定义的官方全文');
   assert.ok(pv.effective.includes('CUSTOM-PREVIEW-MARKER') && !pv.effective.includes(OFFICIAL_PREFIX), 'effective = 模型真正看到的全文（replace 遮蔽在其中）');
@@ -479,6 +480,82 @@ test('/preview 无活动 agent：scoped=false、effective 退化为 official', a
   assert.equal(pv.agentId, null);
   assert.equal(pv.effective, pv.official);
   assert.ok(pv.official.includes(OFFICIAL_PREFIX), '无 agent 时官方文本应完整');
+});
+
+// ---------------------------------------------------------------------------
+// 2.5 提示词卡（0.4.0）：部分更新语义、净化边界
+// ---------------------------------------------------------------------------
+
+const CARDS2 = [
+  { id: 'c-one', name: '严谨模式', text: 'PERSONA-A' },
+  { id: 'c-two', name: '简洁模式', text: 'PERSONA-B' }
+];
+
+test('卡片 CRUD：部分更新（只带 cards）不动正文/开关；落盘并经 GET 回读', async (t) => {
+  const h = await makeHost(t, {
+    config: { enabled: true, mode: 'append', text: 'MAIN-TEXT', cards: [CARDS2[0]] },
+    preAgents: ['agent-1']
+  });
+  await h.status();
+
+  // 只带 cards 的 POST：正文 / 开关 / 模式必须原样保留（部分更新语义）
+  const res = await h.call(CONFIG_ROUTE, 'POST', { cards: CARDS2 });
+  assert.equal(res.status, 200);
+  const body = res.json();
+  assert.deepEqual(body.config.cards, CARDS2);
+  assert.equal(body.config.text, 'MAIN-TEXT', 'cards-only POST 不得动正文');
+  assert.equal(body.config.enabled, true, 'cards-only POST 不得动开关');
+  assert.equal(body.config.mode, 'append');
+
+  // 落盘 + GET 回读（多窗口一致性路径）
+  const disk = h.readCfg();
+  assert.deepEqual(disk.cards, CARDS2);
+  assert.equal(disk.text, 'MAIN-TEXT');
+  const st = await h.status();
+  assert.deepEqual(st.config.cards, CARDS2);
+
+  // 反向：只带 text 的 POST（旧客户端形状）不得动卡片集
+  await h.call(CONFIG_ROUTE, 'POST', { enabled: true, mode: 'append', text: 'NEW-MAIN' });
+  assert.deepEqual(h.readCfg().cards, CARDS2, 'text-only POST 不得清空卡片集');
+  assert.equal(h.readCfg().text, 'NEW-MAIN');
+});
+
+test('卡片净化：畸形条目丢弃、id 补齐、name 截断、上限 50、非数组不清空', async (t) => {
+  const h = await makeHost(t, { config: { enabled: false, mode: 'append', text: '' } });
+
+  // 净化：非对象（null/字符串）与双空条目丢弃；缺 id 补发；不合规 id 替换；name 截到 60
+  const res = await h.call(CONFIG_ROUTE, 'POST', {
+    cards: [
+      null,
+      'string',
+      { name: 'x', text: 'y' },
+      { name: '   ', text: '' },
+      { id: 'bad id!', name: 'N'.repeat(80), text: 'T' }
+    ]
+  });
+  assert.equal(res.status, 200);
+  const cards = res.json().config.cards;
+  assert.equal(cards.length, 2, '非对象与「trim 后既无名字又无正文」的条目应被丢弃');
+  assert.match(cards[0].id, /^c[a-z0-9]+$/, '缺 id 的卡片应补发合规 id（形状与 client 的 newCardId 一致）');
+  assert.equal(cards[0].name, 'x');
+  assert.equal(cards[1].name.length, 60, 'name 应截断到 60 字符');
+  assert.match(cards[1].id, /^c[a-z0-9]+$/, '不合规 id（含空格/叹号）应被替换');
+  assert.notEqual(cards[1].id, 'bad id!');
+
+  // 上限 50：与 client 的 CARDS_MAX 配对封顶
+  const many = Array.from({ length: 60 }, (_, i) => ({ id: 'c-' + i, name: 'card ' + i, text: 't' + i }));
+  const capped = (await h.call(CONFIG_ROUTE, 'POST', { cards: many })).json().config.cards;
+  assert.equal(capped.length, 50, '上限 50 张，超出截断');
+  assert.equal(capped[0].id, 'c-0');
+  assert.equal(capped[49].id, 'c-49');
+
+  // 非数组 cards（客户端 bug / 手写请求）不得清空已有卡片 —— strip 该字段、保留现状
+  const keep = (await h.call(CONFIG_ROUTE, 'POST', { cards: 'garbage' })).json().config.cards;
+  assert.equal(keep.length, 50, '字符串形状的 cards 应被 strip，已有卡片原样保留');
+  const keep2 = (await h.call(CONFIG_ROUTE, 'POST', { text: 'STILL', cards: { evil: true } })).json().config.cards;
+  assert.equal(keep2.length, 50, '对象形状的 cards 同样不清空；其余字段照常更新');
+  assert.equal(h.readCfg().text, 'STILL');
+  assert.equal(h.readCfg().cards.length, 50);
 });
 
 // ---------------------------------------------------------------------------
@@ -524,4 +601,27 @@ test('反证：注册变异回插件根 ctx → 0.3.0 判据变红（重名错 +
   const effective = h.textOf(await h.assemble(h.agents[0]));
   assert.ok(!effective.includes('CUSTOM-MUTANT-MARKER'), '变异后 replace 不生效（证明「遮蔽生效」判据能红）');
   assert.ok(effective.includes(OFFICIAL_PREFIX), '变异后官方 persona 未被遮蔽（证明判据能红）');
+});
+
+test('反证：拿掉 sanitizeCards 的畸形条目丢弃 → 0.4.0 净化判据变红', async (t) => {
+  const h = await makeHost(t, {
+    mutate: [[
+      "if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;",
+      "if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { out.push(raw); continue; }"
+    ]]
+  });
+  const res = await h.call(CONFIG_ROUTE, 'POST', { cards: [null, { name: 'x', text: 'y' }] });
+  const cards = res.json().config.cards;
+  assert.equal(cards.length, 2, '变异后非对象条目原样保留（证明「畸形丢弃」判据能红）');
+  assert.equal(cards[0], null);
+});
+
+test('反证：拿掉 POST 的非数组 strip → 已有卡片被静默清空（判据能红）', async (t) => {
+  const h = await makeHost(t, {
+    config: { enabled: true, mode: 'append', text: 'T', cards: [{ id: 'c1', name: 'a', text: 'b' }] },
+    mutate: [["if ('cards' in patch && !Array.isArray(patch.cards)) delete patch.cards;", '']]
+  });
+  const res = await h.call(CONFIG_ROUTE, 'POST', { cards: 'garbage' });
+  assert.deepEqual(res.json().config.cards, [], '变异后非数组 cards 会把已有卡片清空（证明 strip 判据能红）');
+  assert.deepEqual(h.readCfg().cards, [], '且清空已落盘');
 });
