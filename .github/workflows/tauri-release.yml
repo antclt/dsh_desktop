@@ -1420,8 +1420,11 @@ jobs:
           ## 🎯 本版重点
 
           1. **随包内核换代 \`0.2.0-rc.2\` → \`0.2.1-rc.1\`**：pin / 离线 vendor tarball / lock 三线同改，
-             构建期补丁层由 62 项精简到 **61 项**（\`pi-ai-opencode-go-models\` 上游已自带，退役），
-             8 处补丁锚点按新内核真实字节重录。
+             8 处补丁锚点按新内核真实字节重录。构建期补丁层的净数仍是 **62 项**，但成分变了：
+             退役 \`pi-ai-opencode-go-models\`（0.2.1 上游已自带 opencode-go 目录整形，62→61），
+             同时把 v1.0.3 的 macOS 根治补丁 \`appboot-bootstrap-singleton\` 吸收进这条线（61→62）——
+             它的两条锚点在 0.2.1-rc.1 的 \`dsh-app-boot/lib/index.js\` 逐字在位，新鲜 \`npm ci\` 实测
+             **写入 75 处 / 失配 0 / 失败 0 / 共 62 项**。
           2. **「文件 — 资源管理器」打不开文件（HTTP 405）根治**：见下方修复第 1 条。这是本版对日常使用影响最大的一条。
           3. **内置插件第一次能在界面里管理**：新增自研 \`dsh-builtin-manager\`（设置 → 插件 → 「内置插件」页签，
              搜索 / 状态筛选 / 行内启停反馈）；右栏新增「目标收尾」标签页 \`dsh-goal-completion\`（补上官方 GoalBar
@@ -1472,6 +1475,16 @@ jobs:
           ESM 链接期即 \`SyntaxError\`，条目连 fiber 都没建，日志只剩一行 \`failed to load\`。
           判据「链接落点的包名 ≠ 目标 \`package.json\` 的 name」已进 boot 的 repair 步自愈。
 
+          **8. macOS 上「任何设置都存不了」（\`appboot-bootstrap-singleton\`，承 v1.0.3）**
+          macOS APFS 默认大小写不敏感，但 ESM 模块缓存按 URL 字符串**区分大小写**：壳 supervisor 拼
+          \`Contents/resources\`（小写 r）而 loader 走磁盘真实的 \`Contents/Resources\`（大写 R），同一份
+          \`dsh-app-boot\` 被当成两个模块实例，各持一份模块级 \`bootstrapIncludes\` WeakMap——登记进甲实例的
+          根 Include，reconcile 在乙实例 \`get\` 必落空，抛 \`requires the root Include entry\`，被
+          \`dsh-api-settings-controller\` 包成 \`settings/rejected\`，观感就是「点开始设置进不去」+
+          「未能保存设置，请重试。」反复回滚。修法是把表提升成 \`globalThis\` 单例（数据侧收口，不动
+          Rust 壳的 spawn 大小写、也就不必三平台复验）。本版把这条补丁吸收进 0.2.1 换代线：
+          两条锚点在 \`dsh-app-boot/lib/index.js\` 逐字在位，真跑判定 \`changed\`。
+
           ## 📦 随包内置插件清单变化（在册 29 条）
 
           - **新增**：\`dsh-builtin-manager\` 0.2.0（内置插件管理页）、\`dsh-goal-completion\` 0.1.0（右栏目标收尾标签页）。
@@ -1493,8 +1506,12 @@ jobs:
             boot 五步全 OK、\`补丁应用汇总 写入 0 / 失配 0 / 共 61\`、29 条内置插件镜像进 profile、
             \`✓ 插件加载零致命错误\`、page-error 总数 0、杀壳后残留监听 0（这一轮跑在换代 payload 上）。
             405 修复后的第二轮包（195,643,131 B / sha256 \`36def038…57bb8e31\`）在同一套手拼布局上按
-            boot 与路由两层复验：boot 五步全 OK + 共 61，\`POST /sidebar/api/fs.trees\` 由换代那轮的
+            boot 与路由两层复验：boot 五步全 OK + 共 61（那两轮的补丁层就是 61 项），
+            \`POST /sidebar/api/fs.trees\` 由换代那轮的
             **空体 405** 变成 **400 且带插件自己的 envelope**（这条只能来自插件的 dispatch，兜底给不出信封）。
+          - 合并 v1.0.3 的 macOS 补丁后，补丁层为 **62 项**：新鲜 \`npm ci\` 实测
+            **写入 75 处 / 失配 0 / 失败 0 / 共 62**，\`patch-surface verify\` 85 文件零漂移
+            （marker 家族 84→85），\`ta6-baseline-matrix\` 按真跑新增 \`appboot-bootstrap-singleton=changed\` 一行。
           - 隔离内核实机：发一条真消息走到预期的 \`MISSING_CREDENTIAL\`（证明装配期已过），
             并逐条打资源管理器与基础能力面板的路由（见修复第 1 条的实测状态码）。
 
