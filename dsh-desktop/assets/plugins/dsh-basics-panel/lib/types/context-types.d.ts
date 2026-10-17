@@ -9,7 +9,7 @@
  * - webServer: @deepseek-ai/dsh-host-webserver (the WebServer)
  * - sessions: host side @deepseek-ai/dsh-session (SessionStore), client side
  *   the runtime ISessions list feed
- * - webRuntime: @deepseek-ai/dsh-web-app (bind-derived trusted hosts)
+ * - connection: @deepseek-ai/dsh-client-connection (configured trusted hosts)
  * - skills: @deepseek-ai/dsh-skill (the layered skill registry)
  * - tools: @deepseek-ai/dsh-tools (ToolRuntime; `schemas()` for MCP status)
  * - loader: @deepseek-ai/cordis-plugin-loader (mounted entry tree)
@@ -67,8 +67,8 @@ export interface BasicsWebRoute {
 export interface BasicsWebServer {
     register(route: BasicsWebRoute): () => void;
 }
-/** The web runtime service face: the bind-derived trust list for the browser fence. */
-export interface BasicsWebRuntime {
+/** The connection service face: the configured trust list for the browser fence. */
+export interface BasicsConnectionTrust {
     trustedHosts: readonly string[];
 }
 /** A published session's header slice the host reads (authoritative cwd). */
@@ -342,7 +342,7 @@ declare module 'cordis' {
     interface Context {
         webServer: BasicsWebServer;
         sessions: BasicsSessionStore & BasicsSessionsService;
-        webRuntime: BasicsWebRuntime;
+        connection: BasicsConnectionTrust;
         skills: BasicsSkillRegistry;
         tools: BasicsToolRuntime;
         loader: BasicsLoader;

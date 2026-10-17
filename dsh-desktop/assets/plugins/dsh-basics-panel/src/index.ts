@@ -1,7 +1,7 @@
 /**
  * dsh-basics-panel host half: a single fenced /basics JSON API that merges
  * every feature backend's methods. The route passes the same browser-trust
- * fence as the /api gateway (loopback or `webRuntime.trustedHosts`), and each
+ * fence as the /api gateway (loopback or `connection.trustedHosts`), and each
  * feature re-resolves its own authorities (the skill registry for skill
  * paths, the composition scan for MCP files) so the panel never trusts a
  * client-supplied path alone.
@@ -24,7 +24,7 @@ export type { Context }
 export const name = 'dsh-basics-panel'
 
 /** Services required before mounting. */
-export const inject = ['webServer', 'webRuntime', 'sessions', 'skills', 'tools']
+export const inject = ['webServer', 'connection', 'sessions', 'skills', 'tools']
 
 /**
  * Resolve a session's authoritative working directory. The session header
@@ -45,7 +45,7 @@ function sessionCwdOf(ctx: Context, payload: unknown): string {
 
 /**
  * Plugin body: mount the fenced routes over the merged feature APIs.
- * @param ctx - host plugin context (webServer, webRuntime, sessions, skills, tools).
+ * @param ctx - host plugin context (webServer, connection, sessions, skills, tools).
  * @param config - deployment limits; the Loader validates against {@link Config}.
  */
 export function apply(ctx: Context, config?: Partial<ResolvedBasicsConfig>): void {
@@ -63,7 +63,7 @@ export function apply(ctx: Context, config?: Partial<ResolvedBasicsConfig>): voi
     kind: 'prefix',
     path: '/basics/api',
     handler: async (req, res) => {
-      if (!isTrustedApiRequest(req, ctx.webRuntime.trustedHosts)) {
+      if (!isTrustedApiRequest(req, ctx.connection.trustedHosts)) {
         writeError(res, new BasicsError('forbidden', 'forbidden', 403))
         return
       }

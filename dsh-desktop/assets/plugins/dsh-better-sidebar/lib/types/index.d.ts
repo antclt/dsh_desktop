@@ -18,7 +18,7 @@ export interface SidebarFsLevel {
     /** Present only when THIS level failed (the batch itself still succeeded). */
     error?: string;
 }
-/** Services required before mounting: the webserver routes, the session store, the web runtime's trusted hosts, and the tool registry. */
+/** Services required before mounting: the webserver routes, the session store, the connection service's trusted hosts, and the tool registry. */
 export declare const inject: string[];
 /** Content type served by /sidebar/file (binary-safe fallback for unknowns). */
 export declare function mediaTypeForPath(path: string): string;
@@ -51,7 +51,7 @@ export interface SidebarSettingsFace {
 }
 /**
  * Plugin body: mount the fenced routes and the sidebar_open push socket.
- * @param ctx - host plugin context (webServer, sessions, webRuntime).
+ * @param ctx - host plugin context (webServer, sessions, connection).
  * @param config - deployment-provided limits; the Loader validates against
  * {@link Config} and fills defaults, direct callers get them from
  * {@link resolveSidebarConfig}.
