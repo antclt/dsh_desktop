@@ -315,7 +315,7 @@ test('清单：批量退役 11 条已摘出、进名单，且活动清单与退�
     'community-market', 'market-desktop-bridge', 'dsh-hub', 'file-drop', 'image-paste', 'cardian'];
   const retiredIds = new Set(RETIRED_COMPANIONS.map((p) => p.id));
   for (const id of bulk) assert.ok(retiredIds.has(id), '应进 RETIRED_COMPANIONS: ' + id);
-  assert.strictEqual(RETIRED_COMPANIONS.length, 12, '11 条批量退役 + 1 条 plugin-manager（dirsOnly）');
+  assert.strictEqual(RETIRED_COMPANIONS.length, 13, '11 条批量退役 + 1 条 plugin-manager（dirsOnly）+ 1 条随内核 0.2.1 退役的 reasoning-effort');
   const listed = new Set(COMPANION_PLUGINS.map((p) => p.id));
   for (const id of retiredIds) assert.ok(!listed.has(id), '退役条目不得留在清单: ' + id);
   const dirs = new Set(COMPANION_PLUGINS.map(companionDirName));

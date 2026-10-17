@@ -842,7 +842,9 @@ test('收口：每条在册件的 loader id 必须命中自己的 cordis.patch.y
     assert.equal(fs.existsSync(path.join(assetsRoot, dir, 'cordis.patch.yml')), false,
       dir + ' 已有 cordis.patch.yml，例外名单该撤了（不撤就会一直放过它的挂载面）');
   }
-  // 命中面自检：28 条真命中，不能靠「空集也叫绿」。
+  // 命中面自检：28 条真命中，不能靠「空集也叫绿」。加一条在册件就把这个数往上抬
+  // （它是「新插件忘了自带 cordis.patch.yml」的第一道红，2026-10-16 随 #30 由 28 抬到 29，
+  // 2026-10-17 随 reasoning-effort 退役回落到 28）。
   assert.equal(COMPANION_PLUGINS.length - misses.length, 28,
     '实际命中的补丁件数应是 28（29 减 1 条例外），当前判据脱靶');
 

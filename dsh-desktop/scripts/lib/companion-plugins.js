@@ -102,12 +102,8 @@ const COMPANION_PLUGINS = [
   // 来自客户端已加载的会话事件流（零后端请求）。宿主半边仅注册 settings
   // 命名空间，UI 全在客户端半边（toolview 按 key 注册）。
   { id: 'dsh-subagent-lens', name: '@dsh-external/dsh-subagent-lens' },
-  // 推理强度选择器（HanaAyane/dsh-reasoning-effort，MIT）：Codex 风格「模型 +
-  // 推理强度」滑块，档位来自模型目录 reasoning.efforts；宿主半边只读诊断
-  // 自定义 provider 缺 reasoningEfforts 声明并给 copy-ready 指引。与 F4 补丁
-  // patch-pi-ai-reasoning-defaults 互补（本插件 UI/诊断面，F4 后端默认字典面）。
-  // 取代已退役的 dsh-third-party-thinking（fake 档位注入 + fetch 拦截旁路）。
-  { id: 'reasoning-effort', name: 'dsh-reasoning-effort' },
+  // 推理强度选择器 dsh-reasoning-effort 已于 2026-10-17 随内核 0.2.1 换代退役，条目移入
+  // 下方 RETIRED_COMPANIONS（F4 后端默认字典面 patch-pi-ai-reasoning-defaults 不随退役下线）。
   // 基础能力面板（yxsj245/dsh-Basics-Panel，MIT）：设置页可视化并管理 MCP
   // 服务器 / 技能 / 规则，模块化 feature 注册表；MCP 空态带「新建」入口
   // （零 MCP 已添加时也显示「新建」按钮）。id 与 bundle 层 cordis.patch.yml
@@ -139,6 +135,13 @@ const COMPANION_PLUGINS = [
   // 从页面上消失且开不回来；条目级开关的解锁条件又只认「当前活着的条目」。
   // id 必须与其 bundle 层 cordis.patch.yml 的 loader id 一致（issue #104 同款坑）。
   { id: 'dsh-builtin-manager', name: 'dsh-builtin-manager' },
+  // 目标收尾（本仓库自研）：内核右栏里的一个标签页，显示当前会话目标的状态机
+  // （phase 四态 + activation + 轮次/修订），并提供官方 GoalBar 没暴露的 complete
+  // 动词——远端有 Remote("complete")，界面上只有 save/cancel/pause/resume/edit/clear，
+  // 目标过去只能等 agent 自己收尾。纯界面件：宿主半边是空 apply（对齐官方
+  // dsh-client-ui-plan 的形），写状态走内核 CAS，插件自己不落任何文件。
+  // 追加在清单末尾：前 18 条的顺序被 unit-patch-engine 的漂移防线钉住。
+  { id: 'goal-completion', name: '@deepseek-ai/dsh-goal-completion' },
 ];
 
 /** 包名 → assets/plugins 下的目录名（去 scope 前缀）。 */
@@ -202,6 +205,19 @@ const RETIRED_COMPANIONS = [
   { id: 'image-paste', name: 'dsh-image-paste' },
   // 知识中心（myYangyunfan/dsh_cardian，MIT）：RepoWiki / 知识卡片 / 记忆三区知识库。
   { id: 'cardian', name: 'dsh-cardian' },
+  // 2026-10-17 随内核 0.2.1 换代退役（在册 30→29）：推理强度选择器
+  // （HanaAyane/dsh-reasoning-effort，MIT）。退役判据是对 0.2.0-rc.2 / 0.2.1-rc.1 两份
+  // pristine 树实测的**覆盖关系**，不是版本号：
+  //   · 它自称的独立面「自定义 provider 缺 reasoningEfforts 声明 → 给 copy-ready 指引」，
+  //     0.2.1 的 @deepseek-ai/dsh-client-ui-settings-models 已整块接走——新增
+  //     ModelReasoningEfforts 编辑器（同一份 Config 校验 validateReasoningEfforts），
+  //     档位声明面在设置里直接改，不再需要手改配置文件（reasoningEffort 命中 0 → 21）。
+  //   · 它的 Codex 风格「模型 + 强度」滑块与官方 composer 的选择器重复，且这条**在
+  //     0.2.0-rc.2 就成立**：dsh-client-ui-model-selection 的 effort / effortLabel /
+  //     effortChoices / advertised 计数两版逐字相同。
+  // 不随退役下线的是 F4 后端补丁 patch-pi-ai-reasoning-defaults（默认强度字典在服务端半边，
+  // 与这份 UI 件无关）。要复活：git 历史取回本清单条目 + assets/plugins/dsh-reasoning-effort。
+  { id: 'reasoning-effort', name: 'dsh-reasoning-effort' },
 ];
 
 /** 退役登记表 → assets/plugins 目录名（去 scope 前缀），供过期清理认领。 */

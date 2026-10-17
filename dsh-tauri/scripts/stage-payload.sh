@@ -93,7 +93,7 @@ rc() { mirror_dir "$1" "$2"; }
 # ---- scripts / assets：镜像 + 内置线收口 ----
 # v1.0.0 内置线（2026-10-08 裁定反转此前的「官方形状/插件不进包」口径）：
 # `assets/plugins` 整树随安装包分发，装机后 boot 的 sync 步把它镜像进
-# <DSH_HOME>/profiles/<name>/node_modules/，28 条内置插件开箱可用。
+# <DSH_HOME>/profiles/<name>/node_modules/，29 条内置插件开箱可用。
 # 随包预设（`assets/agent-presets`）在 v1.0.0 已整树删除、写入器与 boot 的
 # presets 步一并拆除，此处不再有它的剔除面。
 #
