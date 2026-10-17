@@ -340,9 +340,12 @@ mod window_chrome_tests {
 
     /// ⋯ 下拉菜单（Electron preload renderMenu 复刻）：⋯ 按钮在 min/max/close
     /// 左边；菜单含「检查客户端更新…」（v0.5.3 唯一更新项，双源 GitHub/Gitee
-    /// 客户端更新链）/更新源/四开关（三 Electron 键 + toggle-auto-update）/
+    /// 客户端更新链）/更新源/三开关（两 Electron 键 + toggle-auto-update）/
     /// reload/devtools/fullscreen/open-browser/open-logs/sponsor/about/quit；
-    /// **不得再含「检查 dsh 更新」**（npm 内核链已随「内核随客户端分发」退役）。
+    /// **不得再含「检查 dsh 更新」**（npm 内核链已随「内核随客户端分发」退役）；
+    /// **不得再含「显示余额/本轮费用」**（toggle-balance，2026-10-16 退役——
+    /// 它写壳侧 settings.json，与插件读的内核设置条目是两条互不相通的线，
+    /// 开关唯一落点已是 dsh-balance 插件的 Config 设置条目）。
     #[test]
     fn window_chrome_dots_menu_items() {
         for marker in [
@@ -355,7 +358,6 @@ mod window_chrome_tests {
             "更新源（点行内「复制」拷贝地址）",
             "menuItemHtml('toggle-notify'",
             "menuItemHtml('toggle-close-to-tray'",
-            "menuItemHtml('toggle-balance'",
             "menuItemHtml('toggle-auto-update'",       // 自动安装客户端更新开关
             "自动安装客户端更新",
             "menuItemHtml('reload'",
@@ -376,6 +378,10 @@ mod window_chrome_tests {
         }
         // 退役锚点（全文级）：npm 内核检查项与其文案不得以任何形态回潮。
         assert!(!BRIDGE_SHIM_JS.contains("检查 dsh 更新"), "「检查 dsh 更新」已退役（内核随客户端分发）");
+        // 退役锚点（2026-10-16）：toggle-balance 与它的文案不得以任何形态回潮
+        // （开关唯一落点是 dsh-balance 的插件设置条目，见 contracts/ipc-commands.md §2.4）。
+        assert!(!BRIDGE_SHIM_JS.contains("toggle-balance"), "toggle-balance 已退役（开关迁到插件设置条目）");
+        assert!(!BRIDGE_SHIM_JS.contains("显示余额"), "「显示余额/本轮费用」菜单文案不得回潮");
         // 渲染段（updRowHtml + renderMenu 函数体）必须含客户端更新项。
         let menu_seg = BRIDGE_SHIM_JS
             .split("function updRowHtml()")

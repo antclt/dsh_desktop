@@ -109,6 +109,15 @@ pub fn create_main_window(
     // 拖边缩放，显式置 true 防构建配置漂移；与 Electron frame:false +
     // resizable:true 行为对齐。
     .resizable(true)
+    // 外部文件拖入落到实处（2026-10-14 真机实测）：Tauri 默认开启 drag-drop
+    // handler，wry 在 Windows 随之设 SetAllowExternalDrop(false)——WebView2 不再
+    // 处理外部拖放，页面收不到任何 HTML5 drop 事件；F1 裁撤后 tauri://drag-*
+    // 已无消费方（内核全仓 0 处监听），默认态即「拖入文件」全链哑火（实测
+    // HTML5 事件 0 条）。显式关闭该 handler 放行页面原生拖放——tauri 文档
+    // 原话「required to use HTML5 drag and drop APIs on the frontend on
+    // Windows」；内核 composer 附件链与 dsh-better-sidebar 上传都吃 HTML5
+    // dataTransfer，此开关是它们的前置。
+    .disable_drag_drop_handler()
     .initialization_script(BRIDGE_SHIM_JS)
     .on_navigation(|url| {
         // 导航围栏：仅 127.0.0.1（内核/内嵌页）与 tauri 内部协议。
@@ -264,6 +273,9 @@ pub fn build_float_window<R: tauri::Runtime>(
         .inner_size(900.0, 640.0)
         .min_inner_size(480.0, 360.0)
         .decorations(false)
+        // 同主窗：放行 HTML5 外部拖放（会话浮窗同样是内核 UI，composer
+        // 附件链同款；默认 handler 会把它一并拦死，见 create_main_window）。
+        .disable_drag_drop_handler()
         .initialization_script(BRIDGE_SHIM_JS)
         .initialization_script(mode_script)
         .initialization_script(preset_script)
@@ -970,6 +982,35 @@ mod tests {
         let save_pos = seg.find("save_main_window_state").expect("必须保存窗口状态");
         let hide_pos = seg.find("win.hide()").expect("必须隐藏窗口");
         assert!(save_pos < hide_pos, "先存状态后隐藏（强杀路径兜底）: {seg}");
+    }
+
+    /// 外部文件拖入落到实处（2026-10-14 真机实测根治）：Tauri 默认开启 drag-drop
+    /// handler，Windows 上 wry 随之设 SetAllowExternalDrop(false)——页面收不到
+    /// HTML5 drop；F1 裁撤后 tauri://drag-* 已无消费方，默认态即「拖入文件」全链
+    /// 哑火（实测 HTML5 事件 0 条、DropOverlay 不出现）。主窗/浮窗（内核 UI，
+    /// composer 附件链所在）必须显式 disable_drag_drop_handler；赞助/更新窗是
+    /// 静态自绘页，不涉此面，保持默认（默认拦截同时挡住误拖引发的 file:// 导航面）。
+    #[test]
+    fn main_and_float_windows_reenable_html5_external_drop_shape() {
+        let src = include_str!("windows.rs");
+        let main_seg = src
+            .split("pub fn create_main_window")
+            .nth(1)
+            .and_then(|s| s.split("if let Some((x, y, w, h, maxed))").next())
+            .expect("create_main_window builder 链段");
+        assert!(
+            main_seg.contains(".disable_drag_drop_handler()"),
+            "主窗必须显式关 Tauri drag-drop handler（否则 Windows HTML5 外部拖放全死）: {main_seg}"
+        );
+        let float_seg = src
+            .split("pub fn build_float_window")
+            .nth(1)
+            .and_then(|s| s.split("/// URL 解析 helper").next())
+            .expect("build_float_window 段");
+        assert!(
+            float_seg.contains(".disable_drag_drop_handler()"),
+            "浮窗同为内核 UI（composer 同链），必须同款放行: {float_seg}"
+        );
     }
 
     /// 赞助窗第五轮终修的形态锚点（v0.5.0「卡死 + 无图 + 关不掉」根治）：

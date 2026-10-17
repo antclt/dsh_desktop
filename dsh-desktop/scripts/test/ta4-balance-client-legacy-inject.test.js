@@ -54,21 +54,25 @@ function makeCtx({ withInject }) {
   return { ctx, calls };
 }
 
-test('dsh-balance apply：现代宿主（slots.inject 在位）→ 经 inject 注册 dock', () => {
+test('dsh-balance apply：现代宿主（slots.inject 在位）→ 经 inject 注册 dock 与两条设置行', () => {
   const exports_ = loadPluginExports();
-  assert.ok(Array.isArray(exports_.inject) && exports_.inject.length === 1 && exports_.inject[0] === 'slots', 'capability 声明锚点');
+  // 2026-10-16 起客户端自己注册「设置 → 通用」两行（内核不按 Config 自动生成页面），
+  // 因此 capability 多了 remote / remote.settings。
+  assert.equal(exports_.inject.join(','), 'slots,remote,remote.settings', 'capability 声明锚点');
   const { ctx, calls } = makeCtx({ withInject: true });
   exports_.apply(ctx);
-  assert.equal(calls.inject.length, 1, '必须经 ctx.slots.inject 注册（槽竞态修复主行为）');
-  assert.equal(calls.inject[0][0], 'conversation.composer.dock', 'keyed slot 名锚点');
+  assert.equal(calls.inject.length, 3, 'dock + 两条设置行都必须经 ctx.slots.inject 注册（槽竞态修复主行为）');
+  assert.deepEqual(calls.inject.map((c) => c[0]).sort(),
+    ['conversation.composer.dock', 'settings.general.item', 'settings.general.item'], 'keyed slot 名锚点');
   assert.equal(calls.register.length, 0, '现代宿主不得绕过 inject 直注 register');
 });
 
-test('dsh-balance apply：旧内核形态（slots 无 inject）——现状断言【已知产品缺口】', () => {
+test('dsh-balance apply：旧内核形态（slots 无 inject）——降级直注三处不炸', () => {
   const exports_ = loadPluginExports();
-  const { ctx } = makeCtx({ withInject: false });
+  const { ctx, calls } = makeCtx({ withInject: false });
   // 已修（TA4 #1）：typeof inject === 'function' 守卫——旧宿主降级 register 不炸。
   exports_.apply(ctx); // 不应抛——降级走 register 路径
+  assert.equal(calls.register.length, 3, '降级路径同样要注册 dock 与两条设置行');
 });
 
 test('dsh-balance apply：无 document 环境不炸（ensureCss 纯浏览器守卫）', () => {

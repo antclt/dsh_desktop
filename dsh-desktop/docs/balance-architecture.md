@@ -107,8 +107,12 @@ v1.0.0 的插件化把余额链搬进 `dsh-balance` 后，自制壳那条链一�
 REQUIRED_SURFACES 复活面 / 把 `balance-core.js` 的代理客户端压成 `http`）均已
 实测判红后逐字节还原。
 
-不在裁撤范围内的是两样仍在用的东西：菜单项 `toggle-balance` 与设置项
-`showBalanceDock`（控制插件 dock 显隐），以及插件自己的 180s 宿主轮询。
+不在裁撤范围内的是插件自己的 180s 宿主轮询。dock 显隐开关原有两个用户面：
+壳层 ⋯ 菜单项 `toggle-balance` 与设置项 `showBalanceDock`——**菜单项已于 2026-10-16
+退役**（它写的是壳侧 settings.json，与插件读的内核设置条目互不相通，自设置子系统
+迁到内核 SettingsForms 起就是个死开关：点了没反应、也不报错）；开关的唯一落点改为
+插件导出的 Config 设置条目（0.1.4 起两条 volatile 布尔 `showBalanceDock` /
+`showOpenCodeGoUsage`，内核设置页自动生成表单）。
 
 ### 1.3 Electron 时代的接线（历史，仅供考古）
 
@@ -127,7 +131,7 @@ Electron 壳已退役，原 `main.js` 余额段曾整体平移到 Rust 壳 + sid
 | 取数（main.js 进程内直调） | sidecar `balance-fetch`（stdout 末行 JSON） | 单轮取数 |
 | `win.webContents.send('dsh:balance')` | `app.emit("balance-changed")`（垫片转 window 事件） | 页面推送（拆除时已无消费者） |
 | ipc `dsh:balance-refresh` | command `balance_refresh`（回放缓存 + 触发后台刷） | 刷新触发（拆除时已无调用者） |
-| 菜单 toggle-balance 后立即刷 | `menu_action` toggle 分支 `trigger_fetch` | 开关即时生效 |
+| 菜单 toggle-balance 后立即刷 | `menu_action` toggle 分支 `trigger_fetch`（该 act 于 2026-10-16 一并退役） | 开关即时生效（Electron 时代成立；插件化后菜单只写壳侧 settings.json，与插件读的内核设置条目不通，实际已死——见 §1.2） |
 
 环境变量（`HTTPS_PROXY`/`DSH_HOME`/`DSH_TAURI_USERDATA` 等）曾由 Rust 侧整表
 继承到 sidecar 子进程——两侧同口径（contracts/data-flow.md §5.1）。
@@ -337,7 +341,21 @@ DISJOINT 计数）：
   「从设置读默认模型」从未生效过也不报错。现读法是 `settings.describe()` 返回的按条目 id
   索引的行，且 `ns` 是 **profile 条目 id**（`cordis.patch.yml` 的 `- id:`，本插件为
   `balance`；`readSettings` 依次试 `balance` 与 `dsh-balance` 两个 ns），不是包名。
-  条目级设置块支持 `showBalanceDock` / `showOpenCodeGoUsage` / `balancePrices`（或 `prices`）。
+  条目级设置块支持 `showBalanceDock` / `showOpenCodeGoUsage` / `balancePrices`。
+  三条自 0.2.0 起都在插件 Config 里声明为 **volatile**——这不是风格问题而是硬门槛：
+  `dsh-settings` 的 `projectForm(volatileForm(schema), plainConfig(fiber.config))`
+  **只投影 volatile 声明过的字段**，其余（含纯手写的 config 块键）从 `row.value`
+  直接丢弃。实测形态：往 patch 种 `balancePrices.deepseek-chat = 99/9.9/88`，未声明
+  时 describe() 的 value 与刷新价目都仍是内置默认档，即 README 承诺的价目覆盖是死的
+  （旧代码里的 `section.prices` 同属死读，已删）。
+  另记一条被实测推翻的说法：**「导出 Config 后内核自动生成设置页」不成立**——
+  `autoGenerate` 只出现在 dsh-settings 与 wire schema，客户端包 0 消费方；设置导航
+  每一项都由客户端显式注册。本插件的两行开关由 `lib/client.js` 注册进
+  `settings.general.item`（写回走 `ctx.remote.settings.mutate("balance", ops, revision)`），
+  dock 显隐亦直读同一 scope——宿主后台 180s 才真发一次、客户端 60s 才读一次，只认载荷
+  `disabled` 位的话关掉后 dock 最长挂约 3 分钟，且冷启首轮刷新抢在 settings 就绪前。
+  坑：本 fork 的 `z.number()` 没有 `.optional()`（导入期 TypeError → 条目被
+  loader-isolation 摘掉）；对象字段在本 fork 里默认可选，`.required()` 才是标必须。
 - `DSH_HOME` 解析与 `dsh-home-paths` 同口径：显式覆盖 > `$DSH_HOME` > `~/.dsh`。
 
 ## 7. 端点与定价

@@ -86,8 +86,10 @@ pub async fn menu_action(action: String, payload: Option<serde_json::Value>, app
             app.exit(0);
             Ok(serde_json::Value::Null)
         }
-        "toggle-notify" | "toggle-close-to-tray" | "toggle-balance" | "toggle-auto-update" => {
-            let key = toggle_key(&action);
+        "toggle-notify" | "toggle-close-to-tray" | "toggle-auto-update" => {
+            // toggle_key 对本 arm 恒有值（三条动作三键一一对应）；Option 形态把
+            // 「act 在 arm 里但没键」变成显式报错而非静默落到某个默认键上。
+            let key = toggle_key(&action).ok_or_else(|| BridgeError::invalid_arg(format!("未知菜单动作：{action}")))?;
             let state = app.state::<AppState>();
             let store = shell_core::SettingsStore::new(state.paths.settings.clone());
             let next = toggle_setting(&store, key).map_err(|e| BridgeError::internal(e.0))?;
@@ -299,14 +301,19 @@ fn updater_err_to_bridge(e: super::updater_client::UpdaterError) -> BridgeError 
     }
 }
 
-/// 菜单 toggle 动作 → settings.json 键（前三者 Electron updater.loadSettings
+/// 菜单 toggle 动作 → settings.json 键（前两者 Electron updater.loadSettings
 /// 同键；autoInstallUpdates 为 Tauri 版新键——自动装更新会重启应用）。
-fn toggle_key(action: &str) -> &'static str {
+///
+/// 返回 Option：未知动作宁可显式报错，也不静默落到某个键上写坏配置。
+/// toggle-balance 已退役（2026-10-16，菜单项与壳侧 settings 键同批摘除）：
+/// 它写的壳侧 settings.json 与 dsh-balance 插件读的内核设置条目是两条互不
+/// 相通的线，开关唯一落点已是插件导出的 Config 设置条目（见 §2.4 台账）。
+fn toggle_key(action: &str) -> Option<&'static str> {
     match action {
-        "toggle-notify" => "notifyOnTurnEnd",
-        "toggle-close-to-tray" => "closeToTray",
-        "toggle-auto-update" => "autoInstallUpdates",
-        _ => "showBalanceDock",
+        "toggle-notify" => Some("notifyOnTurnEnd"),
+        "toggle-close-to-tray" => Some("closeToTray"),
+        "toggle-auto-update" => Some("autoInstallUpdates"),
+        _ => None,
     }
 }
 
@@ -361,9 +368,9 @@ mod tests {
         toggle_setting(&store, "closeToTray").unwrap();
         assert_eq!(store.get("lastWebPort").unwrap(), Some(serde_json::json!(51731)));
         // 非布尔值（损坏形态）回落缺省 true，toggle 后写回正常布尔。
-        store.set("showBalanceDock", serde_json::json!("oops")).unwrap();
-        assert!(setting_bool(&store, "showBalanceDock"));
-        assert!(!toggle_setting(&store, "showBalanceDock").unwrap());
+        store.set("closeToTray", serde_json::json!("oops")).unwrap();
+        assert!(setting_bool(&store, "closeToTray"));
+        assert!(!toggle_setting(&store, "closeToTray").unwrap());
         // autoInstallUpdates：缺省 false → 首次 toggle 后 true。
         assert!(!setting_bool_or(&store, "autoInstallUpdates", key_default("autoInstallUpdates")));
         assert!(toggle_setting(&store, "autoInstallUpdates").unwrap());
@@ -372,12 +379,14 @@ mod tests {
     }
 
     /// 菜单 toggle 动作 → settings.json 键映射（Electron 同键 + 新键）。
+    /// toggle-balance 已退役（2026-10-16）→ None：不得静默落到别的键。
     #[test]
     fn menu_toggle_key_mapping() {
-        assert_eq!(toggle_key("toggle-notify"), "notifyOnTurnEnd");
-        assert_eq!(toggle_key("toggle-close-to-tray"), "closeToTray");
-        assert_eq!(toggle_key("toggle-balance"), "showBalanceDock");
-        assert_eq!(toggle_key("toggle-auto-update"), "autoInstallUpdates");
+        assert_eq!(toggle_key("toggle-notify"), Some("notifyOnTurnEnd"));
+        assert_eq!(toggle_key("toggle-close-to-tray"), Some("closeToTray"));
+        assert_eq!(toggle_key("toggle-auto-update"), Some("autoInstallUpdates"));
+        assert_eq!(toggle_key("toggle-balance"), None);
+        assert_eq!(toggle_key("no-such-action"), None);
     }
 
     /// 菜单 quit 语义 = 托盘退出（lib.rs setup_tray 同款）：先 supervisor

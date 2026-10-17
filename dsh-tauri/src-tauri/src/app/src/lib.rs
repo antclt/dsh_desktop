@@ -431,9 +431,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     };
     #[allow(unused_variables)]
     let main_win = windows::create_main_window(app.handle(), &initial_url, saved)?;
-    // 文件拖放接线（F1）已于 2026-10 随 dsh-file-drop 插件裁撤整体移除：
-    // 原生 DragDropEvent 不再有消费方（drag_drop_enabled 保持 tauri-utils
-    // WindowConfig 默认 true，未在本仓显式配置过——无需回补配置行）。
+    // 文件拖放链路：F1（dsh-file-drop 的 DragDropEvent 转发/回填）已于 2026-10
+    // 整体裁撤，tauri://drag-* 事件自此无消费方——主窗/浮窗因此显式
+    // disable_drag_drop_handler（见 windows.rs），让外部拖入直接落到内核页面的
+    // HTML5 drop（composer 附件链 + better-sidebar 上传）；这也是 Windows 上
+    // 用前端 HTML5 拖放 API 的前提（tauri 文档原话，2026-10-14 真机实测闭环）。
     // 诊断开关：DSH_TAURI_DEVTOOLS=1 打开 DevTools（debug build）。
     if std::env::var("DSH_TAURI_DEVTOOLS").ok().as_deref() == Some("1") {
         #[cfg(debug_assertions)]
@@ -2327,7 +2329,10 @@ mod panic_hook_tests {
 // 预检/分类工具（CLIENT_FILE_DROP_EVENT / DROP_* 常量 / drop_ext / drop_kind /
 // DropPrecheck / precheck_drop_paths / route_drag_drop）的唯一消费方是已退役的
 // 内置伴随插件 dsh-file-drop，垫片侧转发也已同步移除，故整体删除。
-// 原生 drag_drop_enabled 未在仓内显式配置（保持 tauri-utils WindowConfig 默认）。
+// 该裁撤曾遗留一处缺口（2026-10-14 真机实测补上）：默认 drag-drop handler 会把
+// 外部拖放拦在系统层（Windows 上 SetAllowExternalDrop(false)），页面收不到 HTML5
+// drop——F1 在时事件至少还有人听，F1 走后「拖入文件」即全链哑火。现主窗/浮窗
+// 显式 disable_drag_drop_handler（windows.rs），放行内核原生 HTML5 拖放入口。
 
 // ---------------------------------------------------------------------------
 // TA1 测试加固门（用户批准的最小 cfg(test)] 门）：仅测试构建链接下方两个

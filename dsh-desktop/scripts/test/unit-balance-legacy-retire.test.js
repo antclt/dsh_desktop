@@ -87,8 +87,17 @@ test('Rust 侧余额轮询环与命令面已全部摘除', () => {
 
   const menu = read(RUST_APP, 'src', 'commands', 'menu.rs');
   assert.ok(!menu.includes('balance::trigger_fetch'), '菜单 toggle-balance 不得再触发壳侧取数');
-  // 设置项本身仍在（插件 dock 的显隐开关），只是不再连到余额链。
-  assert.ok(menu.includes('showBalanceDock'), 'showBalanceDock 设置项应保留（非裁撤范围）');
+  // 2026-10-16 追记：toggle-balance 菜单项本身也已退役——它写壳侧 settings.json，
+  // 与插件读的内核设置条目（profile 条目 id `balance`）互不相通，是死开关。
+  // 壳侧两处（menu.rs 的 act/键映射、lifecycle.rs 的 app_init 返回键）不得残留；
+  // 开关唯一落点是插件导出的 Config 设置条目（正向锁见 unit-balance-config-entry）。
+  // 按「登记形态」判：act 只认 match 臂形（"toggle-balance" | / =>），
+  // 本文件与 menu.rs 自身的退役说明/断言是散文，允许出现令牌。
+  assert.ok(!/"toggle-balance"\s*(?:\||=>)/.test(menu), 'menu.rs 不得再登记 toggle-balance act');
+  assert.ok(!menu.includes('showBalanceDock'), 'menu.rs 不得再含 showBalanceDock 设置键');
+  const lifecycle = read(RUST_APP, 'src', 'commands', 'lifecycle.rs');
+  // 同上按形态判：返回键的登记形是 `"showBalanceDock":`，注释里的名字不算。
+  assert.ok(!/"showBalanceDock"\s*:/.test(lifecycle), 'app_init 不得再返回 showBalanceDock');
 
   const notify = read(RUST_APP, 'src', 'session_notify.rs');
   assert.ok(!notify.includes('trigger_fetch'), 'turn-end 不得再挂余额触发（C2 退役）');

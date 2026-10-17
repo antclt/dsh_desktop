@@ -402,7 +402,7 @@ function bootPage(script, { dshDesktop, prebuild = [] } = {}) {
 
 const APP_INFO = {
   appVersion: '1.2.3', agentVersion: '0.9.7', agentSource: 'bundled',
-  notifyOnTurnEnd: true, closeToTray: true, showBalanceDock: true, autoInstallUpdates: false,
+  notifyOnTurnEnd: true, closeToTray: true, autoInstallUpdates: false,
   repoUrls: { github: 'https://github.com/a/b', gitee: 'https://gitee.com/a/b' }
 };
 

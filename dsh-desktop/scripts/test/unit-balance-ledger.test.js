@@ -158,10 +158,15 @@ function loadClient(opts = {}) {
   assert.ok(mod.__internals, 'client.js 必须导出 __internals 供单测（issue #168）');
 
   let dockComponent = null;
+  // 0.2.0 起客户端还往 settings.general.item 注册两行开关，故必须按槽名筛选，
+  // 否则 dockComponent 会被后注册的 SwitchRow 顶掉（渲染的就不是余额 dock 了）。
   mod.apply({
     slots: {
-      register(_info, Comp) { dockComponent = Comp; },
-      inject(key, factory) { if (key !== 'conversation.composer.dock') throw new Error('unexpected slot: ' + key); factory(); },
+      register(info, Comp) { if (info.name === 'conversation.composer.dock') dockComponent = Comp; },
+      inject(key, factory) {
+        if (key !== 'conversation.composer.dock' && key !== 'settings.general.item') throw new Error('unexpected slot: ' + key);
+        factory();
+      },
     },
     effect: (cb) => cb(),
   });
