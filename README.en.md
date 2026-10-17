@@ -153,7 +153,7 @@ Controlled by `bundle.targets` in `tauri.conf.json` — add or remove entries to
 
 ## 🧩 Bundled Plugin Ecosystem
 
-**28 companion plugins are registered in total.** Under the v1.0.0 bundled line (user decision, 2026-10-08) their sources ship **inside the installer**: the delivery gate mirrors `assets/plugins` as a whole, and the first boot syncs it into the profile, so everything below works out of the box (see §4 of [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the delivery gates and the full third-party list). The table below follows the registration order of `scripts/lib/companion-plugins.js`; package names and versions are read from each plugin's `package.json`. The "Source / license" column only reports what each package says about itself — per-plugin upstream reachability and licence text are audited in [the inventory](dsh-desktop/docs/builtin-plugins-inventory.md) §3, and the rc.2 host compatibility verdicts in §5.
+**29 companion plugins are registered in total.** Under the v1.0.0 bundled line (user decision, 2026-10-08) their sources ship **inside the installer**: the delivery gate mirrors `assets/plugins` as a whole, and the first boot syncs it into the profile, so everything below works out of the box (`dsh-reasoning-effort` was retired on 2026-10-17 with the 0.2.1 kernel generation, 30→29; see §4 of [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the delivery gates and the full third-party list). The table below follows the registration order of `scripts/lib/companion-plugins.js`; package names and versions are read from each plugin's `package.json`. The "Source / license" column only reports what each package says about itself — per-plugin upstream reachability and licence text are audited in [the inventory](dsh-desktop/docs/builtin-plugins-inventory.md) §3, and the `0.2.1-rc.1` host compatibility verdicts in §5.
 
 > [!NOTE]
 > **Trimmed in v1.0.0: bundled plugins went from 39 down to 28** (the 11 were named for removal by a user on 2026-10-07).
@@ -169,15 +169,15 @@ Controlled by `bundle.targets` in `tauri.conf.json` — add or remove entries to
 
 | Plugin (package) | Version | Description | Source / license |
 | --- | --- | --- | --- |
-| `@deepseek-ai/dsh-balance` | 0.1.3 | Account balance plus per-turn cost estimate, docked to the conversation stats bar | In-house · MIT |
+| `@deepseek-ai/dsh-balance` | 0.2.0 | Account balance plus per-turn cost estimate, docked to the conversation stats bar | In-house · MIT |
 | `@deepseek-ai/dsh-file-changes` | 0.1.0 | Session file-change projection (collapses tool/result meta.diffs) | In-house · MIT |
-| `dsh-better-sidebar` | 0.24.1 | VSCode-style right pane: five built-in tabs (editor / git / subagent / sidechat / diff) plus a tab-registration service for other plugins | [omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) · MIT |
+| `dsh-better-sidebar` | 0.24.2 | VSCode-style right pane: five built-in tabs (editor / git / subagent / sidechat / diff) plus a tab-registration service for other plugins | [omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) · MIT |
 | `dsh-session-manager` | 0.1.0 | Session-row delete button plus an "Archived conversations" panel in Settings (restore / delete) | In-house · MIT (name collides with a published community package) |
 | `@deepseek-ai/dsh-conversation-tweaks` | 0.1.1 | Collapse long assistant outputs, plus a right-side navigation rail | In-house · MIT |
 | `@deepseek-ai/dsh-quest-ui` | 0.6.1 | One-toggle Quest-mode UI (grouped session rail + card composer + pill metadata bar), off by default | In-house · MIT |
 | `@dsh-external/dsh-super-injector` | 0.3.1 | Inject any local plugin package at runtime without restarting, hot reload, and a plugin-manager UI in Settings | Community (@dsh-external) · BSD-3-Clause (manifest label only, no licence text to cite) |
-| `@deepseek-ai/dsh-prompt-custom` | 0.3.5 | Override or append the official system prompt from the Settings page | In-house · MIT |
-| `@deepseek-ai/dsh-workspace-anchor` | 0.1.0 | Inject a {{cwd}} preference block into the stable system prompt to stop workspace drift | In-house · MIT |
+| `@deepseek-ai/dsh-prompt-custom` | 0.5.0 | Override or append the official system prompt from the Settings page, with one-click prompt-card switching and save-back to the active card | In-house · MIT |
+| `@deepseek-ai/dsh-workspace-anchor` | 0.1.1 | Anchor the current working directory into the stable system prompt to stop workspace drift (from kernel 0.2.1 the `{{cwd}}` prompt variable is no longer registered, so the plugin fills the real path itself) | In-house · MIT |
 | `@deepseek-ai/dsh-wsl-settings` | 0.1.0 | A "WSL backend" section in Settings: local/WSL switching, distro and install dir, liveness probe | In-house · MIT |
 | `@dsh-external/dsh-side-session` | 0.3.1 | Floating side session that imports the main conversation context at three selectable depths (120 / 600 / 5000 messages), so follow-ups stay isolated | [hzhz314159/dsh-side-session](https://github.com/hzhz314159/dsh-side-session) · MIT (upstream ships no LICENSE, the MIT label is ours) |
 | `billion-context-dsh` | 0.2.26 | Active Context Pruning: model-driven context management, plus four model tools and the /acp-prune command | [Tyan66666/billion-context-dsh](https://github.com/Tyan66666/billion-context-dsh) · MIT |
@@ -192,16 +192,18 @@ Controlled by `bundle.targets` in `tauri.conf.json` — add or remove entries to
 | `dsh-settings-groups` | 0.1.1 | Folds low-frequency General-settings rows into a collapsible "Advanced" group | In-house · MIT |
 | `dsh-synapse` | 0.3.0 | Non-linear conversation canvas: drag-spread sessions, follow-ups and branches of one workspace | [liangmianya/dsh-synapse](https://github.com/liangmianya/dsh-synapse) · MIT (local fork line, upstream 0.4.2 deliberately not taken) |
 | `@dsh-external/dsh-subagent-lens` | 0.1.1 | Expandable Task/subagent activity view plus a header bar aggregating commands and files (no extra backend calls) | In-house · MIT (borrows the @dsh-external scope, which has no repository) |
-| `dsh-reasoning-effort` | 0.8.1 | Codex-style model + reasoning-effort selector, with copy-ready guidance for custom providers | [HanaAyane/dsh-reasoning-effort](https://github.com/HanaAyane/dsh-reasoning-effort) · MIT |
-| `dsh-basics-panel` | 0.4.1 | Visual management of MCP servers, skills, rules and archived sessions inside Settings | [yxsj245/dsh-Basics-Panel](https://github.com/yxsj245/dsh-Basics-Panel) · MIT |
+| `dsh-basics-panel` | 0.4.2 | Visual management of MCP servers, skills, rules and archived sessions inside Settings | [yxsj245/dsh-Basics-Panel](https://github.com/yxsj245/dsh-Basics-Panel) · MIT |
 | `dsh-input-fold` | 0.1.1 | Collapses very long user prompts to a few lines with an "expand" overlay | In-house · MIT |
-| `dsh-prompt-optimizer` | 2.0.4 | One-click draft polishing in the composer (uses the current session model, zero-config streaming) | [winditer/dsh-prompt-optimizer](https://github.com/winditer/dsh-prompt-optimizer) · MIT |
+| `dsh-prompt-optimizer` | 2.4.0 | One-click draft polishing in the composer (uses the current session model, zero-config streaming; iterative refinement, structured expansion, and per-project persistent optimization goals; reads the previous conversation turn as context, reports the intent it inferred on the first line, and one-click undo after replacing the draft; verbatim-preservation check with bounded auto-repair) | [winditer/dsh-prompt-optimizer](https://github.com/winditer/dsh-prompt-optimizer) · MIT |
 | `dsh-zcode-migrate` | 0.1.2 | Migrates zcode CLI session history into native dsh session logs (inspect / migrate / verify, /zcode) | In-house · MIT |
-| `dsh-builtin-manager` | 0.1.0 | Built-in plugin page under Settings → Plugins: list every bundled plugin and switch it on or off (takes effect on next launch) | In-house · MIT |
+| `dsh-builtin-manager` | 0.2.0 | Built-in plugin page under Settings → Plugins: search and state filters with a single-card list to view and toggle every bundled plugin (inline feedback; takes effect on next launch) | In-house · MIT |
+| `@deepseek-ai/dsh-goal-completion` | 0.1.0 | "Goal wrap-up" tab in the kernel right bar: the current session's goal state machine plus the `complete` verb the official GoalBar never exposes (two-click confirm) | In-house · MIT |
 
 > Earlier removals, also outside the 29 registered plugins: `dsh-navbar` (navbar replacement,
-> dropped from the list and its sources deleted in `v0.6.3-beta.3`, commit `ff421ac2`) and
-> `zat-dsh-engine` (the previous built-in marketplace, retired even earlier).
+> dropped from the list and its sources deleted in `v0.6.3-beta.3`, commit `ff421ac2`),
+> `zat-dsh-engine` (the previous built-in marketplace, retired even earlier) and
+> `dsh-reasoning-effort` (reasoning-effort selector, retired 2026-10-17 with the 0.2.1 kernel
+> generation — the official Settings page can now declare a custom model's effort levels itself).
 
 ## 🏗 Architecture
 

@@ -18,7 +18,7 @@
 - [x] **C4 更新链激活（S）**（2026-08-22 改写：**双源 releases + sha256 路线**，非 minisign——updater_client.rs（GitHub digest/边车校验 fail-closed、Gitee 单源无锚拒绝、跨源换源重试）+ menu.rs 安装链 + CI sha256 边车/mirror-gitee + verify-update-sources.mjs；check-agent-update 退役）
 - [x] ~~**C5 文件预览静态服务（S-M）**~~ **作废（2026-10-07）**：本项要救的「站内 HTML 预览降级」是 `dsh-client-file-changes`（「文件」视图 + 一键还原）的功能面，该插件已随 v1.0.0 内置插件精简（39 → 28）按用户点名移除（与内核官方同名包重叠、镜像副本遮蔽官方包），其还原依赖的壳侧 `file_revert` 亦退役——**降级问题不复存在**。preview-server 仍承担静态页与 `/__diag/` 诊断端点，不需要为此项加 fence 路由。文件浏览/预览入口见 `dsh-better-sidebar`（仍在包内）。
 - [ ] **C8 备份/诊断导出系统对话框（S）**：tauri-plugin-dialog save/open。
-- [ ] **C9 拖拽路径回填（S-M）**：onDragDropEvent→file.path（shim 已读恒空）。
+- [x] ~~**C9 拖拽路径回填（S-M）**~~ **作废（2026-10-14）**：该条要为 F1（dsh-file-drop 的 DragDropEvent 转发链）回填 `file.path`，F1 已于 2026-10 随插件整体裁撤——回填对象不复存在（内核全仓 0 处调用 getPathForFile，shim 恒等降级返回空串）。用户可见的「拖入文件」不依赖路径回填：主窗/浮窗显式 `disable_drag_drop_handler` 后走内核原生 HTML5 拖放入口（composer 附件链 + better-sidebar 上传），真机实测闭环见 [`CHANGELOG.md`](../CHANGELOG.md) 顶部未发布条目。
 - [ ] **C12 M3 主题（M）**：preload 的 Material Design 3 注入整体搬垫片（纯页面侧）。
 - [ ] **C15 快捷方式运行时维护（S 低优先）**：如遇「图标消失」反馈再补。
 - [ ] **C18 agent 更新半截体验（M）**：维持 D1 裁撤则菜单文案改「随客户端发版升级」。

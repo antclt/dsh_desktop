@@ -52,14 +52,16 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # 发布形态开关（v1.0.2 专项，2026-10-11 裁定）：'true' → publish 用
-  # `gh release create --prerelease`，标题带「（预发布）」。
-  # 副作用是刻意的：GitHub 的 /releases/latest 端点跳过 prerelease，而壳侧更新器轮询的
-  # 正是 latest——本版因此【不会】被自动推给存量用户（根因修复只经 mac 现场取证 +
-  # 本机单测闭环，未取得多平台实机复验，先以预发布形态出包）。
-  # 恢复正式发布：改回 'false'。把本版转正：`gh release edit v1.0.2 --prerelease=false`
+  # 发布形态开关：'true' → publish 用 `gh release create --prerelease`，标题带「（预发布）」；
+  # 'false' → 正式版（标题无后缀）。
+  # 为什么这个开关要紧：GitHub 的 /releases/latest 端点跳过 prerelease，而壳侧更新器轮询的
+  # 正是 latest——prerelease 形态下本版【不会】被自动推给存量用户（v1.0.2 即按此裁定出包：
+  # 当时根因修复只经 mac 现场取证 + 本机单测闭环，未取得多平台实机复验）。
+  # v1.0.4 起置 'false'：本版三项跨代修复（资源管理器 405 / 每条消息装配期失败 / 内核换代）
+  # 已在隔离内核实机端到端复验，29 条内置插件全量在册，必须推送给存量用户。
+  # 历史版本转正：`gh release edit v1.0.2 --prerelease=false`
   #（publish 只在 release 不存在时写元数据，重跑不会回头覆盖，见上传纪律 1）。
-  RELEASE_PRERELEASE: 'true'
+  RELEASE_PRERELEASE: 'false'
 
 jobs:
   build-windows:
@@ -1409,69 +1411,92 @@ jobs:
           TAG='${{ steps.ver.outputs.tag }}'
           VERSION='${{ steps.ver.outputs.version }}'
           cat > release-notes.md << EOF
-          # DSH Desktop ${VERSION} — 预发布版（全平台）
+          # DSH Desktop ${VERSION}（正式版 · 全平台）
 
-          > 本版标为**预发布（pre-release）**：GitHub 的 latest 端点会跳过预发布，而客户端的在线
-          > 更新检查轮询的正是 latest——所以本版【不会】自动推给存量用户。这是刻意的发布形态：
-          > 核心修复只经 macOS 现场取证与本机单测闭环，尚未取得多平台实机复验。需要本版请从下方
-          > 资产表手动取包安装；在线推送随下一个正式版。
+          > 本版是**正式版**：进入 GitHub 的 \`releases/latest\`，客户端右上角 ⋯ 菜单的在线更新检查轮询的正是
+          > latest，所以存量用户会收到推送。随包内核由 \`0.2.0-rc.2\` 换代到 **\`0.2.1-rc.1\`**，属跨代变更，
+          > 升级后首启会重算一次补丁层与插件同步（实测 boot 五步全 OK）。
+
+          ## 🎯 本版重点
+
+          1. **随包内核换代 \`0.2.0-rc.2\` → \`0.2.1-rc.1\`**：pin / 离线 vendor tarball / lock 三线同改，
+             构建期补丁层由 62 项精简到 **61 项**（\`pi-ai-opencode-go-models\` 上游已自带，退役），
+             8 处补丁锚点按新内核真实字节重录。
+          2. **「文件 — 资源管理器」打不开文件（HTTP 405）根治**：见下方修复第 1 条。这是本版对日常使用影响最大的一条。
+          3. **内置插件第一次能在界面里管理**：新增自研 \`dsh-builtin-manager\`（设置 → 插件 → 「内置插件」页签，
+             搜索 / 状态筛选 / 行内启停反馈）；右栏新增「目标收尾」标签页 \`dsh-goal-completion\`（补上官方 GoalBar
+             没暴露的 complete 动作）。随包内置插件在册 **29** 条。
+          4. **提示词润色 \`dsh-prompt-optimizer\` 2.4.0**：接上上一轮对话作为素材、先输出「理解到的意图」供核对、
+             写回草稿支持一键撤销。
+          5. **发消息链路的跨代兼容**：0.2.1 撤除了 \`{{cwd}}\` 提示词变量，\`dsh-workspace-anchor\` 改为自带实路径
+             （旧版会让**每一条**消息在装配期失败，界面只显示「处理失败 / UNKNOWN」）。
 
           ## 🛠 修复
 
-          **macOS 首启「未能保存设置，请重试。」+ 9 条内置插件 failed to load（真根因）**
-          现场：v1.0.0 与 v1.0.1 装到 mac 上症状逐字相同——settings / better-sidebar /
-          conversation-tweaks / quest-ui / side-session / openclaw-bridge / dsh-subagent-lens /
-          reasoning-effort / basics-panel 共 9 条 failed to load — auto-isolated，dsh-easyrewrite
-          停在 pending (waiting for settings)，前台保存设置永远失败。
-          取证：逐 bundle 真跑 import 拿到原文 SyntaxError: The requested module
-          '@deepseek-ai/cosmokit' does not provide an export named 'createVolatile'——不是模块
-          找不到，而是 ESM 具名导出在链接期就不存在，条目连 fiber 都没建成，日志里因此只剩一行
-          failed to load。
-          根因：profile 里一条 pnpm 别名链接 node_modules/@deepseek-ai/cosmokit 指向 ../cosmokit，
-          把 scoped 规格符指到了未 scoped 的 cosmokit 1.8.1（没有 createVolatile；应用闭包里是
-          @deepseek-ai/cosmokit 1.8.5）。该链接来自第三方插件安装，不是我们的同步写出来的；共享
-          farm 侧的同名链接是健康的，只是永远轮不到——profile 自身的 node_modules 优先。
-          @deepseek-ai/dsh-settings 同死，于是设置服务缺席。
-          修复：新增别名 / 悬空链接自愈，判据是「链接落点的包名 ≠ 目标 package.json 的 name」，
-          并接进启动链的 repair 步（原先为同类场景写的自愈只挂在 guard-* 子命令上，启动从不触及）。
-          同名 link: 开发安装不误伤；farm 对应物不健康时一条不动；真目录副本刻意不删（会和随后的
-          同步步骤互相拉锯）。装上本版后首启自动回落 farm 的 1.8.5，无需用户操作。
-          注：v1.0.1 修的是同一条症状的另一面（profile 链接落点让目录复制坏掉），那次修复是有效
-          的，但不是本案根因——所以 mac 装 1.0.1 仍逐字复现。
+          **1. 「文件 — 资源管理器查看不了文件，提示 HTTP 405」（\`dsh-better-sidebar\` 0.24.2 / \`dsh-basics-panel\` 0.4.2）**
+          根因：0.2.1 内核删除了 \`webRuntime\` 服务（HTTP 栅栏要用的 \`trustedHosts\` 迁到 \`connection\` 服务），
+          而这两件内置插件的宿主半边仍声明 \`inject: [..., 'webRuntime', ...]\`。cordis 的 \`inject\` 是就绪门，
+          名字解析不到就让整条插件永久 pending 并被静默隔离，于是它们注册的 \`/sidebar/*\`、\`/basics/*\` 路由
+          一条都没挂；请求落到内核 SPA 兜底（只认 GET/HEAD），POST 拿到**空体 405**，界面就报 HTTP 405。
+          同期 boot 五步全绿、29 条插件无一 \`failed to load\`、内核进程正常监听——静态面与开机面都不作证。
+          现在两件都改读 \`connection.trustedHosts\`。实测（隔离内核真机）：\`POST /sidebar/api/fs.trees\` → 200 真实目录列表、
+          \`POST /sidebar/api/fs.read\` → 200 文件正文、\`POST /basics/api/…\` → 插件自己的 JSON 信封（不再是空体 405），
+          且 stderr 零 \`pending (waiting for\`。同批新增第七道静态判据 \`unit-plugin-inject-services\`
+          （内置插件宿主半边声明的每个服务名，必须能在 pin 内核闭包里扫到 provider），事故原形带回灌必判红。
 
-          **发送文件恒报 prompt rejected（session/agent-busy）——同一根因，且原文不再被吞**
-          准入链的兜底会把任何非 RemoteError 的异常统一标成 session/agent-busy，真原因只落在
-          details.reason 而界面不渲染；设置服务缺席时上面那条故障就表现成「agent 忙」。
-          本版新增诊断补丁，把原始异常连同 cause 链写进 stderr（前缀 [prompt-admission]），
-          报文 code 与 details 一律不变（换 code 属契约变更，须走 error-codes 契约）。
+          **2. 每条消息「处理失败 / UNKNOWN」（\`dsh-workspace-anchor\` 0.1.1）**
+          0.2.1 的 \`dsh-agent-loop\` 不再注册 \`cwd\` 提示词变量，锚点节里的 \`{{cwd}}\` 在装配期抛
+          \`unknown prompt variable "{{cwd}}"\`。修法与内核版本无关：锚点由插件自己填入会话工作目录实路径并关掉插值扫描，
+          同时把 \`cwd\` 变量按原形状补注册回来（别的插件节与用户自写提示词里的 \`{{cwd}}\` 继续可解析）。
 
-          **两处静默失败「原文上身」（可观测性）**
-          ① 插件导入失败：内核 rc.2 起加载器只把错误交给纯内存环形缓冲的 logger，非核心条目不再
-          抛 StartupError，原始错误从不落地——补一条 guard 补丁把导入异常连同 cause 链写到 stderr
-          （前缀 [loader-diagnostic]）。② 启动通道 stderr：壳侧过去只在退出码非 0 时透出尾行，
-          boot 五步（repair / sync / patches / compat-pin / preflight）成功路径上的日志整段丢弃——
-          现逐行转进 desktop.log（上限 400 行，超出保留末尾并注明截断量；一次启动实测 115 行 /
-          15KB）。以后「看不到报错」不再等于「没有报错」。
+          **3. Windows 部分机型「点击开始设置没反应」**
+          内核引导页把步骤推进挂在 CSS 动画的 \`element.animate().finished\` 上；最小化 / 收到托盘 / 被遮挡 / RDP /
+          GPU 合成退化时**渲染时间线冻结而 JS 照跑**，\`finished\` 永不 resolve，按钮就永久 disabled 且不报错。
+          现补 400ms 有界回落推进，并把五条静默 guard 的命中打成可观测日志（真走回落才有 \`[onboarding-timeline]\`）。
 
-          **CI 全量单测两处断链（工程侧，运行时字节零变化）**
-          node 22 下 12 例因被 unref 的 0ms 定时器整体 cancelledByParent 连坐；pristine 闭包缺供
-          让 51 例硬红。已把测试床冲刷辅助统一改 setImmediate，流水线在全量单测前先离线解出
-          pristine 内核。同批重取补丁干预面快照，自 2026-10-06 起 chronic 红的漂移校验复绿。
+          **4. 把文件拖进窗口没反应**
+          Tauri/wry 默认 \`drag_drop_handler_enabled: true\`，在 Windows 上随之 \`SetAllowExternalDrop(false)\`——
+          WebView2 不再向页面派发任何 HTML5 拖放，而内核对 composer 附件链依赖它。现主窗与浮窗显式放行外部拖放，
+          静态页窗口保持默认。真机用系统拖源 + SendInput + CDP 页面事件计数验证（修复前 0 条，修复后事件到达）。
 
-          ## ✅ 验证
+          **5. 「展开为结构化」后点「替换草稿」无反应（\`dsh-prompt-optimizer\` 2.2.1）**
+          DSH 的 composer 是 Lexical，粘贴多行文本走的是它自己的事务通道；旧写回按单行 \`insertText\` 提交，多行结果被吞。
+          现改走粘贴事件通道，并配套 2.4.0 的「一键撤销」（记录原草稿、按钮翻 \`↩\`，草稿被手改即作废）。
 
-          - Node 侧（2026-10-11 实测）：scripts/test/ 192 个测试文件，npm test = 2063 例 /
-            **0 fail / 0 cancelled**（pass 2053 / skip 10，skip 逐条是环境缺料而非缺陷）；
-            check-syntax、validate-pin（✓ dsh-v0.2.0-rc.2）、patch-surface verify
-            （✓ 68 文件与快照一致，无漂移）全绿。
-          - sidecar：dsh-tauri/sidecar/cli.test.js 21/21 / 0 fail。
-          - 新增回归：别名链接自愈 8 例（别名摘除 / 同名 link: 不误伤 / farm 不健康一条不动 /
-            悬空摘除 / 真目录不动 / guard 路径同判据 / 缺目录早退 / 幂等）+ 启动链接线回归 1 例
-            （幂等断言带阳性对照，防「实例没跑起来也能过」）；诊断补丁 9 例在真字节上跑导入与
-            准入两段 catch。
-          - Rust 侧：本版壳侧一处改动（boot stderr 转出）+ 3 例新单测；其余沿用既有全量基线。
-          - 发版防线：版本一致性四道闸（强制检出 tag、tauri.conf.json 版本比对、产物文件名内嵌
-            版本断言、publish 汇总断言），每个主资产附带同名 .sha256 边车。
+          **6. ⋯ 菜单「显示余额 / 本轮费用」是死开关**
+          菜单写壳侧 \`settings.json\`，插件读内核设置条目，两边互不相通，且该插件从未导出 Config——点了没反应也不报错。
+          现退役该菜单项，开关移到「余额」插件自己的设置条目里（同时补 \`dsh-balance\` 的 Config 声明与设置页）。
+
+          **7. macOS 首启「未能保存设置，请重试。」+ 9 条内置插件 \`failed to load\`**（承 v1.0.2 的根因修复）
+          profile 里一条 pnpm \`npm:\` 别名链接把 scoped 的 \`@deepseek-ai/cosmokit\` 指到未 scoped 的旧版本，
+          ESM 链接期即 \`SyntaxError\`，条目连 fiber 都没建，日志只剩一行 \`failed to load\`。
+          判据「链接落点的包名 ≠ 目标 \`package.json\` 的 name」已进 boot 的 repair 步自愈。
+
+          ## 📦 随包内置插件清单变化（在册 29 条）
+
+          - **新增**：\`dsh-builtin-manager\` 0.2.0（内置插件管理页）、\`dsh-goal-completion\` 0.1.0（右栏目标收尾标签页）。
+          - **退役**：\`dsh-reasoning-effort\` 0.8.1 —— 内核 0.2.1 已整块接走推理强度设置面（\`ModelReasoningEfforts\` 编辑器 +
+            同一份 \`validateReasoningEfforts\` 校验），它的 Codex 风格滑块与官方 composer 选择器重复。
+            撤装是同步清单的反向操作（登记撤回账、开机自动清理旧落点），用户数据不动。
+          - **升级**：\`dsh-prompt-optimizer\` 2.3.0 → 2.4.0、\`dsh-prompt-custom\` 0.4.0 → 0.5.0（设置页卡片化 + 内核设计系统）、
+            \`dsh-better-sidebar\` 0.24.1 → 0.24.2、\`dsh-basics-panel\` 0.4.1 → 0.4.2、\`dsh-workspace-anchor\` 0.1.0 → 0.1.1。
+
+          ## ✅ 验证（2026-10-17 实测基线）
+
+          - Node 侧：\`scripts/test/\` 204 个测试文件，\`npm test\` = **2238 例 / 0 fail / 0 cancelled**
+            （pass 2229 / skip 9；skip 逐条是环境缺料，如 pristine 夹具缺第三方模型包、本机无兄弟仓库克隆）。
+          - 兼容四闸：\`check-syntax\` 通过；\`validate-pin\` → \`✓ dsh-v0.2.1-rc.1（offline-tarball）\`；
+            \`patch-surface verify\` → **85 文件与快照一致、零漂移**；补丁计数哨兵（61 / root 14 / cli 25）随迁。
+          - Rust 侧：\`cargo test --workspace --target x86_64-pc-windows-gnu\`（与 \`RUSTUP_TOOLCHAIN\` 配对）
+            **693 passed / 0 failed / 4 ignored**（36 个 target），契约审计 \`no_extra_commands_beyond_contract_and_poc\` 在位。
+          - 安装布局冒烟 \`smoke-installed.sh\`（手拼布局 + 全隔离 \`DSH_HOME\`/\`DSH_TAURI_USERDATA\`，绝不跑真安装器）**PASS**：
+            boot 五步全 OK、\`补丁应用汇总 写入 0 / 失配 0 / 共 61\`、29 条内置插件镜像进 profile、
+            \`✓ 插件加载零致命错误\`、page-error 总数 0、杀壳后残留监听 0（这一轮跑在换代 payload 上）。
+            405 修复后的第二轮包（195,643,131 B / sha256 \`36def038…57bb8e31\`）在同一套手拼布局上按
+            boot 与路由两层复验：boot 五步全 OK + 共 61，\`POST /sidebar/api/fs.trees\` 由换代那轮的
+            **空体 405** 变成 **400 且带插件自己的 envelope**（这条只能来自插件的 dispatch，兜底给不出信封）。
+          - 隔离内核实机：发一条真消息走到预期的 \`MISSING_CREDENTIAL\`（证明装配期已过），
+            并逐条打资源管理器与基础能力面板的路由（见修复第 1 条的实测状态码）。
 
           ## 安装包
 
@@ -1489,35 +1514,14 @@ jobs:
 
           ## 已知问题
 
-          - **dsh-synapse（会话地图）**：重启或切换会话时历史回填可能出现空档——宿主 rc.2 下线了
-            Session 上的 events 属性而插件仍读旧字段（不报错、不崩溃）。已登记在内置插件台账
-            §5.5，本版按裁定未处置。
-          - **Windows ARM64**：payload 内原生模块仍是 x64 prebuild，靠 Windows 11 模拟层兜底，
-            标为实验性产物。
-          - **两个便携包都不含内置 Node**：包内 resources/dsh-desktop/vendor/node/ 是空目录，
-            完整便携版与轻量便携版实为同一份 payload（v1.0.0 实测两包同为 261,149,074 字节 /
-            39,097 条目，本版同形态）。内核三级解析链因此回落「系统 Node ≥22」——**用便携版
-            请先装 Node 22+**，否则启动会走到清晰报错路径。该缺口自 v0.5.7 起长期存在，
-            流水线侧待改为缺件即拒绝发布（fail-closed）。
-
-          ## 升级说明
-
-          1. 完全退出当前 DSH Desktop（托盘右键 → 退出；点窗口关闭只是隐藏到托盘、内核进程仍在跑）
-          2. 下载对应平台安装包并运行（覆盖安装，装回原目录，用户数据不动）
-          3. 首次启动会自动对齐补丁、把内置插件镜像进 profile，并顺带自愈本篇修复的别名 /
-             悬空链接（含 v1.0.1 那轮的链接落点），受首启 toast 与插件隔离影响的用户无需任何操作
-
-          > 无法等待更新、想立刻自救的用户：手工删掉 profile 里被劫持的 scoped 落点后重启即可——
-          > macOS/Linux 对 ~/.dsh/profiles/web/node_modules/@deepseek-ai/cosmokit 执行 rm
-          > （删的是链接，不伤链接目标），并把该 profile 的 package.json 里对应的 npm: 别名条目
-          > 一并删掉，否则下次 pnpm 安装会重建；Windows 同类落点用 rmdir /S /Q。
-
-          ## 详细更新日志
-
-          壳侧（Tauri / Rust / 六份契约）见
-          [dsh-tauri/CHANGELOG.md](https://github.com/myYangyunfan/dsh_desktop/blob/main/dsh-tauri/CHANGELOG.md)，
-          Node 侧与内置插件见
-          [dsh-desktop/CHANGELOG.md](https://github.com/myYangyunfan/dsh_desktop/blob/main/dsh-desktop/CHANGELOG.md)
+          - **\`dsh-synapse\`（会话地图）**：重启或切换会话时历史回填可能出现空档——宿主下线了 \`Session\` 上的
+            \`events\` 属性而插件仍读旧字段（不报错、不崩溃）。已登记在内置插件台账 §5.5，本版按裁定未处置。
+          - **两个便携包都不含内置 Node**：包内 \`resources/dsh-desktop/vendor/node/\` 是空目录，完整便携版与轻量便携版
+            实为同一份 payload（实测两包条目数逐字节相同）。内核解析链因此回落「系统 Node ≥22」——
+            **用便携版请先装 Node 22+**，否则启动会走到清晰报错路径。该缺口自 v0.5.7 起长期存在，安装版不受影响。
+          - **Windows ARM64**：payload 内原生模块仍是 x64 prebuild，靠 Windows 11 模拟层兜底，标为实验性产物。
+          - **升级安装会先静默卸载旧版**：安装器按注册表定位旧安装目录并装回原位置，用户数据（会话、配置）不动；
+            若本机有正在运行的实例，请先退出——托盘常驻时内核 node 仍持有已加载映像，覆盖同名文件可能被系统拒绝。
           EOF
 
       - name: Upload assets to Release

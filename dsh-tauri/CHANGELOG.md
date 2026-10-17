@@ -1,5 +1,89 @@
 # Changelog — DSH Desktop（Tauri 版，主线架构 v0.5.0 起）
 
+# DSH Desktop v1.0.4 — 开发中
+
+## 🐛 随包修复：文件—资源管理器打不开文件（HTTP 405），随包内置插件两件跨代适配
+
+> 配套 Node 侧（根因、修法、第七道静态扫、隔离实机逐条路由证据）见
+> [`dsh-desktop/CHANGELOG.md`](../dsh-desktop/CHANGELOG.md) 的 `[Unreleased]` 同名条目。
+
+- **壳侧为什么看不见这条坏**：405 来自内核 webServer 的 SPA 兜底，与 Rust 侧无关——桥命令、契约表、
+  `preview-server`、supervisor 转发链一字未改。`closeToTray` 的壳常驻内核继续跑，所以「客户端开着、页面正常、
+  只有文件树报错」是这套架构下最坏的一类分布：崩溃面与取证面都不在这里。
+- **随包 payload 的形状变化**：`dsh-better-sidebar` 0.24.1 → **0.24.2**、`dsh-basics-panel` 0.4.1 → **0.4.2**
+  （两件宿主半边 `inject` 由已下线的 `webRuntime` 改 `connection`；`stage-payload.sh` 的 src↔payload
+  目录计数门禁与 `stage-plugin-gate.mjs` 的最长路径校验按实值走，在册仍 29 条）。
+- **冒烟判据随迁**：`smoke-installed.sh` 的插件加载断言面不变（`Failed to load plugins` /
+  `missed the module table` 即 FAIL），但今后读 boot 日志看到 `pending (waiting for <X>)` 时
+  **不再按噪声放过**——AGENTS.md 已把那条「headless 必然噪声、别当回归」的旧判语作废改写，
+  静态侧由新增的 `unit-plugin-inject-services`（判据 G）兜住。
+
+## 🔁 随包内核换代 0.2.0-rc.2 → 0.2.1-rc.1（壳侧零改动，补丁层 62→61）
+
+> 配套 Node 侧（pin/vendor/锁三线换血、8 处锚点随迁、`pi-ai-opencode-go-models` 退役、
+> `dsh-reasoning-effort` 撤装与四处台账 30→29、两道基线锁重录）见
+> [`dsh-desktop/CHANGELOG.md`](../dsh-desktop/CHANGELOG.md) 的 `[Unreleased]` 同名两条。
+
+- **壳侧为什么可以不动**：内核侧 Node 逻辑全在 `dsh-desktop/scripts/`，`sidecar/cli.js` 只是薄封装；
+  boot 五步（repair / sync / patches / compat-pin / preflight）读的是同一份 `patch-registry`，
+  换代只改数据源不改接线。
+- **随包 payload 的形状变化**：`assets/plugins` 由 30 个目录降到 **29**（`dsh-reasoning-effort` 撤装，
+  `stage-payload.sh` 的 src↔payload 目录计数门禁按实值走，不钉数字）；`vendor/dsh-kernel/` 换成
+  0.2.1-rc.1 的离线 tgz，`kernel-pin` 与 tarball 由 `validate-pin.js` fail-closed 咬住。
+- **换代后复跑的门禁（2026-10-17 实测）**：`npm test` 全量 **2238 例 / 0 fail / 0 cancelled**（pass 2229 / skip 9）、
+  `check-syntax.js` 通过、`validate-pin.js` → `✓ dsh-v0.2.1-rc.1（0.2.1-rc.1，offline-tarball）`、
+  `patch-surface.js verify` → **85 文件无漂移**；Rust 侧 `cargo test --workspace --target x86_64-pc-windows-gnu`
+  （与 `RUSTUP_TOOLCHAIN` 配对）**693 passed / 0 failed / 4 ignored（36 个 target）**，契约审计
+  `no_extra_commands_beyond_contract_and_poc` 与 `every_uncut_contract_command_is_registered` 单跑复核亦绿。
+- **重打包与安装布局冒烟（换代那轮，壳侧代码零改动，只随 payload 换代）**：
+  `stage-payload.sh` 门禁「内置线形态 —— payload 带 29 个插件源（与仓库源同数）」、
+  `[payload-patches] OK: 核 52 个靶文件 / file 规格 47 项 / 滞后 0 / 无靶 0 / 已退役 0`；
+  `tauri build --target x86_64-pc-windows-gnu` 出包 **195,610,689 B（186.55 MiB）**，
+  sha256 `130acb5f…4af51742`；`smoke-installed.sh`（`TARGET_DIR` 指 gnu 产物、`SMOKE_DIR` 全新临时目录，
+  **不跑真安装器**）**PASS**：boot 五步全 OK、`补丁应用汇总: 写入 0 / 失配 0 / 失败 0 / 降级 0 / 告警 0 / 共 61`、
+  sync 行逐名 29 条且**无 `dsh-reasoning-effort`**、`✓ 内置插件随包：29 个插件源在安装布局内`、
+  `✓ 插件加载零致命错误`（无 `Failed to load plugins` / `missed the module table`）、page-error 总数 0、
+  杀壳后残留监听 0。冒烟布局内另核三项换代专项：`node_modules/@deepseek-ai/dsh` 版本 = **0.2.1-rc.1**、
+  本轮浏览器坏形源头 `dsh-api-remotes/lib/client.js` 经 `node --check` 语法 OK、
+  `assets/plugins/dsh-workspace-anchor` = 0.1.1 且 `interpolate: false` 在位。
+- **405 修复后的第二次重打包（22:27 出包）**：**195,643,131 B（186.58 MiB）**，sha256
+  `36def038…57bb8e31`（git bash `sha256sum`、`certutil -hashfile`、PowerShell `Get-FileHash` 三实现
+  同值后才写边车）；换代那轮包移入 `superseded/repack-0004/`，**只移不删**。
+  新 payload 逐字节核到修复在位：`assets/plugins/dsh-better-sidebar/lib/index.js` 的
+  `const inject = ["webServer","sessions","connection","tools"]`、两件 `webRuntime` 计数 0、
+  `package.json` = 0.24.2 / 0.4.2、插件源目录 29 个、内核 0.2.1-rc.1。
+- **新 payload 的安装树端到端实测（走 sidecar，不起 GUI 壳）**：手拼布局 958MB 后
+  `sidecar/cli.js boot --app-dir <布局>/resources/dsh-desktop --home <布局>/home` →
+  boot 五步全 OK（repair 54 / sync 3945 / patches 167 / compat-pin 133 / preflight 176 ms）、
+  `补丁应用汇总: 写入 0 / 失配 0 / 失败 0 / 降级 0 / 告警 0 / 共 61`、插件按名镜像进
+  `home/profiles/web/node_modules`；再以布局自带 node 起 `web --no-open --host 127.0.0.1 --port 3199`，
+  stderr **零 `pending (waiting for`**，逐条打路由：`POST /sidebar/api/fs.trees` → **400 带插件自己的
+  envelope** `{"ok":false,"error":{"code":"bad-request","message":"missing or invalid \"sessionId\""}}`
+  （换代那轮这条是**空体 405**，400+envelope 就是「路由已挂」的最硬证据，它只能来自插件的 dispatch），
+  `POST /basics/api/nope` → **404 带插件 envelope**；关掉自己起的内核后 3199 无 LISTENING 残留。
+- **GUI 壳那一层本轮没跑成，原因不是缺陷**：`smoke-installed.sh` 的实例守卫在启动前检测到
+  本机正在运行的 DSH Desktop（`D:\app\DSH Desktop`）就 **ABORT**——单实例守卫会让冒烟壳让位
+  （boot 永不就绪、冒烟误判 FAIL），而收尾强杀会误杀用户实例。因此 page-error 计数与
+  「杀壳后残留监听 0」两项断言留待用户退出应用后补跑；上面两条已覆盖插件加载与路由面。
+
+## 🗑️ 壳侧：⋯ 菜单「显示余额/本轮费用」退役（死开关根治，开关迁到 dsh-balance 插件设置条目）
+
+> 配套 Node 侧（dsh-balance 0.1.4 Config 导出、四处台账随迁、回归套件）见
+> [`dsh-desktop/CHANGELOG.md`](../dsh-desktop/CHANGELOG.md) 的 `[Unreleased]` 同名条目。
+
+- **死开关定性**：菜单写壳侧 settings.json 的 `showBalanceDock`，插件读内核设置条目
+  （profile 条目 id `balance` 的 config 块）——互不相通，且插件从未导出 Config、该条目
+  在内核设置 `describe()` 里根本不出现。自设置子系统迁到内核 SettingsForms（rc.2）起
+  就是死开关：点了没反应、也不报错。
+- **壳侧改动面**：`crates/bridge/dist/bridge-shim.js`（menuState 摘键 / menuItemHtml 摘行 /
+  toggle 三分支并臂）、`commands/menu.rs`（match arm + `toggle_key` 映射收缩 + 两条测试改写）、
+  `commands/lifecycle.rs`（`app_init` 摘返回键）、`crates/bridge/src/shim.rs`（菜单测试摘
+  toggle-balance marker + 增两条防回潮字符串断言）、`contracts/bridge-api.md` §2.3 act 枚举
+  15→14（退役注记）与 `contracts/ipc-commands.md` §2.4 后续追记。通道号与命令名不复用。
+- **防回潮**：`ta16-golden` 菜单文案快照重取（-1 项）；`ta5-dom-behavior` mock 摘键；
+  `ta7-contract-audit` TA7-1a（15→14）/ TA7-1d（三开关形态感知负断言）；
+  `unit-balance-config-entry.test.js` 新增（Config 形态 + 字段名三方一致 + 兄弟开关反证）。
+
 # DSH Desktop v1.0.2 — 预发布版（2026-10-11，GitHub prerelease）
 
 ## 🚀 重点：v1.0.2 预发布版发布（全平台 · 不进 releases/latest）

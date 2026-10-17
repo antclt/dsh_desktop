@@ -64,9 +64,9 @@
 - 页面取数走两条本地 HTTP 路由（只允许回环地址访问，非回环 403）：60 秒轮询 `GET /api/dsh-balance/state` 读缓存载荷，dock 首次挂载额外 `POST /api/dsh-balance/refresh` 强制刷一轮，文档由隐藏转可见时再取一次。**「壳推页面」那一步已不存在**（Electron `preload.js` 随壳退役；v1.0.0 遗留的 Rust/sidecar 推送链已无消费者，见 `docs/balance-architecture.md` §1.2）。
 - 配套 dsh 客户端插件（`assets/plugins/dsh-balance`）在每次启动时自动同步进 web profile 并注册到 `conversation.composer.dock`，在对话底部统计栏内联显示：**本轮 ¥X.XX · 余额 ¥Y.YY**（本轮费用按 token 用量 × 价格档估算，缓存命中/未命中/输出分别计价；会话投影携带真实模型时按真实模型计价，否则明确标注「按默认模型估算」）。
 - **OpenCode Go 订阅额度**：同一小部件内追加显示 `Go 5h x% 周 x% 月 x%`——调用 `https://opencode.ai/zen/go/v1/usage` 读取 **5 小时滚动 / 每周 / 每月** 三个窗口的已用百分比与重置时间；密钥取自 `OPENCODE_GO_API_KEY`（环境变量或 `~/.dsh/.credentials.yaml`，回退 OpenCode CLI 的 `auth.json`），未配置时自动省略该段。
-- 价格档默认（2026-08-17 起峰谷定价，¥/百万 token）：deepseek-v4-flash 高峰 3/0.1/9、空闲 1.5/0.05/4.5；deepseek-v4-pro 高峰 9/0.3/27、空闲 4.5/0.15/13.5；deepseek-chat / deepseek-reasoner 为旧模型名别名；2026-08-23 起周六/周日全天空闲价。覆盖写在 `balance` 条目的 config 块 `balancePrices.<model>`（用户侧落点：`$DSH_HOME/cordis.patch.yml` 的 `- id: balance` 行——patch 按 id 整行替换，config 块只能整体给出，不能只给半份）。
+- 价格档默认（2026-08-17 起峰谷定价，¥/百万 token）：deepseek-v4-flash 高峰 3/0.1/9、空闲 1.5/0.05/4.5；deepseek-v4-pro 高峰 9/0.3/27、空闲 4.5/0.15/13.5；deepseek-chat / deepseek-reasoner 为旧模型名别名；2026-08-23 起周六/周日全天空闲价。覆盖写在 `balance` 条目的 config 块 `balancePrices.<model>`（用户侧落点：`$DSH_HOME/profiles/web/cordis.patch.yml` 的 `- id: balance` 行，与设置页写入同一个文件——patch 按 id 整行替换，config 块只能整体给出；块内可以只给某一档如 `cacheMiss`，缺项回落内置有效价）。⚠ 该键必须留在插件 Config 里（0.2.0 起已声明为 volatile）：内核 `projectForm` 只投影 volatile 声明过的字段，未声明的手写键会被直接丢弃、读不到。
 - 代理/镜像环境变量：`DEEPSEEK_BALANCE_URL`（余额端点完整 URL）或 `DEEPSEEK_API_BASE`（自动拼接 `/user/balance`）；`OPENCODE_USAGE_URL`（OpenCode Go 端点完整 URL）。使用 `http://` 端点时 API Key 明文传输，宿主侧会记录告警，仅建议用于本地代理。
-- 不需要余额提示时：把 `balance` 条目的 `showBalanceDock` 置为 `false`（同上一条的 config 块里写），整个 dock 会隐藏（第三方中转/非官方直连用户推荐关闭）。原 chrome 栏 ⋯ 菜单的「显示余额/本轮费用」勾选项随 Electron 壳退役，不再存在。
+- 不需要余额提示时：在**设置 → 通用**里关「显示余额与本轮费用」（0.2.0 起由插件客户端半注册这两行开关；内核不会按 Config 自动生成设置页，`autoGenerate` 在客户端没有任何消费方）。点一下 dock 即消失——显隐判据直接读条目设置，不等载荷；宿主侧「不再取数」的短路在下一轮刷新生效。也可手写 `balance` 条目的 `showBalanceDock: false`（同上一条的 config 块里写；第三方中转/非官方直连用户推荐关闭）。原 chrome 栏 ⋯ 菜单的「显示余额/本轮费用」勾选项已退役，不再存在。
 - 纯浏览器打开 Web UI、或插件宿主半边没挂载（路由 404）时，小部件只显示「本轮」费用（内置默认价格档，无余额与峰谷 chip）。
 
 ## 自定义注入提示词
@@ -356,7 +356,7 @@ dsh-desktop/
 ├── wsl-backend.js        # WSL 托管后端（发行版探测 / bootstrap 安装 / 启动停止 / 更新回退）
 ├── assets/               # 加载页、更新进度页、恢复页、图标、托盘图标、配套 dsh 插件
 │   ├── sponsor/          # 赞助收款码（支付宝 / 微信，「请作者喝咖啡」面板与本文档共用）
-│   └── plugins/          # 内置伴随插件源目录（在册 28 个：dsh-balance / dsh-file-changes / dsh-better-sidebar / dsh-session-manager / dsh-side-session / dsh-super-injector / dsh-pocket / billion-context-dsh / dsh-wsl-settings（设置页「WSL 后端」栏）等），启动时自动同步进 web profile；v1.0.0 由 39 减为 28，退役 11 个的源目录已整树删除（见「内置插件精简」一节）
+│   └── plugins/          # 内置伴随插件源目录（在册 29 个：dsh-balance / dsh-file-changes / dsh-better-sidebar / dsh-session-manager / dsh-side-session / dsh-super-injector / dsh-pocket / billion-context-dsh / dsh-wsl-settings（设置页「WSL 后端」栏）等），启动时自动同步进 web profile；v1.0.0 由 39 减为 28，退役 11 个的源目录已整树删除（见「内置插件精简」一节）
 ├── scripts/
 │   ├── fetch-node.js     # 内置 node.exe 复制脚本
 │   ├── fetch-npm.js      # 内置 npm CLI 复制脚本

@@ -5,7 +5,7 @@
 
 **口径（v1.0.0 内置线）**：本清单按**实际进安装包的载荷**现场重算——
 `dsh-tauri/package-payload/dsh-desktop` 的 `node_modules` 全树（768 个唯一 `包名@版本`，其中 DeepSeek 官方 330 个）、
-随包内置插件树（`assets/plugins`，28 个插件 + 其自带依赖树，见第 4 节）、
+随包内置插件树（`assets/plugins`，29 个插件 + 其自带依赖树，见第 4 节）、
 内置运行时（Node v24.15.0 + npm 11.12.1）与 Tauri/Rust 壳层（`src-tauri/Cargo.lock`，531 个 crate）。
 
 与旧版清单的两点实质差异：① **不再有 Electron**——壳层是 Tauri 2，渲染后端为系统 WebView（Windows 的 WebView2 / macOS 的 WKWebView / Linux 的 WebKitGTK），
@@ -737,7 +737,7 @@ CI 五个架构的 staging 同口径），装机后首次开机由 boot 的插�
 > 许可原文实测见 `dsh-desktop/docs/builtin-plugins-inventory.md` §三 #13），许可原文见该目录内的
 > `LICENSE`（标准 GPL-2.0 文本）。
 
-### 4.1 `dsh-desktop/assets/plugins`（28 个配套插件）
+### 4.1 `dsh-desktop/assets/plugins`（29 个配套插件）
 
 > **v1.0.0 精简（2026-10-07）**：内置伴随插件由 39 个减为 28 个——用户点名移除 11 个，其源目录已从
 > `dsh-desktop/assets/plugins/` 整树删除，仓库不再携带，故其许可义务不再适用、本表相应撤除其行：
@@ -745,33 +745,38 @@ CI 五个架构的 staging 同口径），装机后首次开机由 boot 的插�
 > 镜像进 `profiles/web/node_modules` 会遮蔽官方包）、`harness-pet`、`@dsh-external/dsh-vision`、`graph-memory`、
 > `dsh-community-market`、`dsh-market-desktop-bridge`（仅服务于市场）、`dsh-hub`（仅挂载 graph-memory 与市场）、
 > `dsh-file-drop`、`dsh-image-paste`、`dsh-cardian`。这些包自带的内层 `node_modules` 依赖树随包一并移除。
+>
+> **2026-10-17 随内核 0.2.1 换代退役 1 个**：`dsh-reasoning-effort`（30→29）——0.2.1 的
+> `@deepseek-ai/dsh-client-ui-settings-models` 已能在设置里直接声明自定义模型的推理强度档，
+> 该插件剩下的独立面被官方接走；源目录同样整树删除，本表相应撤行。
+> 回收机器：摘 `COMPANION_PLUGINS` 条目 + 进 `RETIRED_COMPANIONS` 名单 + 删源目录（三件事一起做）。
 
 | 插件 | 版本 | 许可证 |
 |---|---|---|
-| @deepseek-ai/dsh-balance | 0.1.3 | MIT |
+| @deepseek-ai/dsh-balance | 0.2.0 | MIT |
 | @deepseek-ai/dsh-conversation-tweaks | 0.1.1 | MIT |
 | @deepseek-ai/dsh-file-changes | 0.1.0 | MIT |
+| @deepseek-ai/dsh-goal-completion | 0.1.0 | MIT |
 | @deepseek-ai/dsh-openclaw-bridge | 0.8.1 | MIT |
-| @deepseek-ai/dsh-prompt-custom | 0.3.5 | MIT |
+| @deepseek-ai/dsh-prompt-custom | 0.5.0 | MIT |
 | @deepseek-ai/dsh-quest-ui | 0.6.1 | MIT |
-| @deepseek-ai/dsh-workspace-anchor | 0.1.0 | MIT |
+| @deepseek-ai/dsh-workspace-anchor | 0.1.1 | MIT |
 | @deepseek-ai/dsh-wsl-settings | 0.1.0 | MIT |
 | @dsh-external/dsh-side-session | 0.3.1 | MIT |
 | @dsh-external/dsh-subagent-lens | 0.1.1 | MIT |
 | @dsh-external/dsh-super-injector | 0.3.1 | BSD-3-Clause |
 | billion-context-dsh | 0.2.26 | MIT |
 | dsh-auto-compact | 0.1.1 | MIT |
-| dsh-basics-panel | 0.4.1 | MIT |
-| dsh-better-sidebar | 0.24.1 | MIT |
-| dsh-builtin-manager | 0.1.0 | MIT |
+| dsh-basics-panel | 0.4.2 | MIT |
+| dsh-better-sidebar | 0.24.2 | MIT |
+| dsh-builtin-manager | 0.2.0 | MIT |
 | dsh-change-review | 0.1.1 | MIT |
 | dsh-easyrewrite | 2.6.0 | MIT |
 | dsh-input-fold | 0.1.1 | MIT |
 | dsh-input-history | 0.1.1 | MIT |
 | dsh-offpeak | 1.0.1 | MIT |
 | dsh-pocket | 2.10.7 | GPL-2.0 |
-| dsh-prompt-optimizer | 2.0.4 | MIT |
-| dsh-reasoning-effort | 0.8.1 | MIT |
+| dsh-prompt-optimizer | 2.4.0 | MIT |
 | dsh-session-manager | 0.1.0 | MIT |
 | dsh-settings-groups | 0.1.1 | MIT |
 | dsh-settings-nav-custom | 0.1.1 | MIT |
