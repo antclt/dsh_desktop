@@ -50,8 +50,13 @@ const FORM = kernel.packageVersion;
 // → 62 = 60 ＋ onboarding-step-progress-timeout ＋ onboarding-guard-report
 // （2026-10-14 首启引导「点击开始设置没反应」：步骤推进不再依赖出帧 + guard 静默
 // 拒绝报成因，见 onboarding-resilience.js 头部实测记录）。
+// → 61 = 62 − pi-ai-opencode-go-models（0.2.1-rc.1 换代退役，见 E）
+// → 62 = 61 ＋ appboot-bootstrap-singleton（order 403，v1.0.3 的 macOS 设置写入根治：
+// bootstrapIncludes 提升为 globalThis 单例；两条锚点在 0.2.1-rc.1 的
+// dsh-app-boot/lib/index.js 逐字在位，真跑判定 changed，与 npm ci 的
+// 「写入 75 处 / 失配 0 / 共 62 项」互为对账）。
 // 逐项理由见 ta6-registry-invariants.test.js 的 E。
-const SPEC_COUNT = 61;
+const SPEC_COUNT = 62;
 
 /** 与 kernel-pin 同版的 pristine 闭包根；不在场返回 null（调用侧响亮失败）。 */
 function formRoot() {
@@ -121,10 +126,10 @@ function integrityProblems(ids, baseline) {
 // ===========================================================================
 // 基线快照（2026-10-17 重录：0.2.1-rc.1 形态 = .tmp-kernel/.consumer-0.2.1-rc.1
 // 的 npm 闭包解包树（node scripts/install-pristine-kernel.mjs 按 vendor tarball
-// 离线解出 350 包），47 file + 14 root = 61 项，逐项由本文件 computeMatrix 真跑
-// 录入，不是手工填值。判定构成：42 changed / 14 root / 5 target-absent，
+// 离线解出 350 包），48 file + 14 root = 62 项，逐项由本文件 computeMatrix 真跑
+// 录入，不是手工填值。判定构成：43 changed / 14 root / 5 target-absent，
 // 零 anchor-missing、零 already、零 THROW —— 与 scripts/patch-deps.js 的
-// 「写入 74 处 / 失配 0 / 失败 0 / 共 61 项」实况同源，两者互为对账。）
+// 「写入 75 处 / 失配 0 / 失败 0 / 共 62 项」实况同源，两者互为对账。）
 //
 // 与 rc.2 快照（42 changed / 15 root / 5 target-absent = 62）的差异，逐条是换代
 // 本身的量变，不是判据放宽：
@@ -170,6 +175,7 @@ const BASELINE = {
     'plugin-inventory-tab-merge': 'changed',
     'onboarding-step-progress-timeout': 'changed',
     'onboarding-guard-report': 'changed',
+    'appboot-bootstrap-singleton': 'changed',
     'web-search-baseurl': 'root',
     'menu-viewport': 'root',
     'session-manage': 'root',

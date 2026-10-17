@@ -2,6 +2,24 @@
 
 # DSH Desktop v1.0.4 — 开发中
 
+## 🔀 与 GitHub 侧 v1.0.3 合流：吸收 macOS 设置写入根治（补丁层 61→62，壳侧零改动）
+
+- **为什么壳侧不动**：那条修复是内核侧 Node 补丁（`appboot-bootstrap-singleton`，
+  把 `dsh-app-boot` 的 `bootstrapIncludes` 提升为 `globalThis` 单例），全部活在
+  `dsh-desktop/scripts/`；Rust 侧一行未改，`sidecar/cli.js` 读的还是同一份 `patch-registry`。
+- **分叉与合流**：本地线自 `4f11af31e` 起未推，`github/main` 期间发了 v1.0.3（mac「任何设置都
+  存不了」根治 + 版本 bump）。`git push github main` 被 non-fast-forward 拒是正确行为——
+  强推会抹掉 mac 用户已拿到的修复，故合并吸收；11 处冲突的逐项判据见
+  [`dsh-desktop/CHANGELOG.md`](../dsh-desktop/CHANGELOG.md) 的 `merge(main)` 条目。
+- **随包 payload 的形状变化**：补丁层由 61 回到 **62**（root 14 + file 48，cli:true 26）。
+  `stage-payload.sh` 的 `[payload-patches]` 门禁与 `smoke-installed.sh` 都**不钉数字**（现场读
+  `patch-registry`），所以两处脚本一字未改，变的只是日志里那句「共 62 项」的读数；
+  `patch-surface` 快照 marker 家族 84→85。
+- **实测**：新鲜 `npm ci` → 写入 75 处 / 失配 0 / 失败 0 / 共 62；计数与漂移四组哨兵
+  （`ta6-registry-invariants` / `unit-patch-registry` / `ta6-heal-rollback-audit` /
+  `ta6-transform-contract`）+ `unit-appboot-singleton-patch` 共 37 例绿；
+  `ta3-boot-chain` 与 `ta6-baseline-matrix` 5 例绿（含 pristine 真跑 83.9s）。
+
 ## 🐛 随包修复：文件—资源管理器打不开文件（HTTP 405），随包内置插件两件跨代适配
 
 > 配套 Node 侧（根因、修法、第七道静态扫、隔离实机逐条路由证据）见

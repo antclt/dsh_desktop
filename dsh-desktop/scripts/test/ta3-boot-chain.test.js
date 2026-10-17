@@ -79,7 +79,7 @@ async function buildTempRoots(t) {
   return { root, appDir, home, ctx, logs };
 }
 
-test('boot 链一条龙：applyAll(61) → composition-integrity → preflight → 二遍幂等', { skip: !hasPristine() && SKIP_NO_PRISTINE }, async (t) => {
+test('boot 链一条龙：applyAll(62) → composition-integrity → preflight → 二遍幂等', { skip: !hasPristine() && SKIP_NO_PRISTINE }, async (t) => {
   const { appDir, home, ctx } = await buildTempRoots(t);
 
   // ---- 1. 一遍 applyAll：61 补丁全执行、有落盘、零 errors ----
@@ -93,8 +93,8 @@ test('boot 链一条龙：applyAll(61) → composition-integrity → preflight �
   // （pi-ai-opencode-go-models：端点目录整形上游已自带，补丁失去存在理由）。
   // 逐项理由见 ta6-registry-invariants 的 E，逐补丁在 pristine 闭包上的判定见 ta6-baseline-matrix。
   const r1 = applyAll(ctx);
-  assert.equal(r1.total, 61, `注册表应有 61 个补丁（实际 ${r1.total}）`);
-  assert.equal(PATCH_SPECS.length, 61, 'PATCH_SPECS 与编排 total 一致');
+  assert.equal(r1.total, 62, `注册表应有 62 个补丁（实际 ${r1.total}）`);
+  assert.equal(PATCH_SPECS.length, 62, 'PATCH_SPECS 与编排 total 一致');
   assert.ok(r1.changed > 0, `pristine 源一遍必须有写入（实际 changed=${r1.changed}）`);
   assert.deepEqual(r1.errors, [], `一遍不得有 errors：${JSON.stringify(r1.errors)}`);
   // degrade/fatal 档补丁的 anchor-missing 分流进 degraded（设计语义：降级告警
@@ -143,7 +143,7 @@ test('boot 链一条龙：applyAll(61) → composition-integrity → preflight �
   const r2 = applyAll(ctx);
   // total = 处理的 spec 数（含 target-absent，applyAll 内每 spec 无条件 +1），
   // 与一遍同源必相等，均等于 PATCH_SPECS.length；二遍只是 changed 归零。
-  assert.equal(r2.total, 61, `二遍 total 应与一遍一致（实际 ${r2.total}）`);
+  assert.equal(r2.total, 62, `二遍 total 应与一遍一致（实际 ${r2.total}）`);
   assert.deepEqual(r2.errors, [], `二遍不得有 errors：${JSON.stringify(r2.errors)}`);
   assert.equal(r2.changed, 0, `二遍应幂等（一遍 changed=${changedFirst}，二遍 changed=${r2.changed}）`);
 

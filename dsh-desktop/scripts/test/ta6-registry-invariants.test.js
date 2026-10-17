@@ -88,13 +88,16 @@ test('A. file spec transform 均为函数且来自收口导出（无内联孤儿
   const loaderExports = new Set(Object.values(loaderIsolation).filter((v) => typeof v === 'function'));
   const onboardingExports = new Set(Object.values(onboardingResilience).filter((v) => typeof v === 'function'));
   const fileSpecs = PATCH_SPECS.filter((s) => s.kind === 'file');
+  // 48 = 47 ＋ appboot-bootstrap-singleton（2026-10-11，macOS 路径大小写导致
+  // dsh-app-boot 被 ESM 加载两次、模块级 WeakMap 分裂 → profile reload 必抛 →
+  // 设置写入全线失败的功能性修复，须进 payload 故入 cli:true 计数）。
   // 47 = 45 ＋ onboarding-step-progress-timeout ＋ onboarding-guard-report
   // （2026-10-14「点击开始设置没反应」两条：步骤推进不再依赖出帧 + guard 静默拒绝报成因）。
   // 45 = 43 ＋ loader-import-failure-report ＋ prompt-admission-reason-report
   // （2026-10-10 两条「静默失败原文上身」诊断补丁，见 E 的 60 基线说明）。
   // 43 = 44（rc.2 重靶后的 file 型规格数）− image-send-fix（2026-10 随识图插件
   // 整体退役；64 项总盘中 root 15 + file 43 = 58，另见 E）。
-  assert.equal(fileSpecs.length, 47, `file spec 应有 47 个，得 ${fileSpecs.length}`);
+  assert.equal(fileSpecs.length, 48, `file spec 应有 48 个，得 ${fileSpecs.length}`);
   for (const spec of fileSpecs) {
     assert.equal(typeof spec.transform, 'function', `${spec.id} 缺 transform`);
     assert.ok(
@@ -210,6 +213,16 @@ test('E. order 全局唯一、组内升序、补丁间依赖序成立', () => {
   //   「只为已退役插件存在」一类；transform 与锚点常量同批从 patch-adapters 删除，
   //   靶常量 SESSION_CTRL_INDEX_PKG_REL 仍由 history-page-size 使用故保留。
   //   cli:true 计数不受影响（它是 cli:false）。
+  // 62 = 61 ＋ appboot-bootstrap-singleton（order 403）：dsh-app-boot 的
+  // bootstrapIncludes 提升为 globalThis 单例（2026-10-11 macOS 实机取证）——
+  // 壳 spawn 用 Contents/resources、loader 用 Contents/Resources，同一模块被
+  // ESM 判成两个实例各持一张 WeakMap，profile reload 取根 Include 落空即抛，
+  // 设置写入全线失败。功能主线补丁故 cli:true，cli 计数随之 25→26。
+  // 61 = 62 − pi-ai-opencode-go-models（0.2.1-rc.1 退役）：该 root 型规格向 pi-ai 的
+  // opencode-go.json 克隆同族基型补 deepseek-v4-flash-vision-exp，而 0.2.1 带来的
+  // pi-ai 0.87.1→1.3.0 两端都不再有该型号（端点 /zen/go/v1/models 实测 37 条无
+  // vision-exp、deepseek 族只剩 v4.1-flash/v4-pro；catalog 分组改 `chat:<id>` 键形，
+  // 基型条目不存在）。前提消失即连脚本带用例删除，cli:true 计数随之 26→25。
   // 62 = 60 ＋ onboarding-step-progress-timeout（order 162）＋ onboarding-guard-report
   // （order 164）：首启引导「点击开始设置没反应」两条（2026-10-14 实测：设置写成功了，
   // 但步骤推进挂在 element.animate().finished 上，隐藏/未合成页面的渲染时间线整段停摆
@@ -219,12 +232,7 @@ test('E. order 全局唯一、组内升序、补丁间依赖序成立', () => {
   // failed to load 与发送文件恒报 prompt rejected 两轮发布查不下去的直接原因——
   // rc.2 导入失败只进 cordis 内存环形缓冲、非核心条目不再抛 StartupError，真因
   // 三重静默）。均 cli:false，故 cli:true 计数不变。
-  // 61 = 62 − pi-ai-opencode-go-models（0.2.1-rc.1 退役）：该 root 型规格向 pi-ai 的
-  // opencode-go.json 克隆同族基型补 deepseek-v4-flash-vision-exp，而 0.2.1 带来的
-  // pi-ai 0.87.1→1.3.0 两端都不再有该型号（端点 /zen/go/v1/models 实测 37 条无
-  // vision-exp、deepseek 族只剩 v4.1-flash/v4-pro；catalog 分组改 `chat:<id>` 键形，
-  // 基型条目不存在）。前提消失即连脚本带用例删除，cli:true 计数随之 26→25。
-  assert.equal(PATCH_SPECS.length, 61, 'spec 总数应为 61');
+  assert.equal(PATCH_SPECS.length, 62, 'spec 总数应为 62');
   const orders = PATCH_SPECS.map((s) => s.order);
   assert.equal(new Set(orders).size, orders.length, 'order 必须全局唯一');
   const byId = Object.fromEntries(PATCH_SPECS.map((s) => [s.id, s]));
@@ -276,11 +284,14 @@ test('E3. device-auth 154 与 credentials-absent 153 相邻无干扰', () => {
   );
 });
 
-test('F. cli:true 恰为 25 项；failPolicy ∈ {warn,degrade}', () => {
+test('F. cli:true 恰为 26 项；failPolicy ∈ {warn,degrade}', () => {
   const cliSpecs = registry.getSpecsByCli();
-  // 26 = 28（上一基线）− atomic-write-orphan-lock − model-image-input（两条 rc.2 退役，
+  // 26 = 25 ＋ appboot-bootstrap-singleton（2026-10-11）：设置写入全线失败的功能性
+  // 修复，必须进 payload 的 CLI 同步期，否则装机态无此补丁。
+  // 25 = 26（上一基线）− pi-ai-opencode-go-models（0.2.1-rc.1 退役，见 E）；
+  // 26 = 28（再上一基线）− atomic-write-orphan-lock − model-image-input（两条 rc.2 退役，
   // 见 E 的①–⑥）；token-meter-clamp / preset-seat-fix 早在 0.1.5-rc.1 同批退役。
-  assert.equal(cliSpecs.length, 25, 'cli:true 数量（含 skill-dirs-compat + pi-ai-4xx-dump + workspace-chip-label-hold + pi-ai Responses 工具名净化 + pi-ai 工具名 wire 中央收口 + pi-ai 配额耗尽不重试；atomic-write-orphan-lock / model-image-input / token-meter-clamp 已退役）');
+  assert.equal(cliSpecs.length, 26, 'cli:true 数量（含 skill-dirs-compat + pi-ai-4xx-dump + workspace-chip-label-hold + pi-ai Responses 工具名净化 + pi-ai 工具名 wire 中央收口 + pi-ai 配额耗尽不重试 + appboot-bootstrap-singleton；atomic-write-orphan-lock / model-image-input / token-meter-clamp / pi-ai-opencode-go-models 已退役）');
   for (const s of cliSpecs) assert.equal(s.cli, true);
   for (const spec of PATCH_SPECS) {
     assert.ok(

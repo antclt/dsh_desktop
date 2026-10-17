@@ -19,6 +19,37 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
 
 ## [Unreleased]
 
+### merge(main)：吸收 GitHub 侧 v1.0.3 的 macOS 设置写入根治，补丁层 61→62 与 0.2.1 换代合流
+
+- **分叉事实**：本地这条线（内核换代 + 405 根治 + 插件迭代）自 `4f11af31e` 起未推，而
+  `github/main` 在此之后多了两条并已发版 v1.0.3（2026-10-11，7 资产齐全）：
+  `fix: macOS 上任何设置都存不了` 与 `chore(release): bump version to 1.0.3`。
+  `git push github main` 被 non-fast-forward 拒是**正确行为**——强推会把 mac 用户已拿到的修复
+  与 v1.0.3 的记录一起抹掉，故走合并吸收。
+- **合并冲突 11 处，逐处的判据**：版本三源（`package.json` / `package-lock.json` /
+  `Cargo.toml` / `tauri.conf.json`）取 1.0.4；`CHANGELOG.md` 两侧条目都留（本版 [Unreleased]
+  在前、`## [1.0.3] - 2026-10-11` 成节在后）；`patch-registry.js` 与四个计数哨兵
+  （`ta6-registry-invariants` / `unit-patch-registry` / `ta6-heal-rollback-audit` /
+  `ta6-transform-contract`）按合并后的真数重写——**总数 62 = root 14 + file 48，cli:true 26**
+  （换代退役 `pi-ai-opencode-go-models` 使 62→61，吸收 `appboot-bootstrap-singleton` 使 61→62，
+  净数与换代前相同而成分已变，这是「数字相同≠没变化」的典型，别照着旧数硬改）；
+  `patch-surface.snapshot.json` 不手改，`npm ci` 重收敛后重取。
+- **那条 mac 补丁在 0.2.1 下成不成立——按真字节判，不按版本猜**：两条锚点
+  `const bootstrapIncludes = /* @__PURE__ */ new WeakMap();` 与
+  `if (entry === void 0) throw new Error(\`${binName}: profile reload requires the root Include entry\`);`
+  在 `dsh-app-boot/lib/index.js`（0.2.1-rc.1，行 3859 / 3900）**逐字在位**，所以 transform 与
+  marker 一字未动；新鲜 `npm ci` 实测 **写入 75 处 / 失配 0 / 失败 0 / 共 62 项**，产物里
+  `bootstrap includes singleton` marker 在位。`ta6-baseline-matrix` 按真跑新增
+  `0.2.1-rc.1/appboot-bootstrap-singleton: changed` 一行（漂移判据当场报出
+  「基线=undefined → 现在=changed」，正是它该报的形）。
+- **快照随迁**：`patch-surface` 重取后 **85 个被干预文件 / marker 家族 84→85**，`verify` 复绿；
+  与补丁改动同一提交入库（悬空快照会「假绿」，见 AGENTS.md 已知坑）。
+- **门禁**：`ta6-registry-invariants` + `unit-patch-registry` + `ta6-heal-rollback-audit` +
+  `ta6-transform-contract` + `unit-appboot-singleton-patch` 合并后计数类 37 例全绿；
+  `ta3-boot-chain`（applyAll 一条龙，含 pristine 真跑，83.9s）与 `ta6-baseline-matrix` 共 5 例
+  全绿；全量 `npm test`（2026-10-18 02:07 实测）**2251 例 / 0 fail / 0 cancelled**（pass 2242 / skip 9），
+  `check-syntax` 通过，`validate-pin` → `✓ dsh-v0.2.1-rc.1`。测试文件数随并 205（`*.test.js` 203 + `*.test.mjs` 2）。
+
 ### fix(companion)：文件—资源管理器「HTTP 405」根治——两件内置件的宿主 inject 从下线的 `webRuntime` 改 `connection`（0.24.1→0.24.2 / 0.4.1→0.4.2）
 
 - **用户报障**：「文件 - 资源管理器里面我们查看不了文件了，提示 HTTP 405」。症状是 0.2.1 换代后真机 GUI 里
@@ -620,6 +651,50 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
   **本轮实测校正了两件原先按代码推断的说法**：① 停用后**重载页面就读不到这条**（客户端半边由活动条目
   门控），不是一律「下次启动」；② 内核自带那一节（`dsh-client-ui-settings-plugins`，标题也叫「内置插件」）
   拥有 Settings 导航与 tab 外壳，我们的 tab 嵌在里面——因此本页必须锁自己那一行。
+
+## [1.0.3] - 2026-10-11
+
+### fix(release)：v1.0.3 发布（macOS 设置写入全线失败根治）
+
+- **触发**：v1.0.2 预发布版装到 macOS 实机后，「点开始设置进不去」+「未能保存设置，
+  请重试。」反复回滚 welcome 的故障**仍逐字复现**；多轮探针取证后定位到真根因（见下），
+  随本版修复。
+
+### fix：macOS 上「任何设置都存不了」（引导页「开始设置」进不去 + 设置页全线不可存）
+
+- **根因不是设置写入链坏了，是 `dsh-app-boot` 被加载成两个模块实例**：
+  - macOS 壳 supervisor spawn 内核时拼的路径是 `Contents/resources`（小写 `r`，
+    `[supervisor] 内核 spawn:` 那行日志实证），而 loader 走磁盘真实目录
+    `Contents/Resources`（大写 `R`）。APFS 默认大小写不敏感（同一份文件），但
+    **ESM 模块缓存按 URL 字符串区分大小写** → 同一份 `dsh-app-boot` 被判定为两个
+    模块，各持一份模块级 `bootstrapIncludes` WeakMap。
+  - 于是 `mountRootInclude` 登记进「甲实例」的那张表，`reconcileProfilePatches` 在
+    「乙实例」里 `get` 必然落空 → 抛
+    `dsh: profile reload requires the root Include entry` → 被
+    `dsh-api-settings-controller` 包成 `settings/rejected` → **任何设置写入全失败**
+    （引导页与设置页一起，用户观感是「点开始设置进不去」+「未能保存设置，请重试。」
+    反复回滚 welcome）。
+  - 取证链每一步都有日志实证，非推断：前端 `diag5` 拿到 code=`settings/rejected`
+    但 details 只带 `{ ns }` → 宿主 `catch` 里打出原始 message → app-boot 埋探针
+    出现「`.set` 成功、`sameCtx=true`、`.get` 却 undefined」的 WeakMap 不可能局面 →
+    加模块随机指纹 + 打完整 `import.meta.url`，两实例现形。
+- **修法**（新增 `appboot-bootstrap-singleton` 补丁，`scripts/lib/appboot-singleton-patch.js`）：
+  - `bootstrapIncludes` 从模块级 WeakMap 提升为 **globalThis 上的单例**
+    （`globalThis.__dshBootstrapIncludes ??= new WeakMap()`），两实例共享一张表。
+  - 顺带把 `reconcile` 落空时的静默 `throw` 补一条 `[dsh-desktop-patch] profile-reload-miss`
+    日志，平时零噪音，只在真出问题时留痕，便于日后回归。
+  - 语义不变式：仍是 `WeakMap`、键仍是 `ctx` 对象、弱引用不泄漏、`get` 语义逐字不变；
+    修的是**存放位置**，不是数据结构。
+  - 取「数据侧兜住」而非「改壳 spawn 的大小写」：spawn argv 在 Tauri Rust 侧，改它要三平台
+    复验；且任何经符号链接 / profile fallback / agent overlay 落点的二次加载都会重演同样的
+    分裂，数据侧收口更稳、无平台面。
+- **归 runtime 组 + `cli:true`**（不是 guard 组）：这是功能主线而非出问题时才生效的兜底，
+  必须进 payload 的 CLI 同步期，否则装机态缺少该补丁。落 `guard` 布局的 appDir + profile
+  fallback 副本。
+- **验证**：单测 `unit-appboot-singleton-patch.test.js` 12 例全绿，含**行为级**复现
+  （未打补丁时两实例必然读不到 = 原 bug 最小复现；打补丁后必须读到且两实例是同一张表）；
+  对 pristine 离线内核树跑全量补丁 `total 61 / changed 68 / anchorMissing 0 / failed 0`；
+  `patch-surface` 快照同提交重取（marker 家族 82 → 83）后 verify 复绿。
 
 ## [1.0.2] - 2026-10-11
 

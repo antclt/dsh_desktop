@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-17T08:44:07.824Z",
+  "generatedAt": "2026-10-17T17:46:53.796Z",
   "kernelRoot": "@deepseek-ai",
-  "markerCount": 84,
+  "markerCount": 85,
   "surface": [
     {
       "file": "cordis-plugin-loader/lib/index.js",
@@ -116,10 +116,11 @@
     },
     {
       "file": "dsh-app-boot/lib/index.js",
-      "sha256": "fc4ca0c181fa2801",
+      "sha256": "b68a1764a1a74ced",
       "markers": [
         "a broken profile bundle must not brick",
         "a broken profile bundle must not brick the surface.",
+        "bootstrap includes singleton",
         "inactive entries are skipped instead of aborting the boot",
         "post-ready load failures are isolated",
         "the profile",

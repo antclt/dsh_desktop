@@ -134,15 +134,21 @@ const EXPECTED_NON_VENDORED = [
 // 43 = 44 − image-send-fix（2026-10 内置伴随插件批量拆除）：注入体连 marker
 // 一起从 patch-adapters 删除，磁盘上的旧产物仍在 node_modules 内、npm ci 即回
 // pristine，故不产生新的回滚盲区。
+// 46 = 45 ＋ appboot-bootstrap-singleton（2026-10-11）：靶 dsh-app-boot 在离线闭包内，
+// 修法是纯字符串替换（WeakMap → globalThis 单例 + 一条仅失败时打印的日志），
+// 回滚 = npm ci 即 pristine，不新增盲区。
 // 45 = 43 ＋ loader-import-failure-report ＋ prompt-admission-reason-report
 // （2026-10-10 静默失败诊断两条）：靶 cordis-plugin-loader 与
 // dsh-api-session-controller 都在 vendor/dsh-kernel 离线闭包内，两条各带
 // FROM/TO 常量对（见上表），回滚 = npm ci 即 pristine，不新增盲区。
+// 48 = 47 ＋ appboot-bootstrap-singleton（order 403，2026-10-11 macOS 设置写入全线
+// 失败的功能性修复）：靶 dsh-app-boot/lib/index.js 同在离线闭包内，带 FROM/TO 常量对，
+// 回滚 = npm ci 即 pristine。
 // 47 = 45 ＋ onboarding-step-progress-timeout ＋ onboarding-guard-report
 // （2026-10-14 首启引导两条）：靶 dsh-client-ui-settings-account/lib/client.js
 // 同样在离线闭包内，两条都带 FROM/TO 常量对，回滚 = npm ci 即 pristine。
-test('审计 1：分类覆盖全部 47 个 file transform（无回滚盲区）', () => {
-  assert.equal(fileSpecs.length, 47);
+test('审计 1：分类覆盖全部 48 个 file transform（无回滚盲区）', () => {
+  assert.equal(fileSpecs.length, 48);
   const report = [];
   for (const spec of fileSpecs) {
     const pair = INVERSE_PAIR_HINTS[spec.id];
