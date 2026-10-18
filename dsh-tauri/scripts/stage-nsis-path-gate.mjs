@@ -30,15 +30,15 @@ const {
   NSIS_SOURCE_PRUNES,
   INSTALL_PREFIX_DEFAULT,
   PATH_LIMIT_DEFAULT,
+  nsisSourcePrefixFrom,
   overlongSourceFiles,
   overlongFiles,
   longestInstallPath,
   sourcePathLength,
 } = require(path.join(REPO, 'dsh-desktop', 'scripts', 'lib', 'payload-plugin-deps.js'));
 
-/** CI workspace 与 tauri 配置目录：前缀常量的两个组成部分，用来跟 tauri.conf.json 现场对账。 */
-const CI_WORKSPACE = 'D:\\a\\dsh_desktop\\dsh_desktop';
-const CONFIG_DIR_REL = ['dsh-tauri', 'src-tauri', 'src', 'app'].join(path.sep);
+/** tauri 配置目录（读盘用；前缀对账走 nsisSourcePrefixFrom，不随宿主分隔符分叉）。 */
+const CONFIG_DIR_SEGS = ['dsh-tauri', 'src-tauri', 'src', 'app'];
 
 const payloadRoot = process.argv[2]
   ? path.resolve(process.argv[2])
@@ -53,7 +53,7 @@ function die(msg, ...hints) {
 // ---- ① 前缀对账：常量说的必须就是 tauri.conf.json 现在拼出来的那条 ----
 // makensis 拿到的是 bundle.resources 的 from 串**未归一化**的字面量（`..\..\..\` 一个字符不省），
 // 所以前缀 = CI workspace + 配置目录 + from 串。三处任一处改了名/挪了位，这道必须当场叫。
-const confPath = path.join(REPO, CONFIG_DIR_REL, 'tauri.conf.json');
+const confPath = path.join(REPO, ...CONFIG_DIR_SEGS, 'tauri.conf.json');
 let conf;
 try {
   conf = JSON.parse(fs.readFileSync(confPath, 'utf8'));
@@ -66,8 +66,7 @@ if (!fromKey) {
   die('tauri.conf.json 的 bundle.resources 里没有映射到 "dsh-desktop/" 的 from 串',
     '安装布局的载荷根改名了？同步本门禁与 NSIS_SOURCE_PREFIX_DEFAULT 之前不要发包');
 }
-const expectedPrefix = CI_WORKSPACE + path.sep + CONFIG_DIR_REL + path.sep
-  + fromKey.split('/').filter((s) => s.length).join(path.sep) + path.sep;
+const expectedPrefix = nsisSourcePrefixFrom(fromKey);
 if (expectedPrefix !== NSIS_SOURCE_PREFIX_DEFAULT) {
   die(`CI 源路径前缀与常量对不上（实拼 ${expectedPrefix.length} 字符，常量 ${NSIS_SOURCE_PREFIX_DEFAULT.length} 字符）`,
     `实拼：${expectedPrefix}`,

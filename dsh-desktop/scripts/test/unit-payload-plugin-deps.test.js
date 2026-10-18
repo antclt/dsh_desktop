@@ -25,9 +25,12 @@ const {
   INSTALL_PREFIX_DEFAULT,
   PATH_LIMIT_DEFAULT,
   NSIS_SOURCE_PREFIX_DEFAULT,
+  NSIS_SOURCE_WORKSPACE,
+  NSIS_SOURCE_CONFIG_DIR,
   NSIS_SOURCE_LIMIT,
   NSIS_SOURCE_PRUNE_DIR,
   NSIS_SOURCE_PRUNES,
+  nsisSourcePrefixFrom,
   overlongSourceFiles,
   sourcePathLength,
 } = require('../lib/payload-plugin-deps');
@@ -125,6 +128,12 @@ test('CI 源路径前缀与 tauri.conf.json 现场对账：挪 staging 名/位�
   assert.equal(composed, NSIS_SOURCE_PREFIX_DEFAULT,
     '前缀 = CI workspace + 配置目录 + resources from 串的未归一化字面量；对不上就等于门禁在量一条不存在的路');
   assert.equal(NSIS_SOURCE_PREFIX_DEFAULT.length, 94, 'CI 前缀实测 94 字符（本机 55，差 39）');
+  // v1.0.5 首跑事故：门禁用 path.sep 拼前缀，Linux/macOS runner 拼出正斜杠 → 与常量误判不符。
+  assert.equal(nsisSourcePrefixFrom(fromKey), composed,
+    '门禁必须走 nsisSourcePrefixFrom：前缀是 Windows 字面口径，不许随宿主分隔符分叉');
+  assert.ok(!nsisSourcePrefixFrom(fromKey).includes('/'), 'makensis 口径全反斜杠');
+  assert.equal(NSIS_SOURCE_WORKSPACE + '\\' + NSIS_SOURCE_CONFIG_DIR,
+    'D:\\a\\dsh_desktop\\dsh_desktop\\dsh-tauri\\src-tauri\\src\\app', '前缀两段常量被改动');
 });
 
 test('剪除清单：每条都真的越线，且都只在 DevTools 议题文本那一个目录', () => {

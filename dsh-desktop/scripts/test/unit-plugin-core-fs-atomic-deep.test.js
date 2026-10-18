@@ -274,16 +274,19 @@ test('fs-atomic: WriteGate 陈旧抢占——死 pid 与按锁龄均可抢占', 
 test('fs-atomic: WriteGate 心跳保持锁新鲜——长时间持有不被按龄抢占', async (t) => {
   const dir = tmp(t);
   const lockDir = path.join(dir, 'locks');
-  const gateA = new WriteGate({ lockDir, staleMs: 500, retryMs: 20, timeoutMs: 10000 });
-  const gateB = new WriteGate({ lockDir, staleMs: 500, retryMs: 20, timeoutMs: 2200 });
+  // 心跳间隔 = staleMs/3。原用 500ms：Windows CI runner 偶发秒级调度延迟会让一次心跳迟到
+  // 就被 B 误判成陈旧锁（2026-10-18 run 39103806498 实测）。生产默认 staleMs=30s，
+  // 此处留 2000ms（心跳 ~666ms）给慢机足够余量，判据本身不变。
+  const gateA = new WriteGate({ lockDir, staleMs: 2000, retryMs: 20, timeoutMs: 10000 });
+  const gateB = new WriteGate({ lockDir, staleMs: 2000, retryMs: 20, timeoutMs: 5000 });
 
   let release;
   const hold = gateA.run('k', () => new Promise((r) => { release = r; }));
-  await new Promise((r) => setTimeout(r, 100)); // A 已持锁
+  await new Promise((r) => setTimeout(r, 150)); // A 已持锁
 
   const bResult = gateB.run('k', async () => {}).then(() => null, (err) => err);
-  // A 持有超过 3*staleMs（1500ms），B 在 2200ms 内应超时而非抢占（心跳保活）。
-  await new Promise((r) => setTimeout(r, 2500));
+  // A 持有超过 3*staleMs（6000ms），B 在 5000ms 内应超时而非抢占（心跳保活）。
+  await new Promise((r) => setTimeout(r, 6500));
   release();
   await hold;
 

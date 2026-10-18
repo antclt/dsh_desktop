@@ -49,9 +49,23 @@ const PATH_LIMIT_DEFAULT = 240;
 // 宁可 staging 早失败，也不再让 makensis 跑了 20 分钟 mid-build 炸。
 // ---------------------------------------------------------------------------
 
+/** CI（windows-latest）的 workspace 与 tauri 配置目录：前缀常量的两个组成部分。 */
+const NSIS_SOURCE_WORKSPACE = 'D:\\a\\dsh_desktop\\dsh_desktop';
+const NSIS_SOURCE_CONFIG_DIR = 'dsh-tauri\\src-tauri\\src\\app';
+
 /** CI（windows-latest）staging 的字面源路径前缀，含结尾分隔符；长度由单测咬住。 */
 const NSIS_SOURCE_PREFIX_DEFAULT =
-  'D:\\a\\dsh_desktop\\dsh_desktop\\dsh-tauri\\src-tauri\\src\\app\\..\\..\\..\\package-payload\\dsh-desktop\\';
+  NSIS_SOURCE_WORKSPACE + '\\' + NSIS_SOURCE_CONFIG_DIR + '\\..\\..\\..\\package-payload\\dsh-desktop\\';
+
+/**
+ * 按 Windows 反斜杠拼出 makensis 口径的源路径前缀（与宿主平台无关）。
+ * 门禁在 Linux/macOS runner 上也要跑同一套对账——用 path.sep 拼会让前缀随宿主分叉，
+ * 2026-10-18 v1.0.5 首跑就是 Linux/macOS 两个 job 在此误判「前缀对不上」。
+ */
+function nsisSourcePrefixFrom(fromKey) {
+  return NSIS_SOURCE_WORKSPACE + '\\' + NSIS_SOURCE_CONFIG_DIR + '\\'
+    + fromKey.split('/').filter((s) => s.length).join('\\') + '\\';
+}
 
 /** makensis 源路径上限：258 实测通过 / 260 实测中断，259 无实证故按越线处理。 */
 const NSIS_SOURCE_LIMIT = 258;
@@ -132,9 +146,12 @@ module.exports = {
   INSTALL_PREFIX_DEFAULT,
   PATH_LIMIT_DEFAULT,
   NSIS_SOURCE_PREFIX_DEFAULT,
+  NSIS_SOURCE_WORKSPACE,
+  NSIS_SOURCE_CONFIG_DIR,
   NSIS_SOURCE_LIMIT,
   NSIS_SOURCE_PRUNE_DIR,
   NSIS_SOURCE_PRUNES,
+  nsisSourcePrefixFrom,
   residueNodeModules,
   overlongFiles,
   overlongSourceFiles,

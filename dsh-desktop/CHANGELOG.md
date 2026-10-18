@@ -131,6 +131,15 @@ v1.0.5 是 v1.0.4 的补发版：v1.0.4 因 makensis 构建期路径墙缺了 Wi
   加入后 `git status` 仍只有本次改动 6 项，无大规模重标。
 - **裁定与补发**：不重做 v1.0.4，以 **v1.0.5** 补发（本版即该裁定的产物）。
   Windows 资产的补齐只能在 CI 上验证——本机的路径短，构不出这条墙。
+- **v1.0.5 首跑补正（run 39103817256）**：`stage-nsis-path-gate.mjs` 的前缀对账原先用
+  `path.sep` 拼串，Linux/macOS runner 上拼出正斜杠，与写死反斜杠的常量做字面比较 →
+  两个非 Windows job 在 staging 末尾误判「前缀对不上」（两边都是 94 字符）。
+  修法：前缀拼接收敛成纯函数 `nsisSourcePrefixFrom`（固定 Windows 反斜杠，与宿主无关），
+  门禁只调它；`unit-payload-plugin-deps` 补「函数结果全反斜杠且等于常量」的断言。
+- **同批（CI 时序抖动）**：主分支 ci run 39103806498 另有一条与本次改动无关的唯一红——
+  `unit-plugin-core-fs-atomic-deep` 的心跳用例用 `staleMs=500`，Windows runner 一次秒级调度延迟
+  就让心跳迟到、B 把 A 的锁误判成陈旧锁。测试阈值提到 2000（心跳随之 ~666ms、持有窗口 6.5s），
+  判据本身不变；生产默认 `staleMs=30s`。
 
 ### merge(main)：吸收 GitHub 侧 v1.0.3 的 macOS 设置写入根治，补丁层 61→62 与 0.2.1 换代合流
 
