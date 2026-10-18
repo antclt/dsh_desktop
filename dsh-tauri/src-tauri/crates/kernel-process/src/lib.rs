@@ -23,6 +23,7 @@ pub mod port;
 pub mod ready_line;
 pub mod semver;
 pub mod spawn_spec;
+pub mod stale_kernel;
 
 pub use crash_loop::CrashLoopDetector;
 pub use kill_tree::kill_tree;

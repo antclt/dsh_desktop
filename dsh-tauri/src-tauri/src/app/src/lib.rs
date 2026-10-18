@@ -91,18 +91,70 @@ static INSTANCE_LOCK: std::sync::Mutex<Option<shell_core::SingleInstanceGuard>> 
 /// 所有退出路径先置位；route_one_event 退出态只留日志直通。
 static EXITING: AtomicBool = AtomicBool::new(false);
 
-/// 一键重启的游离拉起（见托盘 "restart" 分支注释）。Windows 走 cmd 延迟 +
-/// CREATE_NO_WINDOW；非 Windows 无 cmd 语义，直接 spawn 自身（0.6.4 修复：
-/// 原 `use std::os::windows::process::CommandExt` 裸奔无 cfg 门禁，Linux/macOS
-/// 构建在 E0433/E0599 上全灭）。
+/// 退出态判定（后台线程统一口径）。
+fn is_exiting() -> bool {
+    EXITING.load(Ordering::Acquire)
+}
+
+/// 退出闸门置位（幂等；首次置位留一行日志，便于取证是哪条路径先触发）。
+fn mark_exiting(reason: &str) {
+    if !EXITING.swap(true, Ordering::AcqRel) {
+        route_log(format!("[boot] 退出闸门置位：{reason}"));
+    }
+}
+
+/// 触窗动作的退出闸门 + panic 隔离：退出中直接跳过；闭包 panic 只记日志。
+///
+/// 两层防线的**第一层是闸门**——tao 在主线程窗口过程里 `catch_unwind` 捕获
+/// panic 后只是把 payload 暂存（latch），下一次消息循环才 `resume_unwind`：
+/// 对已 Destroyed 事件循环的调用会先「活过几小时」再在任意时刻炸掉整个进程
+/// （2026-10-16 真机：panics.log 只有 runner.rs:371 一行，事件源已不可考）。
+/// 因此必须在调用前拦住，而不是指望 catch_unwind 兜住主线程侧 panic。
+fn guarded_window_op(label: &str, f: impl FnOnce()) -> bool {
+    if is_exiting() {
+        route_log(format!("[route] 退出中，跳过触窗动作：{label}"));
+        return false;
+    }
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(()) => true,
+        Err(_) => {
+            route_log(format!("[route] 触窗动作 panic（已隔离）：{label}"));
+            false
+        }
+    }
+}
+
+/// 一键重启的游离拉起（见托盘 "restart" 分支注释）。Windows 走 PowerShell
+/// 轮询本进程退出 + CREATE_NO_WINDOW；非 Windows 无 cmd 语义，直接 spawn 自身
+/// （0.6.4 修复：原 `use std::os::windows::process::CommandExt` 裸奔无 cfg
+/// 门禁，Linux/macOS 构建在 E0433/E0599 上全灭）。
+///
+/// 2026-10-18 真机修复：旧实现用 `cmd /C timeout /t 2 /nobreak` 延迟，而 GUI
+/// 子系统进程无控制台、stdin 被重定向——`timeout.exe` 当场报「Input redirection
+/// is not supported」exit=1，延迟形同虚设。继任进程与旧进程抢单实例锁失败后
+/// 静默退出，用户侧就是托盘「一键重启」只退出不回来。现改为 PowerShell 轮询
+/// 旧 pid 真正消失（≤60s）再拉起，从根上等锁释放；无 PowerShell 时回退到
+/// `ping -n 4`（同样不读 stdin）延迟。
 #[cfg(windows)]
 fn relaunch_detached() {
     use std::os::windows::process::CommandExt;
     let exe = std::env::current_exe().unwrap_or_else(|_| "dsh-tauri-app.exe".into());
-    let _ = std::process::Command::new("cmd")
-        .args(["/C", "timeout", "/t", "2", "/nobreak", ">nul", "&", "start", "", &exe.to_string_lossy()])
+    let exe_arg = exe.to_string_lossy().replace('\'', "''");
+    let pid = std::process::id();
+    let script = format!(
+        "$p={pid}; for($i=0;$i -lt 120;$i++){{ if(-not (Get-Process -Id $p -ErrorAction SilentlyContinue)){{ break }}; Start-Sleep -Milliseconds 500 }}; Start-Process -FilePath '{exe_arg}'"
+    );
+    let spawned = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .creation_flags(0x0800_0000)
         .spawn();
+    if spawned.is_err() {
+        // 兜底：ping 不读 stdin（无控制台安全），约 3s 后 start 裸空标题。
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "ping", "-n", "4", "127.0.0.1", ">nul", "&", "start", "", &exe.to_string_lossy()])
+            .creation_flags(0x0800_0000)
+            .spawn();
+    }
 }
 #[cfg(not(windows))]
 fn relaunch_detached() {
@@ -141,8 +193,12 @@ fn load_window_state(state: &AppState) -> Option<(i32, i32, f64, f64, bool)> {
 fn install_panic_hook() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // 强制抓完整调用栈（不受 RUST_BACKTRACE 影响）：2026-10-16 的
+        // runner.rs:371 panic 只留下 location 一行，事件源线程与调用链全部
+        // 不可考。下一次现场必须能直接读出栈帧。
+        let backtrace = std::backtrace::Backtrace::force_capture();
         let msg = format!(
-            "[panic] thread={:?} location={:?} payload={}",
+            "[panic] thread={:?} location={:?} payload={}\n[panic-backtrace]\n{backtrace}",
             std::thread::current().name(),
             info.location().map(|l| l.to_string()),
             supervisor::panic_payload_str(info.payload()),
@@ -159,6 +215,32 @@ fn install_panic_hook() {
             });
         default(info);
     }));
+}
+
+/// 事件循环 panic 逃逸后的应急收尾：进程注定退出，但**不能跳过**正常退出
+/// 路径的收割（tao 的 panic 经 `resume_unwind` 从 `.run()` 抛出，RunEvent
+/// `ExitRequested`/`Exit` 全被跳过——内核变孤儿、watcher 残留、单实例锁
+/// 不释放）。子步骤逐个吞错，绝不二次 panic；最后写非零会话标记并退出。
+fn emergency_teardown(handle: &tauri::AppHandle, payload: &str) {
+    mark_exiting(&format!("事件循环 panic：{payload}"));
+    logging::early_log(&format!("[boot] 事件循环 panic 逃逸，执行应急收尾：{payload}"));
+    supervisor::file_log(&format!("[boot] 事件循环 panic 逃逸，执行应急收尾：{payload}"));
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if let Some(state) = handle.try_state::<AppState>() {
+            if let Some(sv) = state.supervisor.lock().unwrap_or_else(|p| p.into_inner()).clone() {
+                sv.shutdown();
+            }
+        }
+        session_notify::shutdown_watcher();
+        if let Some(mut g) = INSTANCE_LOCK.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            g.release();
+        }
+    }));
+    if r.is_err() {
+        logging::early_log("[boot] 应急收尾自身 panic（已放弃剩余步骤，直接退出）");
+    }
+    logging::end_session_unclean(&format!("event-loop-panic: {payload}"));
+    std::process::exit(70);
 }
 
 /// 无依赖时间戳（年-月-日 时:分:秒，UTC）。算法单一来源：`shell_core::time`。
@@ -256,7 +338,7 @@ pub fn run() {
             }
         }
     });
-    builder
+    let app = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
@@ -309,8 +391,15 @@ pub fn run() {
             commands::poc_echo_json,
         ])
         .build(tauri::generate_context!())
-        .expect("tauri 构建")
-        .run(|app, event| {
+        .expect("tauri 构建");
+    // 事件循环 panic 兜底（2026-10-16 真机取证）：tao 在窗口过程里捕获的
+    // panic 会暂存到下一次消息循环 `resume_unwind`，从 `.run()` 直接逃逸——
+    // 此时 RunEvent::ExitRequested/Exit 全部不执行，内核树/watcher/单实例锁
+    // 无人收割。捕获后走与正常退出等价的应急收尾，再以非零码退出（下次启动
+    // 的会话标记与 panics.log 可区分「用户退出」与「自己没了」）。
+    let handle = app.handle().clone();
+    let run_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        app.run(|app, event| {
             match event {
                 tauri::RunEvent::ExitRequested { .. } => {
                     // 退出竞态闸门：关窗/托盘退出/Cmd+Q 汇聚点，先于一切收尾置位。
@@ -327,6 +416,8 @@ pub fn run() {
                     }
                     // C1：退出收割 session watcher 子进程（幂等）。
                     session_notify::shutdown_watcher();
+                    // 正常退出：会话标记改写 clean=1（下次启动据此区分闪退）。
+                    logging::end_session_clean("exit-requested");
                 }
                 tauri::RunEvent::Exit => {
                     // 兕底置位（ExitRequested 已置时幂等；覆盖未经该事件的退出形态）。
@@ -345,6 +436,7 @@ pub fn run() {
                     if let Some(mut g) = INSTANCE_LOCK.lock().unwrap_or_else(|p| p.into_inner()).take() {
                         g.release();
                     }
+                    logging::end_session_clean("exit");
                 }
                 // macOS 点 Dock 图标重开（Reopen = NSApplicationDelegate 的
                 // applicationShouldHandleReopen）：关窗到托盘时主窗只是 hide
@@ -363,6 +455,10 @@ pub fn run() {
                 _ => {}
             }
         });
+    }));
+    if let Err(payload) = run_result {
+        emergency_teardown(&handle, &supervisor::panic_payload_str(&*payload));
+    }
 }
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -420,6 +516,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     *INSTANCE_LOCK.lock().unwrap_or_else(|p| p.into_inner()) = Some(guard);
+
+    // ---- 会话退出标记（壳闪退取证）----
+    // 必须在单实例锁之后写：第二实例在锁失败分支已 exit，绝不覆盖在跑实例
+    // 的标记。上一份 clean=0 = 上次没走退出路径（闪退/强杀/事件循环 panic）。
+    let prev_session = logging::begin_session();
+    logging::early_log(&format!("[boot] 上次会话退出标记：{prev_session}"));
 
     // ---- 主窗 ----
     let poc_mode = std::env::var("DSH_TAURI_POC").ok().as_deref() == Some("1");
@@ -600,6 +702,12 @@ fn suppressible(since_last_nav_ms: u64, url_changed: bool) -> bool {
 /// - 窗口内且 URL 相同 → 后台线程发轻量探针（心跳计数增量回执）：页面活
 ///   → 跳过换页（日志留痕）；死了 → 换页。探针异步，不阻塞事件路由线程。
 fn kernel_ready_navigate(app: tauri::AppHandle, url: String) {
+    // 退出竞态闸门（M2）：本函数在 route 线程与探针线程两处触窗，EXITING
+    // 置位后一律不再动窗口（Destroyed 态 panic 的源头，见 guarded_window_op）。
+    if is_exiting() {
+        route_log(format!("[route] 退出中，跳过 kernel-ready 换页（{url}）"));
+        return;
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -615,10 +723,15 @@ fn kernel_ready_navigate(app: tauri::AppHandle, url: String) {
     if !suppressible(now.saturating_sub(last), url_changed) {
         LAST_KERNEL_NAV_MS.store(now, Ordering::Relaxed);
         *LAST_KERNEL_NAV_URL.lock().unwrap_or_else(|p| p.into_inner()) = Some(url.clone());
-        let _ = commands::navigate_main(&app, &url);
+        let _ = guarded_window_op("kernel-ready 整页换页", || {
+            let _ = commands::navigate_main(&app, &url);
+        });
         return;
     }
     std::thread::spawn(move || {
+        if is_exiting() {
+            return;
+        }
         let Some(state) = app.try_state::<AppState>() else { return };
         let Some(w) = app.get_webview_window("main") else { return };
         // 探针回执盯主窗专属计数 hb_main（M1）：探针 eval 打进主窗，回执也
@@ -627,8 +740,13 @@ fn kernel_ready_navigate(app: tauri::AppHandle, url: String) {
         let before = state.hb_main.load(Ordering::Relaxed);
         // 轻量探针：页面向壳回发一次心跳计数（bridge 垫片 renderer_heartbeat
         // 通道——内核页有 __TAURI_INTERNALS__ invoke 能力）。
-        let _ = w.eval("try{window.__TAURI_INTERNALS__.invoke('renderer_heartbeat',{})}catch(e){}");
+        let _ = guarded_window_op("重启抑制探针 eval", || {
+            let _ = w.eval("try{window.__TAURI_INTERNALS__.invoke('renderer_heartbeat',{})}catch(e){}");
+        });
         std::thread::sleep(std::time::Duration::from_millis(800));
+        if is_exiting() {
+            return;
+        }
         if state.hb_main.load(Ordering::Relaxed) > before {
             route_log(format!("[route] 重启风暴渲染抑制：距上次换页 <{KERNEL_NAV_SUPPRESS_WINDOW_MS}ms 且页面存活，跳过整页换页（{url}）"));
         } else {
@@ -639,7 +757,9 @@ fn kernel_ready_navigate(app: tauri::AppHandle, url: String) {
                 .unwrap_or(0);
             LAST_KERNEL_NAV_MS.store(now, Ordering::Relaxed);
             *LAST_KERNEL_NAV_URL.lock().unwrap_or_else(|p| p.into_inner()) = Some(url.clone());
-            let _ = commands::navigate_main(&app, &url);
+            let _ = guarded_window_op("重启抑制探针整页换页", || {
+                let _ = commands::navigate_main(&app, &url);
+            });
         }
     });
 }
@@ -674,17 +794,21 @@ fn route_one_event(app: &tauri::AppHandle, ev: SupervisorEvent) {
                 }
                 // C2c：重启风暴渲染抑制（窗口内探针确认页面活，死了才整页换页）。
                 kernel_ready_navigate(app.clone(), url.clone());
-                if let Some(w) = app.get_webview_window("main") {
-                    let diag_base = { let u = app.state::<AppState>().loading_url.lock().unwrap_or_else(|p| p.into_inner()).clone(); let mut o = String::new(); if let Some(pos) = u.rfind('/') { o = u[..pos].to_string(); } o };
-                    match w.eval(format!("window.__DIAG_BASE__={:?}; window.__TAURI_INTERNALS__.invoke('current_session',{{sessionId:'[diag] t0'}}).then(function(){{fetch(window.__DIAG_BASE__+'/__diag/t0-invoke-OK')}},function(err){{fetch(window.__DIAG_BASE__+'/__diag/t0-invoke-REJECT-'+encodeURIComponent(String(err&&err.message||err)))}})", diag_base)) {
-                        Ok(_) => route_log("[diag] t0 eval OK".to_string()),
-                        Err(e) => route_log(format!("[diag] t0 eval ERR: {e}")),
+                let _ = guarded_window_op("kernel-ready 诊断 eval", || {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let diag_base = { let u = app.state::<AppState>().loading_url.lock().unwrap_or_else(|p| p.into_inner()).clone(); let mut o = String::new(); if let Some(pos) = u.rfind('/') { o = u[..pos].to_string(); } o };
+                        match w.eval(format!("window.__DIAG_BASE__={:?}; window.__TAURI_INTERNALS__.invoke('current_session',{{sessionId:'[diag] t0'}}).then(function(){{fetch(window.__DIAG_BASE__+'/__diag/t0-invoke-OK')}},function(err){{fetch(window.__DIAG_BASE__+'/__diag/t0-invoke-REJECT-'+encodeURIComponent(String(err&&err.message||err)))}})", diag_base)) {
+                            Ok(_) => route_log("[diag] t0 eval OK".to_string()),
+                            Err(e) => route_log(format!("[diag] t0 eval ERR: {e}")),
+                        }
                     }
-                }
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                }
+                });
+                let _ = guarded_window_op("kernel-ready 显示/聚焦主窗", || {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                });
                 // renderer 心跳监测（Electron RendererRecovery 语义）：页面挂死自动重载。
                 watch_renderer_heartbeat(app.clone());
                 // C1：会话完成通知链（Electron main.js:6337 boot 成功后
@@ -707,7 +831,9 @@ fn route_one_event(app: &tauri::AppHandle, ev: SupervisorEvent) {
                 let _ = app.emit("kernel-fail", serde_json::json!({ "reason": "内核反复异常退出" }));
                 if let Some(state) = app.try_state::<AppState>() {
                     let recovery = state.recovery_url.lock().unwrap_or_else(|p| p.into_inner()).clone();
-                    let _ = commands::navigate_main(app, &recovery);
+                    let _ = guarded_window_op("崩溃环恢复页换页", || {
+                        let _ = commands::navigate_main(app, &recovery);
+                    });
                 }
                 let _ = app.notification().builder()
                     .title("DSH Desktop")
@@ -1487,6 +1613,11 @@ fn watch_renderer_heartbeat(app: tauri::AppHandle) {
         // 达阈值升级 supervisor 级内核重启（实证整窗重启是唯一有效恢复）。
         let mut navigate_failures: u32 = 0;
         loop {
+            // 退出闸门（M2）：退出中本线程立即退役——恢复动作全是触窗调用，
+            // 对 Destroyed 事件循环操作会 panic（guarded_window_op 文档）。
+            if is_exiting() {
+                return;
+            }
             // 系统休眠/唤醒守卫：用 wall-clock（SystemTime）量测本次 sleep 的
             // 实际流逝——Windows 的 std::time::Instant（QPC）在休眠/休眠唤醒
             // 期间不走表，无法判定；SystemTime（GetSystemTimeAsFileTime）随
@@ -1578,29 +1709,44 @@ fn watch_renderer_heartbeat(app: tauri::AppHandle) {
                 // 是否复活），把「是否恢复」写进 [renderer-recovery] 日志行——
                 // 成功/失败可区分，排障有证。
                 let hb_before_action = state.hb_main.load(Ordering::Relaxed);
-                let outcome: Result<(), tauri::Error> = match action {
-                    RendererRecoveryAction::EvalReload => win.eval("try{location.reload()}catch(e){}"),
-                    RendererRecoveryAction::NativeReload => win.reload(),
-                    RendererRecoveryAction::NativeNavigate => {
-                        // V13 P2-8：导航目标改 Option 降级（无可用目标时按失败
-                        // 收链，升级梯继续，不再经 expect 的静态回退 URL）。
-                        match kernel_url_for_recovery(&app, &win) {
-                            Some(target) => win.navigate(target),
-                            None => Err(tauri::Error::AssetNotFound(
-                                "无可用恢复导航目标（supervisor URL 与主窗 URL 均不可用）".into(),
-                            )),
+                // 动作与退出赛跑的最后一闸；动作本身再包一层 panic 隔离（本线程
+                // 不得因一次恢复动作异常而退役，升级梯要继续）。
+                if is_exiting() {
+                    return;
+                }
+                let outcome: Result<(), tauri::Error> = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                    || -> Result<(), tauri::Error> {
+                        match action {
+                            RendererRecoveryAction::EvalReload => win.eval("try{location.reload()}catch(e){}"),
+                            RendererRecoveryAction::NativeReload => win.reload(),
+                            RendererRecoveryAction::NativeNavigate => {
+                                // V13 P2-8：导航目标改 Option 降级（无可用目标时按失败
+                                // 收链，升级梯继续，不再经 expect 的静态回退 URL）。
+                                match kernel_url_for_recovery(&app, &win) {
+                                    Some(target) => win.navigate(target),
+                                    None => Err(tauri::Error::AssetNotFound(
+                                        "无可用恢复导航目标（supervisor URL 与主窗 URL 均不可用）".into(),
+                                    )),
+                                }
+                            }
+                            RendererRecoveryAction::KernelRestart => {
+                                // supervisor 级内核重启：kill_kernel + on_kernel_exit
+                                // 自动重启链（崩溃环判定天然限次：未成环自动拉起，成环
+                                // 进恢复页——与崩溃环窗口限次互斥协同，不双杀）。新内核
+                                // 就绪行线程统一换页并布防新一代心跳监测（本线程随代际
+                                // 交替自行退出）。
+                                match kernel_restart_escape(&app) {
+                                    Ok(()) => Ok(()),
+                                    Err(msg) => Err(tauri::Error::AssetNotFound(msg)),
+                                }
+                            }
                         }
-                    }
-                    RendererRecoveryAction::KernelRestart => {
-                        // supervisor 级内核重启：kill_kernel + on_kernel_exit
-                        // 自动重启链（崩溃环判定天然限次：未成环自动拉起，成环
-                        // 进恢复页——与崩溃环窗口限次互斥协同，不双杀）。新内核
-                        // 就绪行线程统一换页并布防新一代心跳监测（本线程随代际
-                        // 交替自行退出）。
-                        match kernel_restart_escape(&app) {
-                            Ok(()) => Ok(()),
-                            Err(msg) => Err(tauri::Error::AssetNotFound(msg)),
-                        }
+                    },
+                )) {
+                    Ok(r) => r,
+                    Err(_) => {
+                        route_log("[renderer-recovery] 恢复动作 panic（已隔离，升级梯继续）".to_string());
+                        Err(tauri::Error::AssetNotFound("恢复动作 panic".into()))
                     }
                 };
                 if let Err(e) = outcome {
@@ -1643,6 +1789,8 @@ fn inject_diag_probe(app: tauri::AppHandle) {
     if std::env::var("DSH_TAURI_DIAG").ok().as_deref() != Some("1") { return; }
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(10));
+        // 诊断探针同样是触窗动作：退出中直接放弃（10s 延迟足以跨过退出点）。
+        if is_exiting() { return; }
         let Some(win) = app.get_webview_window("main") else { return };
         let probe = r#"(function(){
           var BASE=null; try{ BASE=window.__DIAG_BASE__ }catch(e){}
@@ -1754,16 +1902,18 @@ fn inject_diag_probe(app: tauri::AppHandle) {
         })()"#;
 
         // 探针基址注入（fetch 通道）。`probe base eval`
-        if let Some(state) = app.try_state::<AppState>() {
-            let u = state.loading_url.lock().unwrap_or_else(|p| p.into_inner()).clone();
-            if let Some(pos) = u.rfind('/') {
-                let _ = win.eval(format!("window.__DIAG_BASE__={:?}", &u[..pos]));
+        let _ = guarded_window_op("诊断探针 eval", || {
+            if let Some(state) = app.try_state::<AppState>() {
+                let u = state.loading_url.lock().unwrap_or_else(|p| p.into_inner()).clone();
+                if let Some(pos) = u.rfind('/') {
+                    let _ = win.eval(format!("window.__DIAG_BASE__={:?}", &u[..pos]));
+                }
             }
-        }
-        match win.eval(probe) {
-            Ok(_) => eprintln!("[diag] probe eval OK"),
-            Err(e) => eprintln!("[diag] probe eval ERR: {e}"),
-        }
+            match win.eval(probe) {
+                Ok(_) => eprintln!("[diag] probe eval OK"),
+                Err(e) => eprintln!("[diag] probe eval ERR: {e}"),
+            }
+        });
         // R2 复盘：title 回读通道已删——探针从不写 document.title（fetch/invoke
         // 双通道才是回传路径），回读分支恒走 else 输出「页面脚本可能未执行」
         // 误导日志，且污染窗口标题语义。fetch 通道自 R2 起带 CORS 头真实可用。
@@ -2192,6 +2342,196 @@ mod kernel_nav_suppression_tests {
         assert!(
             !helper.contains("state.heartbeats.load"),
             "探针不得读全局心跳计数（浮窗心跳会淹没主窗死亡）: {helper}"
+        );
+    }
+}
+
+/// 壳进程闪退根治（2026-10-16 真机：panics.log 只留 runner.rs:371 一行，
+/// 事件源不可考；用户体感「每隔一两小时自己没了再起来」）的形态锁：
+/// - tao 在主线程窗口过程捕获的 panic 只是 latch，下一次消息循环才
+///   `resume_unwind`——所以所有后台线程的触窗动作必须先过 EXITING 闸门；
+/// - 事件循环 panic 逃逸路径必须做与正常退出等价的收割，并留下可区分的
+///   会话退出标记（clean=0 + reason）；
+/// - 一键重启的延迟拉起不得再用 `timeout`（GUI 进程无控制台，stdin 重定向
+///   会让它当场 exit=1，继任实例抢锁失败静默退出）。
+#[cfg(test)]
+mod crash_hardening_shape {
+    fn src() -> String {
+        include_str!("lib.rs").replace("\r\n", "\n")
+    }
+
+    fn block<'a>(src: &'a str, start: &str, end: &str) -> &'a str {
+        src.split(start)
+            .nth(1)
+            .and_then(|s| s.split(end).next())
+            .unwrap_or_else(|| panic!("缺少区块：{start} .. {end}"))
+    }
+
+    /// 闸门必须**先于** panic 隔离：catch_unwind 兜不住 tao 主线程 latch 后
+    /// 的 resume_unwind，唯一可靠做法是退出中根本不发起触窗调用。
+    #[test]
+    fn guarded_window_op_is_exit_gate_then_panic_isolation() {
+        let src = src();
+        let body = block(&src, "fn guarded_window_op", "/// 一键重启的游离拉起");
+        let gate = body.find("if is_exiting()").expect("闸门必须先查退出态");
+        let isolation = body.find("catch_unwind").expect("动作必须 panic 隔离");
+        assert!(gate < isolation, "闸门必须先于 catch_unwind（latch panic 兜不住）: {body}");
+        assert!(body.contains("return false;"), "退出态必须跳过触窗动作: {body}");
+        assert!(body.contains("AssertUnwindSafe"), "闭包含 &AppHandle，须显式断言 unwind 安全: {body}");
+    }
+
+    /// KernelReady 链（整页换页 / 诊断 eval / show+focus / 恢复页换页）与
+    /// C2c 探针线程：全部触窗动作必须经 guarded_window_op，且探针线程在
+    /// sleep 前后各查一次退出态（800ms 窗口内可能开始退出）。
+    #[test]
+    fn kernel_ready_offthread_window_ops_all_guarded() {
+        let src = src();
+        let nav = block(&src, "fn kernel_ready_navigate", "fn route_one_event");
+        assert!(nav.contains("if is_exiting()"), "入口必须查退出闸门: {nav}");
+        for label in ["kernel-ready 整页换页", "重启抑制探针 eval", "重启抑制探针整页换页"] {
+            assert!(
+                nav.contains(&format!("guarded_window_op(\"{label}\"")),
+                "触窗动作必须经 guarded_window_op：{label}"
+            );
+        }
+        assert!(
+            nav.matches("if is_exiting() {").count() >= 3,
+            "入口 + 探针线程 sleep 前后都必须查闸门: {nav}"
+        );
+        assert_eq!(
+            nav.matches("commands::navigate_main(&app").count(),
+            2,
+            "两处换页都必须在 guarded_window_op 闭包内（计数漂移即有人裸调）: {nav}"
+        );
+        let ready = block(
+            &src,
+            "SupervisorEvent::KernelReady { url, port } => {",
+            "SupervisorEvent::KernelExit",
+        );
+        for label in ["kernel-ready 诊断 eval", "kernel-ready 显示/聚焦主窗"] {
+            assert!(
+                ready.contains(&format!("guarded_window_op(\"{label}\"")),
+                "KernelReady 触窗动作必须经 guarded_window_op：{label}"
+            );
+        }
+        let crash = block(
+            &src,
+            "SupervisorEvent::CrashLoop { crashes } => {",
+            "SupervisorEvent::ProbeFailed",
+        );
+        assert!(
+            crash.contains("guarded_window_op(\"崩溃环恢复页换页\""),
+            "崩溃环换页必须经 guarded_window_op: {crash}"
+        );
+    }
+
+    /// renderer 心跳监测：循环顶与动作前各一道退出闸门；恢复动作（含升级到
+    /// supervisor 级内核重启）必须包 catch_unwind——一次异常不得让升级梯退役。
+    #[test]
+    fn heartbeat_recovery_actions_gated_and_isolated() {
+        let src = src();
+        let body = block(&src, "fn watch_renderer_heartbeat", "\n}\n\n/// 诊断探针");
+        assert!(
+            body.matches("if is_exiting() {").count() >= 2,
+            "循环顶 + 动作前各一道退出闸门: {body}"
+        );
+        let wrapped = body
+            .split("let outcome: Result<(), tauri::Error> = match std::panic::catch_unwind")
+            .nth(1)
+            .expect("恢复动作必须包 catch_unwind");
+        assert!(wrapped.contains("match action {"), "catch_unwind 必须包住动作分发: {wrapped}");
+        assert!(
+            wrapped.contains("恢复动作 panic（已隔离，升级梯继续）"),
+            "panic 必须只记日志、升级梯继续: {wrapped}"
+        );
+    }
+
+    /// 诊断探针：10s 延迟后必须重新查退出态（延迟期间退出很常见），
+    /// eval 是触窗动作，必须经 guarded_window_op。
+    #[test]
+    fn diag_probe_gated_after_delay() {
+        let src = src();
+        let body = block(&src, "fn inject_diag_probe", "mod heartbeat_watcher_tests");
+        let sleep = body.find("from_secs(10)").expect("探针必须有 10s 延迟");
+        let gate = body.find("if is_exiting() { return; }").expect("延迟后必须查退出闸门");
+        assert!(sleep < gate, "闸门必须在 10s 延迟之后: {body}");
+        assert!(
+            body.contains("guarded_window_op(\"诊断探针 eval\""),
+            "探针 eval 必须经 guarded_window_op: {body}"
+        );
+    }
+
+    /// 一键重启游离拉起：Windows 臂必须等旧 pid 真正消失再拉起（幂等地等
+    /// 单实例锁释放）；`timeout` 在 GUI 进程里因 stdin 重定向当场失败，
+    /// 必须绝迹；兜底延迟用不读 stdin 的 ping，且 start 原子 args 传裸空标题。
+    #[test]
+    fn relaunch_waits_for_pid_and_never_uses_timeout() {
+        let src = src();
+        let win_arm = src
+            .split("fn relaunch_detached()")
+            .nth(1)
+            .and_then(|s| s.split("#[cfg(not(windows))]").next())
+            .expect("relaunch_detached 的 Windows 臂");
+        assert!(win_arm.contains("Get-Process -Id $p"), "必须轮询旧 pid 真正退出: {win_arm}");
+        assert!(win_arm.contains("Start-Process -FilePath"), "pid 消失后再拉起新实例: {win_arm}");
+        assert!(!win_arm.contains("timeout"), "不得回退 timeout（GUI 进程 stdin 重定向 = 立即失败）: {win_arm}");
+        assert!(win_arm.contains("\"ping\", \"-n\", \"4\""), "兜底延迟必须用不读 stdin 的 ping: {win_arm}");
+        assert!(win_arm.contains("\"start\", \"\""), "兜底 start 必须原子 args 传裸空标题: {win_arm}");
+        assert!(win_arm.contains("0x0800_0000"), "游离进程不得弹控制台窗口: {win_arm}");
+    }
+
+    /// 事件循环 panic 逃逸：run() 必须捕获并从 emergency_teardown 退出（非零码）；
+    /// 收尾必须收割内核树/watcher/单实例锁，自身再包一层 panic 隔离；panic
+    /// hook 必须强制抓完整 backtrace（2026-10-16 现场只有 location 一行的教训）。
+    #[test]
+    fn event_loop_panic_teardown_and_backtrace_wired() {
+        let src = src();
+        let run_body = block(&src, "pub fn run() {", "fn setup(app: &mut tauri::App)");
+        assert!(
+            run_body.contains("let run_result = std::panic::catch_unwind"),
+            "事件循环必须包 catch_unwind（tao resume_unwind 会跳过 ExitRequested/Exit）: {run_body}"
+        );
+        assert!(
+            run_body.contains("if let Err(payload) = run_result {") && run_body.contains("emergency_teardown(&handle"),
+            "panic 逃逸必须走应急收尾: {run_body}"
+        );
+        let teardown = block(&src, "fn emergency_teardown", "/// 无依赖时间戳");
+        for needle in [
+            "mark_exiting(",
+            "catch_unwind",
+            "sv.shutdown()",
+            "shutdown_watcher()",
+            "INSTANCE_LOCK",
+            "end_session_unclean",
+            "std::process::exit(70)",
+        ] {
+            assert!(teardown.contains(needle), "应急收尾缺少步骤：{needle}（{teardown}）");
+        }
+        let hook = block(&src, "fn install_panic_hook", "/// 事件循环 panic 逃逸");
+        assert!(hook.contains("Backtrace::force_capture()"), "panic hook 必须强制抓完整栈: {hook}");
+        assert!(hook.contains("[panic-backtrace]"), "栈必须落进 panics.log 可检索: {hook}");
+    }
+
+    /// 会话退出标记：第二实例必须在 begin_session **之前**退出（否则覆盖在跑
+    /// 实例的 clean=0 标记）；正常退出两处（ExitRequested/Exit）都改写 clean=1。
+    #[test]
+    fn session_marker_lifecycle_wired() {
+        let src = src();
+        let setup = block(&src, "fn setup(app: &mut tauri::App)", "let poc_mode");
+        let second_instance_exit = setup.find("std::process::exit(0)").expect("第二实例退出分支");
+        let begin = setup.find("logging::begin_session()").expect("启动必须写会话标记");
+        assert!(
+            second_instance_exit < begin,
+            "第二实例必须先退出再谈写标记（不得覆盖在跑实例的 clean=0）: {setup}"
+        );
+        let run_body = block(&src, "pub fn run() {", "fn setup(app: &mut tauri::App)");
+        assert!(
+            run_body.contains("logging::end_session_clean(\"exit-requested\")"),
+            "ExitRequested 必须改写 clean=1: {run_body}"
+        );
+        assert!(
+            run_body.contains("logging::end_session_clean(\"exit\")"),
+            "Exit 必须兜底改写 clean=1: {run_body}"
         );
     }
 }

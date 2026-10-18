@@ -71,6 +71,9 @@ pub mod supervisor {
     pub fn file_log(_msg: &str) {}
 }
 
+/// 退出闸门垫片：测试进程不模拟生产退出态（恒 false）。
+pub fn is_exiting() -> bool { false }
+
 // ---------------------------------------------------------------------------
 // 限流边界（真实 NotifyThrottle）
 // ---------------------------------------------------------------------------
@@ -282,10 +285,11 @@ fn lib_wiring_anchors() {
     assert!(seg.contains("Focused(true)"), "只消费获焦事件");
     assert!(seg.contains("session_notify::on_main_window_focused("));
     // 退出收割：ExitRequested 与 Exit 两个分支都要挂（std::process::exit 不跑 Drop）。
+    // 锚点必须是代码形态（`tauri::RunEvent::...`）——注释里提到同名事件不该参与切段。
     let xreq = lib
-        .split("RunEvent::ExitRequested")
+        .split("tauri::RunEvent::ExitRequested {")
         .nth(1)
-        .and_then(|s| s.split("RunEvent::Exit").next())
+        .and_then(|s| s.split("tauri::RunEvent::Exit =>").next())
         .unwrap_or("");
     assert!(xreq.contains("session_notify::shutdown_watcher();"), "ExitRequested 收割");
     let exit_seg = lib

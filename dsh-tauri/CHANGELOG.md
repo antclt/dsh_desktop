@@ -1,6 +1,88 @@
 # Changelog — DSH Desktop（Tauri 版，主线架构 v0.5.0 起）
 
-# DSH Desktop v1.0.4 — 开发中
+# DSH Desktop v1.0.5 — 开发中
+
+## 🩺 壳进程闪退根治：事件循环 panic 的退出闸门、孤儿内核收割与会话退出标记
+
+> 与 v1.0.4 的 Windows 资产补齐（同一份工作树里的 NSIS 路径门禁与 CI 期望集合门禁）同版发出。
+> 本版不加新功能，内核仍是 `0.2.1-rc.1`、补丁层仍是 62 项。
+
+- **用户报障（2026-10-18）**：「会话总是自动闪退重启，不是很频繁，大概 1-2 个小时左右会有一次」。
+  取证面同时存在两条独立事件源：
+  ① `desktop.log` 里内核 exit code **`-1073740791`（0xC0000409，Node fail-fast abort）** 出现过两次，
+  supervisor 按「未成环」自动拉起新内核 + 整页换页——用户看到的就是「自己没了又回来」；
+  ② 更早一次（2026-10-16）壳进程直接消失，`panics.log` 只留下 `runner.rs:371` 一行，
+  没有线程名之外的任何调用链，`active.log` 的事件源已不可考。
+- **壳侧根因（tao 0.35.3 的 panic 形态）**：窗口过程里的 panic 被 tao `catch_unwind` 捕获后
+  **只是 latch**，下一次消息循环迭代才 `resume_unwind`——所以一次「对已 Destroyed 事件循环的触窗调用」
+  可以活过几十分钟到几小时，再在任意一条无关消息上炸掉整个进程；而从 `.run()` 逃逸的 panic
+  会跳过 `RunEvent::ExitRequested` / `Exit` 全部收尾：`sv.shutdown()` 不执行、watcher 不回收、
+  单实例锁不释放，内核 node 成为**孤儿**继续监听旧端口。下次启动再拉一个新内核 = 双 web 实例
+  （synapse「workspace 已被另一个 dsh web 实例修改」告警的壳侧来源之一）。
+  对应地在原实现里，内核 ready 换页、重启抑制探针、心跳恢复梯、诊断探针、审批任务栏闪烁
+  全都在后台线程直接触窗，没有任何退出闸门。
+- **修法（六层，全部为窄改动 + 形态锁）**：
+  1. **退出闸门 + panic 隔离**：新增 `is_exiting()` / `mark_exiting(reason)`（幂等，首次置位留一行
+     `[boot] 退出闸门置位：…`）与 `guarded_window_op(label, f)`——**先闸门（退出中直接跳过），
+     再 `catch_unwind`**。两层顺序是硬要求：latch 语义下事后 `catch_unwind` 兜不住主线程侧 panic，
+     必须在调用前拦住。接线：`kernel_ready_navigate`（入口 + 探针线程两处）、
+     `route_one_event` 的 KernelReady 诊断 eval/显示聚焦、CrashLoop 恢复页换页、
+     `watch_renderer_heartbeat` 的整条恢复梯、`inject_diag_probe`、`session_notify` 的审批闪烁；
+     `closeToTray=false` 在放行窗口销毁**之前**置位闸门（销毁到 ExitRequested 之间仍有在飞事件）。
+  2. **事件循环 panic 应急收尾**：`.run()` 外包 `catch_unwind`，逃逸时走 `emergency_teardown`——
+     与正常退出等价的收割（supervisor.shutdown / watcher / 单实例锁，逐项吞错、绝不再 panic），
+     写 `clean=0` 会话标记，以退出码 70 结束。不再出现「内核变孤儿、锁不释放」的半死形态。
+  3. **孤儿内核收割**（`kernel-process::stale_kernel`）：壳每次 spawn 后写
+     `<app_data>/kernel.pid.json`（`pid=/exe=/port=` 三行，tmp+rename 原子落盘），内核退出/显式杀树时删除；
+     下次启动在单实例锁之后、spawn 新内核之前读取并判定。判据是**记账 exe == 本次 node**，且
+     （Windows）进程映像路径复核一致才杀——pid 复用误杀面被这两道挡掉；任一不成立一律不动并清记账。
+     非 Windows 不做映像复核（孤儿随进程组终结，不按 pid 盲杀）。
+  4. **会话退出标记**（`logs/last-session.txt`）：启动拿到单实例锁后写 `clean=0`，正常
+     `ExitRequested` / `Exit` 改写 `clean=1`，事件循环 panic 写 `clean=0` + `reason=…`；
+     下次启动把它打进 early log。这是 `panics.log` 之外唯一能区分「用户主动退出」与
+     「客户端自己没了」的持久证据（第二实例不会覆盖在跑实例的标记）。
+  5. **panic 完整栈**：panic hook 改用 `Backtrace::force_capture()`（不受 `RUST_BACKTRACE` 影响），
+     `panics.log` 追加 `[panic-backtrace]` 段——下次现场能直接读出调用链，不再只有 location 一行。
+  6. **托盘「一键重启」竞态**：旧实现 `cmd /C timeout /t 2` 在无控制台 / stdin 被重定向的 GUI 进程里
+     当场报「Input redirection is not supported」exit=1，继任进程与旧进程抢单实例锁失败后静默退出
+     ——用户侧就是「只退出不回来」。现改 PowerShell 轮询旧 pid 真正消失（≤60s）再 `Start-Process`，
+     无 PowerShell 时回退 `ping -n 4`（同样不读 stdin）。
+- **回归锁**：app 侧新增 7 条形态锁（闸门先于隔离、KernelReady 各触窗点全部走 `guarded_window_op`、
+  心跳恢复梯有闸门且 `catch_unwind` 包住动作、诊断探针延迟后判退出、relaunch 用 pid 轮询且不含
+  `timeout`、`.run()` 逃逸走 `emergency_teardown` 并带 backtrace、会话标记生命周期）+ logging
+  往返行为测试 + supervisor 记账接线 + windows 关窗闸门；`kernel-process` 新增 `stale_kernel`
+  4 例（记账往返、exe 不匹配不杀、映像复核失败不杀、路径归一化）；5 个 `#[path]` 集成测试
+  harness 补 `is_exiting()` 垫片（测试进程恒 false，与既有 `AppState` / `file_log` 垫片同型）。
+
+# DSH Desktop v1.0.4 — 已发布（正式版；Windows 资产缺失，由 v1.0.5 补齐）
+
+## 🧱 发布拦截：v1.0.4 的 Windows 资产缺失，根因是 makensis 的**构建期**源路径墙（Rust 侧零改动）
+
+- **发布现场（run 39056936067）**：`Windows x64 (NSIS)` 与 `Windows ARM64 (NSIS, experimental)`
+  都失败在 `Build installer`、`Windows x64 Portable (zip)` 被跳过，而 `Publish Release` 成功——
+  正式版 v1.0.4 上线即只有 6 条 Linux/macOS 资产，`releases/latest` 指向它，主平台用户点更新拿不到包。
+- **壳侧代码一行未改**：炸点在打包器读载荷的方式，不在 Rust。两条失败 job 的日志同一行
+  `installer.nsi:33251` `File: failed opening file "…\dsh-experimental-inspector\lib\devtools\
+  models\issues_manager\descriptions\federatedAuth…Accounts.md"`；同一目录里 258 字符的邻居文件
+  正常进包，260 字符的中断——`makensis` 拿到的是 `tauri.conf.json` → `bundle.resources`
+  的 from 串**未归一化**的字面量（`D:\a\dsh_desktop\dsh_desktop\dsh-tauri\src-tauri\src\app\..\..\..\package-payload\dsh-desktop\`，
+  94 字符），`..\..\..\` 不折叠，Windows MAX_PATH 260 就地生效。
+- **本机为何复现不出来**：本机 staging 前缀 55 字符（`D:\workspace\dsh\…`），同一棵树最长 229，
+  短 39 个字符——**本地打包永远撞不到这条墙**（这也是 repack-0004 的 195,643,131B 包能出、
+  而 CI 出不来的全部原因）。v1.0.2/v1.0.3 同一条流水线能出 Windows 包，是因为 rc.2 的
+  `dsh-experimental-inspector` 里没有 `issues_manager/descriptions/` 这一层（实测 tarball 0 命中），
+  0.2.1-rc.1 新增 236 条 DevTools 议题文本才把最长名顶到 268。
+- **壳侧改了什么**：只加接线，不加逻辑——`stage-payload.sh` 末尾与 `tauri-release.yml` 五个架构
+  staging 的末尾各调一次新增的 `dsh-tauri/scripts/stage-nsis-path-gate.mjs`（判据与剪除清单都在
+  `dsh-desktop/scripts/lib/payload-plugin-deps.js`，完整取证见
+  [`dsh-desktop/CHANGELOG.md`](../dsh-desktop/CHANGELOG.md) 的 `fix(release)` 条目）。
+  位置是硬要求：必须在 `node_modules` 镜像与 compat 注入之后——原先的 `stage-plugin-gate.mjs`
+  跑在 assets 镜像之后，那时 payload 里还没有内核树，管不到这条墙；这条位置要求由
+  `unit-payload-plugin-deps` 的接线用例与三种漏接变异咬住。
+- **实测**：`node dsh-tauri/scripts/stage-nsis-path-gate.mjs dsh-tauri/package-payload/dsh-desktop`
+  打在现有 82 574 文件的真 payload 上 → 剪除 5 条越线文本、最长安装路径 215（< 240）、exit 0、2.6s。
+- **待验证**：Windows 包的补齐只能在 CI 上跑出来；本机短路径既证不了失败也证不了修复。
+  随包 `smoke-installed.sh` 与 `stage-payload.sh` 的门禁读数不变（补丁层仍是 62 项）。
 
 ## 🔀 与 GitHub 侧 v1.0.3 合流：吸收 macOS 设置写入根治（补丁层 61→62，壳侧零改动）
 

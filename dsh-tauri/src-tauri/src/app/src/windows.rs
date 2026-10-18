@@ -170,6 +170,12 @@ pub fn create_main_window(
                 if let Some(w) = handle.get_webview_window("main") {
                     hide_main_to_tray(&w);
                 }
+            } else {
+                // 关窗即退：从窗口销毁到 RunEvent::ExitRequested 之间有窗口期，
+                // 后台线程（内核就绪/心跳/更新检查）的在飞事件不得再触窗——
+                // EXITING 是唯一能挡住 Destroyed 态 panic 的闸门（见 lib.rs
+                // guarded_window_op 文档），此处置位先于销毁。
+                crate::mark_exiting("关窗即退（closeToTray=false）");
             }
         }
     });
@@ -934,6 +940,26 @@ mod tests {
         assert!(seg.contains("prevent_close"), "true 分支必须拦截默认窗口销毁: {seg}");
         assert!(seg.contains("hide_main_to_tray"), "true 分支关窗 = 隐藏留托盘（非退出）: {seg}");
         assert!(!seg.contains("exit(0)"), "关窗不得直接退出进程（真退出走托盘/ExitRequested）: {seg}");
+    }
+
+    /// 关窗即退（closeToTray=false）必须在放行销毁前**先**置位退出闸门：
+    /// 窗口销毁到 RunEvent::ExitRequested 之间仍有后台线程在飞事件（内核就绪/
+    /// 心跳/更新检查），此时触已销毁的事件循环 = tao Destroyed 态 panic
+    /// （见 lib.rs guarded_window_op 文档），而该 panic 会被 latch 到任意时刻。
+    #[test]
+    fn close_to_tray_false_arms_exiting_gate_before_destroy_shape() {
+        let src = include_str!("windows.rs");
+        let seg = src
+            .split("CloseRequested")
+            .nth(1)
+            .and_then(|s| s.split("/// 浮窗").next())
+            .expect("CloseRequested 处理段");
+        let else_branch = seg.split("} else {").nth(1).expect("closeToTray=false 分支");
+        assert!(
+            else_branch.contains("crate::mark_exiting("),
+            "false 分支必须在放行销毁前置位退出闸门: {else_branch}"
+        );
+        assert!(!else_branch.contains("exit(0)"), "不得直接退进程: {else_branch}");
     }
 
     /// #160：closeToTray 读取口径——缺省 true（关到托盘）；仅显式 false 才放行

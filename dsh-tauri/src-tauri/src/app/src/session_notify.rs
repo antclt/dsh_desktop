@@ -520,8 +520,20 @@ fn run_watcher(app: AppHandle, my_gen: u64, paths: WatcherPaths) {
                     }
                     // 权限申请（内核 approval/asked）：主窗未聚焦时任务栏闪烁，
                     // 提醒用户回来看审批（与任务完成闪烁同用 Informational）。
-                    if parse_approval_asked(&line).is_some() && !main_window_focused(&app) {
-                        request_main_window_attention(&app);
+                    // 退出中（QUITTING / 壳 EXITING 任一置位）跳过——触窗动作
+                    // 必须走闸门，且此处再包一层 panic 隔离。
+                    if parse_approval_asked(&line).is_some()
+                        && !QUITTING.load(Ordering::Relaxed)
+                        && !crate::is_exiting()
+                        && !main_window_focused(&app)
+                    {
+                        let h = app.clone();
+                        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                            request_main_window_attention(&h);
+                        }));
+                        if r.is_err() {
+                            log("[notify] 权限提醒触窗 panic（已隔离，继续）".to_string());
+                        }
                     }
                 }
                 Ok(LineOutcome::Oversized) => {

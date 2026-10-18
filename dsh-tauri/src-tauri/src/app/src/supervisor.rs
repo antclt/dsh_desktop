@@ -88,6 +88,9 @@ pub struct Supervisor {
     wsl_cfg: Option<wsl_backend::BackendCfg>,
     /// wsl.exe 原语（生产 RealWslInvoker；测试注入桩——design D7）。
     wsl_invoker: Arc<dyn wsl_backend::WslInvoker>,
+    /// 孤儿内核记账文件（`<app_data>/kernel.pid.json`）：spawn 后写、退出/杀树
+    /// 时删，下次 boot 起点收割（壳闪退后内核残留 → 双 web 实例的兜底）。
+    pid_file: PathBuf,
 }
 
 struct Inner {
@@ -212,6 +215,7 @@ impl Supervisor {
             fallback_reason: Arc::new(Mutex::new(String::new())),
             wsl_cfg,
             wsl_invoker: invoker,
+            pid_file: shell_core::DshPaths::resolve().app_data.join("kernel.pid.json"),
         }
     }
 
@@ -333,8 +337,54 @@ impl Supervisor {
         !stopping && state != RunState::Ready && state != RunState::Recovery
     }
 
+    /// 启动期孤儿内核收割（壳闪退兜底，见 `kernel_process::stale_kernel`）：
+    /// 上次运行若留下记账且**记账 exe 与本次 node 一致 + 进程映像复核一致**
+    /// → 整树收割并等端口释放；任一不符一律不动（防 pid 复用误杀）。
+    /// 无论判定结果都清账——坏记账不得跨运行累积。
+    fn harvest_stale_kernel(&self) {
+        let Some(rec) = kernel_process::stale_kernel::read(&self.pid_file) else {
+            return;
+        };
+        let expected_exe = self.node_exe.to_string_lossy().into_owned();
+        let image_matches = kernel_process::stale_kernel::process_image_matches(rec.pid, &expected_exe);
+        match kernel_process::stale_kernel::harvest_decision(Some(&rec), &expected_exe, image_matches) {
+            kernel_process::stale_kernel::HarvestDecision::Kill => {
+                let killed = kernel_process::stale_kernel::kill_pid_tree(rec.pid);
+                log_line(&format!(
+                    "孤儿内核收割：pid={}（exe={}）杀树{}",
+                    rec.pid,
+                    rec.exe,
+                    if killed { "完成" } else { "失败（可能已自行退出）" }
+                ));
+                if let Some(p) = rec.port {
+                    if kernel_process::port::wait_port_free(p, Duration::from_secs(5)) {
+                        log_line(&format!("孤儿内核收割后端口 {p} 已确认释放"));
+                    } else {
+                        log_line(&format!("孤儿内核收割后端口 {p} 5s 内未释放，后续换新端口"));
+                    }
+                }
+            }
+            kernel_process::stale_kernel::HarvestDecision::ExeMismatch => log_line(&format!(
+                "孤儿内核记账 exe 与本次 node 不一致，跳过收割（记账 {} / 本次 {expected_exe}）",
+                rec.exe
+            )),
+            kernel_process::stale_kernel::HarvestDecision::NotRunning => log_line(&format!(
+                "孤儿内核记账 pid={} 已不在或映像不符（pid 复用防护），仅清账",
+                rec.pid
+            )),
+            kernel_process::stale_kernel::HarvestDecision::NoRecord => {}
+        }
+        kernel_process::stale_kernel::remove(&self.pid_file);
+    }
+
     /// 守护瀑布主体（boot 线程内执行；panic 由 spawn_boot 捕获兜底）。
     fn boot_waterfall(this: Arc<Self>, tx: Sender<SupervisorEvent>, preferred_port: Option<u16>) {
+        {
+            // ---- [-3] 孤儿内核收割（壳闪退兜底）：上次进程若死在退出路径外，
+            //      内核无 Child 句柄可收、Job Object 也随父进程句柄释放才生效；
+            //      先收割再选端口，避免双 web 实例抢同一 workspace。----
+            this.harvest_stale_kernel();
+        }
         {
             // 记账本次瀑布的 dsh-web.log 起始偏移：恢复页/事故报告只引用
             // 本次运行的内核输出（io 失败按 None 处理，绝不阻断 boot）。
@@ -1017,6 +1067,19 @@ impl Supervisor {
         if let Err(e) = kernel_process::job_object::assign_child_to_kill_on_close_job(&child) {
             log_line(&format!("Job Object 赋值失败（杀树保护降级为显式 taskkill）: {e}"));
         }
+        // 孤儿内核记账（壳闪退兜底）：local 模式记 pid/exe/port，内核退出或
+        // 显式杀树时删除；下次启动在 spawn 前收割。WSL 不记——wsl.exe 不是
+        // 内核本体（收割语义见 kill_kernel 三层与契约 §4.6）。
+        if !wsl_mode {
+            kernel_process::stale_kernel::write(
+                &self.pid_file,
+                &kernel_process::stale_kernel::KernelPidRecord {
+                    pid: child.id(),
+                    exe: self.node_exe.to_string_lossy().into_owned(),
+                    port: Some(port),
+                },
+            );
+        }
         let stdout = child.stdout.take().ok_or("stdout piped 失败")?;
         let stderr = child.stderr.take();
         self.inner.lock().unwrap_or_else(|p| p.into_inner()).kernel = Some(child);
@@ -1181,6 +1244,8 @@ impl Supervisor {
             let v = g.crash.record_crash(now);
             (v, g.crash_count)
         };
+        // 内核已收尸：撤孤儿记账（下次启动不该再去收割这个已死的 pid）。
+        kernel_process::stale_kernel::remove(&self.pid_file);
         log_line(&format!("内核退出 code={code:?} 第 {crashes} 次"));
         let _ = tx.send(SupervisorEvent::KernelExit { code, crashed: true });
         match verdict {
@@ -1598,6 +1663,8 @@ impl Supervisor {
     pub fn kill_kernel(&self) {
         let backend = self.wsl_active();
         let mut g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        // 显式杀树 = 由我们收尸，撤孤儿记账（防下次启动把已死 pid 当孤儿）。
+        kernel_process::stale_kernel::remove(&self.pid_file);
         if let Some(mut c) = g.kernel.take() {
             let pid = c.id();
             let port = g.port;
@@ -2888,6 +2955,66 @@ Content-Length: 0
         // local 分支的既有锚点仍在。
         assert!(seg.contains("SpawnSpec::new(&self.node_exe"), "local 分支 SpawnSpec 链不变");
         assert!(seg.contains("set_process_group_leader(&mut cmd)"), "local 分支 PGID 设置不变");
+    }
+
+    /// 孤儿内核记账接线（壳闪退根治）：瀑布最前收割（先于端口选择，孤儿
+    /// 可能仍占旧端口）；local spawn 后写 pid 记账、WSL 不记；内核收尸与
+    /// 显式杀树都撤账；收割判定必须带映像复核（pid 复用防护）。
+    #[test]
+    fn stale_kernel_accounting_wired_shape() {
+        let src = include_str!("supervisor.rs").replace("\r\n", "\n");
+        let wf = src
+            .split("fn boot_waterfall")
+            .nth(1)
+            .and_then(|s| s.split("fn on_boot_success").next())
+            .expect("boot_waterfall 段");
+        let harvest = wf.find("this.harvest_stale_kernel()").expect("瀑布起点必须收割孤儿内核");
+        let port = wf.find("let port = if wsl.is_some()").expect("端口选择步");
+        assert!(harvest < port, "孤儿收割必须先于端口选择（孤儿可能仍占旧端口）");
+        let spawn = src
+            .split("fn spawn_kernel")
+            .nth(1)
+            .and_then(|s| s.split("/// 内核退出处理").next())
+            .expect("spawn_kernel 段");
+        let gate = spawn.find("if !wsl_mode {").expect("记账必须 WSL 门控");
+        let write = spawn.find("stale_kernel::write(").expect("spawn 后必须写 pid 记账");
+        assert!(gate < write, "WSL 模式不得记账（wsl.exe 不是内核本体）: {spawn}");
+        assert!(spawn.contains("pid: child.id()"), "记账必须用真实子进程 pid");
+        let exit = src
+            .split("fn on_kernel_exit")
+            .nth(1)
+            .and_then(|s| s.split("pub fn kernel_pid").next())
+            .expect("on_kernel_exit 段");
+        assert!(
+            exit.contains("stale_kernel::remove(&self.pid_file)"),
+            "内核收尸后必须撤账: {exit}"
+        );
+        let kill = src
+            .split("pub fn kill_kernel")
+            .nth(1)
+            .and_then(|s| s.split("pub fn shutdown").next())
+            .expect("kill_kernel 段");
+        assert!(
+            kill.contains("stale_kernel::remove(&self.pid_file)"),
+            "显式杀树必须撤账（防下次启动把已死 pid 当孤儿）: {kill}"
+        );
+        let harvest_fn = src
+            .split("fn harvest_stale_kernel")
+            .nth(1)
+            .and_then(|s| s.split("/// 守护瀑布主体").next())
+            .expect("harvest_stale_kernel 段");
+        assert!(
+            harvest_fn.contains("process_image_matches("),
+            "收割必须做进程映像复核（防 pid 复用误杀）: {harvest_fn}"
+        );
+        assert!(
+            harvest_fn.contains("harvest_decision("),
+            "收割必须经纯函数判定表: {harvest_fn}"
+        );
+        assert!(
+            harvest_fn.contains("stale_kernel::remove(&self.pid_file)"),
+            "无论判定结果都必须清账（坏记账不得跨运行累积）: {harvest_fn}"
+        );
     }
 
     /// WSL TCP 失联去留判定（探活防误杀核心）：WSL 内进程存活 → 不重启（继续

@@ -58,6 +58,57 @@ pub fn early_log_path() -> PathBuf {
     logs_dir().join("boot-early.log")
 }
 
+/// 会话退出标记路径（`<logs>/last-session.txt`）。
+///
+/// 协议（三行纯文本，便于用户/支持直接看）：`clean=0|1` / `time=…` /
+/// `pid=…`（非正常收尾另带 `reason=…`）。启动拿到单实例锁后写 `clean=0`，
+/// 正常退出路径改写 `clean=1`；下次启动读上一份即可判定上次是否「自己没了」
+/// （闪退、强杀、事件循环 panic）——这是 panics.log 之外唯一能区分
+/// 「用户主动退出」与「客户端闪退」的持久证据。
+pub fn session_marker_path() -> PathBuf {
+    logs_dir().join("last-session.txt")
+}
+
+fn write_session_marker(body: &str) {
+    let path = session_marker_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let tmp = path.with_extension("txt.tmp");
+    let _ = std::fs::write(&tmp, body).and_then(|_| std::fs::rename(&tmp, &path));
+}
+
+/// 启动时调用：写本次「运行中」标记并返回上一会话标记的可读摘要。
+pub fn begin_session() -> String {
+    let prev = std::fs::read_to_string(session_marker_path()).ok();
+    write_session_marker(&format!("clean=0\ntime={}\npid={}\n", timestamp(), std::process::id()));
+    match prev {
+        Some(raw) => {
+            let flat = raw.lines().collect::<Vec<_>>().join(" ");
+            if flat.trim().is_empty() { "（上次标记为空）".to_string() } else { flat }
+        }
+        None => "（无上次会话标记；首启或旧版本）".to_string(),
+    }
+}
+
+/// 正常退出：标记改写 `clean=1`（幂等；ExitRequested/Exit 都调）。
+pub fn end_session_clean(reason: &str) {
+    write_session_marker(&format!(
+        "clean=1\ntime={}\npid={}\nreason={reason}\n",
+        timestamp(),
+        std::process::id()
+    ));
+}
+
+/// 非正常收尾（事件循环 panic 等）：标记保留 `clean=0` 并写明原因。
+pub fn end_session_unclean(reason: &str) {
+    write_session_marker(&format!(
+        "clean=0\ntime={}\npid={}\nreason={reason}\n",
+        timestamp(),
+        std::process::id()
+    ));
+}
+
 /// 无依赖时间戳（`shell_core::time` 单一来源，与 lib.rs chrono_like_now 同口径）。
 fn timestamp() -> String {
     let secs = std::time::SystemTime::now()
@@ -369,6 +420,39 @@ mod tests {
         std::env::set_var("DSH_TEST_APPDATA", "Z:\\definitely\\no\\such\\root");
         early_log("still must not panic");
         std::env::set_var("DSH_TEST_APPDATA", _sb.home.join("appdata"));
+    }
+
+    /// 会话退出标记协议（壳闪退取证）：启动写 clean=0 并回报上一份摘要；
+    /// 正常退出改写 clean=1；非正常收尾保留 clean=0 + reason。下次启动
+    /// 据上一份标记区分「用户主动退出」与「自己没了」。
+    #[test]
+    fn session_marker_roundtrip_distinguishes_clean_exit() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _sb = sandbox("session-marker");
+        // 首启：无上一份标记。
+        let first = begin_session();
+        assert!(first.contains("无上次会话标记"), "首启应报告无标记: {first}");
+        let raw = std::fs::read_to_string(session_marker_path()).unwrap();
+        assert!(raw.contains("clean=0"), "启动标记必须 clean=0: {raw}");
+        assert!(raw.contains(&format!("pid={}", std::process::id())), "标记必须带 pid: {raw}");
+        // 正常退出 → clean=1；下次启动读回上一份 clean=1。
+        end_session_clean("exit-requested");
+        let raw = std::fs::read_to_string(session_marker_path()).unwrap();
+        assert!(
+            raw.contains("clean=1") && raw.contains("reason=exit-requested"),
+            "正常退出必须 clean=1 + reason: {raw}"
+        );
+        let prev = begin_session();
+        assert!(prev.contains("clean=1"), "上次正常退出必须在下次启动可见: {prev}");
+        // 非正常收尾 → clean=0 + reason；下次启动读回 clean=0（闪退判据）。
+        end_session_unclean("event-loop-panic: boom");
+        let raw = std::fs::read_to_string(session_marker_path()).unwrap();
+        assert!(
+            raw.contains("clean=0") && raw.contains("reason=event-loop-panic: boom"),
+            "非正常收尾必须 clean=0 + reason: {raw}"
+        );
+        let prev = begin_session();
+        assert!(prev.contains("clean=0"), "上次非正常收尾必须在下次启动可见: {prev}");
     }
 
     /// 形态锁死（include_str 自检）：本模块源码不得出现 unwrap/expect/panic!
