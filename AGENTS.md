@@ -269,20 +269,20 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   `.gitattributes`（见「CI 全量单测有三类本机假绿环境差」第 ③ 条）。
 - **稳定性三原则（评审默认立场）**：① 客户端必须能打开，装配失败终态恢复页而非退出；
   ② 兼容性不报错，意外以日志收场（`panics.log`）不以崩溃收场；③ 用户数据不动。
-- 文档里的测试基线数字常滞后。**现值（2026-10-18 二次实测，内核换代 0.2.1-rc.1 + 与 GitHub 侧
-  v1.0.3 合流 + Windows 路径门禁 + 两件插件提交闸门之后；补丁层净数 62 = 换代退役一条后的 61
+- 文档里的测试基线数字常滞后。**现值（2026-10-18 三次实测，随包内核换代 0.2.1-rc.2 之后；基线含
+  与 GitHub 侧 v1.0.3 合流 + Windows 路径门禁 + 两件插件提交闸门；补丁层净数 62 = 换代退役一条后的 61
   ＋ 吸收 `appboot-bootstrap-singleton`）**：
   `scripts/test/` 206 个测试文件（`*.test.js` 204 + `*.test.mjs` 2；`unit-patch-pi-ai-opencode-go-models`
   随该补丁退役一并 `git rm`，新增 `unit-patch-output-parsable`、`unit-workspace-anchor-cwd`、
   `unit-plugin-inject-services`、mac 设置写入根治的 `unit-appboot-singleton-patch`
   与「弹窗清草稿」根治的 `unit-auto-compact-gate`），
-  `npm test` = 2275 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
-  与网络浮动（本次全量实测 pass 2266 / skip 9），
+  `npm test` = 2277 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
+  与网络浮动（本次全量实测 pass 2268 / skip 9），
   skip 逐条都是环境缺料而非缺陷（pristine 夹具缺 `@openai/codex` / `@earendil-works/pi-ai`、
   openclaw 双轨的兄弟目录 `../openclaw-dsh-bridge/` 不在盘、本机无 `D:\workspace\dsh-pack` 克隆、
   真实网络、`.tmp-kernel` 构建产物不可用、无特权创建文件级符号链接）——一律以现跑输出为准，**pass 与 fail 才是判据**。
-  Rust 侧现值 **709 passed / 0 failed / 4 ignored**（8 个 crate / 36 个 target；2026-10-18 按
-  v1.0.5 版本号实跑。`crates/session-watcher` 因 `Cargo.toml` 成员行被 GBK 注释行粘连而不在
+  Rust 侧现值 **709 passed / 0 failed / 4 ignored**（8 个 crate / 36 个 target；2026-10-18 内核
+  换代 0.2.1-rc.2 后实跑。`crates/session-watcher` 因 `Cargo.toml` 成员行被 GBK 注释行粘连而不在
   workspace 内，是零消费者储备件，不计入）——本机只能走 gnu 链，
   **`cargo test` 必须带 `--target x86_64-pc-windows-gnu`**（与 `RUSTUP_TOOLCHAIN` 配对）：漏了它会去写
   `<CARGO_TARGET_DIR>/debug/`（host 目录，复用不到三元组目录里的增量），链接期炸成

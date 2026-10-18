@@ -17,7 +17,51 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
 - **全平台构建与便携版双轨分发**：
   - 支持全平台远端构建，Windows x64 同时提供「内置 Node 完整便携版」与「轻量 Lite 便携版（免自带 Node）」。
 
-## [Unreleased]
+## [1.0.6] - 2026-10-18
+
+v1.0.6 只换随包内核：`0.2.1-rc.1` → `0.2.1-rc.2`。壳侧 Rust / 契约 / sidecar 零改动，
+构建期补丁层仍是 62 项（仅 `patch-web-search-baseurl` 一处按新字节重锚），内置插件在册 29 条不变。
+rc.2 带来 DeepSeek-V4.1-Flash-1017 模型适配与新版 DeepSeek Search & Fetch API。
+
+### feat(kernel)：内核换代 0.2.1-rc.1 → 0.2.1-rc.2 —— pin/vendor/锁/补丁层随迁（2026-10-18）
+
+- **换血三处同步**：`scripts/compat/kernel-pin.json` 的 exact pin 与 tag 改 `0.2.1-rc.2` /
+  `dsh-v0.2.1-rc.2`（禁止浮动的老规矩不变）；`vendor/dsh-kernel/` 换成 rc.2 的 **352 份离线 tgz**
+  （339 个 dsh 包 + 13 个框架件；rc.1 的 337 个 dsh 包全在，新增
+  `@deepseek-ai/dsh-client-ui-deepseek-model-label-1017` 与 `@deepseek-ai/dsh-web-deepseek-api`。
+  旧 rc.1 的 350 份 tgz 仅留存于 gitignore 的 `.tmp-kernel-rc2/vendor-rc1/` 作取证，不入库）；
+  `package.json` 337 处依赖声明（336 deps + 1 devDep）与 `package-lock.json` 同批重生成，
+  锁内 352 个 `file:` 条目、339 个 dsh 条目 version 全为 0.2.1-rc.2。
+  `node scripts/compat/validate-pin.js` → `✓ dsh-v0.2.1-rc.2`。
+- **rc.2 上游变更（换代带来的面）**：新增 DeepSeek-V4.1-Flash-1017 适配（新包
+  `dsh-client-ui-deepseek-model-label-1017`）；新增 DeepSeek Search & Fetch API（新包
+  `dsh-web-deepseek-api`，网页搜索设置页新增「启用新版 Web 搜索 API」开关与第二个地址字段
+  `searchApiBaseUrl`，追加 `/search` 或 `/fetch`）；`dsh-web-search-deepseek` 请求体加
+  `thinking: { type: "disabled" }` 并重写错误文案。另有两处纯版本号 / 内置件清单变动
+  （`dsh-client-ui-settings-account`、`cordis-client-runner`），与补丁面无关。
+- **补丁层重锚一处**：`patch-web-search-baseurl` 的设置页文案半边按 rc.2 新字节重录——
+  `description` 已含新语义不再改写，`baseUrlHint` 两对（中英）按 rc.2 新文案重锚；provider 半边
+  （基址归一化 + 协议契约指引）两条锚点在 rc.2 逐字在位，一字未动。首次 `npm ci` 实测
+  **写入 74 处 / 失配 1 项**（失配即该 client.js），重锚后 `patch-deps` 增量
+  **写入 1 处 / 失配 0 / 失败 0 / 共 62 项**，合计 75 处与 62 项全落地；二次运行写入 0（幂等）。
+  `unit-web-search` 夹具改为 rc.2 真字节，并新增「回灌 rc.1 旧 baseUrlHint → client 半边必跳过、
+  字节级不变」反证。
+- **两道基线锁按真跑重录**：`ta6-baseline-matrix` 的 `BASELINE` 版本键换 `0.2.1-rc.2`（pristine
+  闭包 `.consumer-0.2.1-rc.2`，352 包），矩阵**逐项与 rc.1 相同**——43 changed / 14 root /
+  5 target-absent，零 anchor-missing、零 already、零 THROW，无补丁因换代退役；
+  `patch-surface.snapshot.json` 在 `npm ci` 重收敛后重取，**85 个被干预文件 / 85 个标记家族**，
+  `verify` 复绿后与本次改动同一批入库。
+- **门禁**：全量 `npm test` **2277 例 / 0 fail / 0 cancelled**（pass 2268 / skip 9；206 个测试文件），
+  `check-syntax` 通过；Rust workspace **709 passed / 0 failed / 4 ignored**（gnu 链配对，exit 0）。
+- **隔离内核实机（全新 `DSH_HOME` / `DSH_TAURI_USERDATA`，不碰真实 `~/.dsh`）**：sidecar boot
+  五步全绿（repair 29ms / sync 3547ms / patches 89ms / compat-pin 120ms / preflight 60ms，共 3.8s），
+  29 条内置插件在册；`web` 起在 `127.0.0.1:3197`，stderr 零 `failed to load` / 零 `anchor-missing` /
+  零 `pending (waiting for`。**真发一条消息**经 `/api` RPC 落盘：`session/create` →
+  `session/prompt` accepted，system prompt 装配成功（6378 字符、cwd 已填实、无未解析占位符），
+  回合仅因隔离 home 无密钥在模型调用处报
+  `no API key for provider route "deepseek-official"`（与「无密钥止步于凭据」判据一致）；
+  `unknown prompt variable` / `has no value` 在 kernel 日志与会话日志的**装配上下文**中零命中
+  （会话日志里的两处字面命中来自注入的 AGENTS.md 正文，不是错误）。
 
 ## [1.0.5] - 2026-10-18
 

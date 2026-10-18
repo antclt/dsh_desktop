@@ -48,7 +48,7 @@
 > `scripts/test/unit-plugin-module-table.test.js`（13 用例，六条静态扫：peer / 模块表成员链接 A/B /
 > 浏览器模块图 C / `dsh.client` 声明可解析性 / 已移除服务引用 / manifest 入口可见性），纯函数面收敛在
 > `scripts/lib/plugin-module-table.js`。§一～§四 回答「是谁、从哪来、什么版本」，§五 回答
-> 「能不能挂上宿主（现 pin `0.2.1-rc.1`）、挂了会不会静默失效、全新 clone 拿不拿得到入口」。
+> 「能不能挂上宿主（现 pin `0.2.1-rc.2`）、挂了会不会静默失效、全新 clone 拿不拿得到入口」。
 
 ## 一、内置插件（在册 29 条，`assets/plugins` 实存 29 个源目录，与清单 1:1）
 
@@ -410,7 +410,7 @@ dsh-pack 的 `packages/` 实存 **34 个**目录，扣掉 `host-capabilities` �
   所以「npm 未发布 20 条」里含全部作用域条目；不要因为它们 404 就推断官方 registry 被墙，
   同一批请求里 9 条裸名件是通的。
 
-## 五、舰队更新与兼容 sweep（2026-10-08 立项 · 目标宿主 `0.2.0-rc.2`；**2026-10-17 六条静态扫按 `0.2.1-rc.1` 全量复算**）
+## 五、舰队更新与兼容 sweep（2026-10-08 立项 · 目标宿主 `0.2.0-rc.2`；**2026-10-17 六条静态扫按 `0.2.1-rc.1` 全量复算**；**2026-10-18 按 `0.2.1-rc.2` 复核，判据值逐项不变、全绿**）
 
 > **2026-10-17 换代复算口径**：内核 pin 由 `0.2.0-rc.2` 换到 **`0.2.1-rc.1`**、`dsh-reasoning-effort`
 > 退役，在册 **30 → 29**。下表「修后实测」列已全部换成 0.2.1-rc.1 上的现跑输出（复算命令见 5.3，
@@ -433,6 +433,17 @@ dsh-pack 的 `packages/` 实存 **34 个**目录，扣掉 `host-capabilities` �
 > 「兼容」半边另有 4 处内核形状变化打进补丁层（gateway client 拆分、typert 描述符键控化、
 > `evaluatePluginCompatibility` 的 `peers`→`requirements`、双半边缩进不同），逐条见
 > [`CHANGELOG.md`](../CHANGELOG.md) 的 `[Unreleased]` 内核换代条目与 AGENTS.md 已知坑。
+
+> **2026-10-18 内核再换代复核（`0.2.1-rc.1` → `0.2.1-rc.2`）**：在册仍 **29**、插件面零改动，
+> 六条静态扫按 5.3 的命令逐条重放，判据值与上一轮**逐项相同**：peer **0 DENIED / 29**
+> （12 条声明 dsh 族 peer、共 **38** 键）；判据 A/B **73 别名 / 434 成员**；
+> 判据 C **26 条 client 入口 / 26 图文件 / 51 处裸名** → 0 表外、0 断链；
+> 入口可见性 **58 条入口** → 0 磁盘缺失、0 被遮蔽；`dsh.client` 声明 **50 条**
+> （inject 42 + external 8）→ 0 落空。判据源换代实值：`getDshRuntimeVersion()` = `0.2.1-rc.2`，
+> `PLATFORM_MODULES` 仍 **11 项**、`PRELOADED_CLIENT_EXTERNALS` 仍 `[]`。
+> 两条哨兵套件 17 例全绿；补丁层仅 1 处按 rc.2 新字节重锚（web-search client），
+> 矩阵 43 changed / 14 root / 5 target-absent 与 rc.1 相同。隔离实机复验（boot 3.8s / 29 条在册 /
+> 真发一条消息到无密钥止步 / 零 `failed to load`）见 `CHANGELOG.md` 的 `[Unreleased]` 条目。
 
 > 规程出处：`github.com/oh-my-dsh/dsh-plugin-upgrade-skill` 的 fleet-sweep，五条 standing rules 里对本轮
 > 起决定作用的是三条 —— **先做廉价静态扫**、**无报错是弱证据**（静默失效比崩溃更危险）、
@@ -458,15 +469,15 @@ dsh-pack 的 `packages/` 实存 **34 个**目录，扣掉 `host-capabilities` �
 
 | 扫 | 判据源（全部实文件，不硬编码名单） | 机器锁 | 修前实测 | 修后实测 |
 | --- | --- | --- | --- | --- |
-| peer 下限（DSH-0.2.0-RC1-01） | `require('@deepseek-ai/dsh-app-boot').evaluatePluginCompatibility(manifest, exemptions, runtimeVersion)` —— 只读 `peerDependencies`，只判 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 两族键，`semver.satisfies(runtime, range, {includePrerelease:true})`；`runtimeVersion` 取装机树 `getDshRuntimeVersion()`，并与 `kernel-pin.packageVersion` 交叉断言 | `scripts/test/unit-plugin-peer-floor.test.js`（4 用例） | **2 条 DENIED**：`billion-context-dsh`（5 键 `>=0.1.5-alpha.1 <0.1.6-0`）、`dsh-better-sidebar`（14 键 `^0.1.0-rc.8`） | **0 DENIED / 29**（**2026-10-17 对 0.2.1-rc.1 复算**：29 条里 12 条声明 dsh 族 peer，共 38 个键；上一轮 rc.2 是 13 条 / 48 键，差的那 1 条 10 键是 `dsh-reasoning-effort`，本轮退役。better-sidebar 那条**不是我们放宽的结果**：0.24.1 上游自带 14 键 `^0.2.0-rc.1`，我们的改写作废；剩下的实质改动只有 `billion-context-dsh` 一处。判据字段本身换代改名 `peers`→`requirements`，哨兵随迁） |
-| 浏览器模块表 × 命名空间成员链接（判据 A/B） | `node_modules/@deepseek-ai/dsh-client-web/lib/index.js` 的 `PLATFORM_MODULES`（**0.2.1-rc.1 实值 11 项**：react、react/jsx-runtime、react-dom、react-dom/client、`@deepseek-ai/cordis`、**`zod`**、**`@tanstack/react-virtual`**、`dsh-client-store`、`dsh-client-ui-slots`、`dsh-client-ui-primitives`、`dsh-client-ui-dockkit`；rc.2 是 9 项，两条新增是宿主开始向插件下发的浏览器依赖；`PRELOADED_CLIENT_EXTERNALS = []` 不变）↔ 插件产物里 `var _pkg = require("<spec>")` 的 `<spec>` 与 `_pkg.<member>` 取用 ↔ pin 内核各包导出面 | `scripts/test/unit-plugin-module-table.test.js` 用例 1-5、8、13 | **1 条硬断链**：`dsh-better-sidebar`（0.15.3 旧皮）23 个旧图标成员（`Icon*14/16`）× 4 个产物 = 112 处未守卫取用 | **0**（**2026-10-17 复算 73 处 require 别名改写、434 处成员取用全判（在册 29 条 / 29 个目录）**；5 种正当守卫形态逐一验证）。先前的 75/322 是 0.15.3 旧皮口径：换 0.24.1 后 better-sidebar 自身变成 **19 别名 / 413 成员**，
+| peer 下限（DSH-0.2.0-RC1-01） | `require('@deepseek-ai/dsh-app-boot').evaluatePluginCompatibility(manifest, exemptions, runtimeVersion)` —— 只读 `peerDependencies`，只判 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 两族键，`semver.satisfies(runtime, range, {includePrerelease:true})`；`runtimeVersion` 取装机树 `getDshRuntimeVersion()`，并与 `kernel-pin.packageVersion` 交叉断言 | `scripts/test/unit-plugin-peer-floor.test.js`（4 用例） | **2 条 DENIED**：`billion-context-dsh`（5 键 `>=0.1.5-alpha.1 <0.1.6-0`）、`dsh-better-sidebar`（14 键 `^0.1.0-rc.8`） | **0 DENIED / 29**（**2026-10-17 对 0.2.1-rc.1 复算**：29 条里 12 条声明 dsh 族 peer，共 38 个键；上一轮 0.2.0-rc.2 是 13 条 / 48 键，差的那 1 条 10 键是 `dsh-reasoning-effort`，本轮退役。better-sidebar 那条**不是我们放宽的结果**：0.24.1 上游自带 14 键 `^0.2.0-rc.1`，我们的改写作废；剩下的实质改动只有 `billion-context-dsh` 一处。判据字段本身换代改名 `peers`→`requirements`，哨兵随迁） |
+| 浏览器模块表 × 命名空间成员链接（判据 A/B） | `node_modules/@deepseek-ai/dsh-client-web/lib/index.js` 的 `PLATFORM_MODULES`（**0.2.1-rc.1 实值 11 项**：react、react/jsx-runtime、react-dom、react-dom/client、`@deepseek-ai/cordis`、**`zod`**、**`@tanstack/react-virtual`**、`dsh-client-store`、`dsh-client-ui-slots`、`dsh-client-ui-primitives`、`dsh-client-ui-dockkit`；0.2.0-rc.2 是 9 项，两条新增是宿主开始向插件下发的浏览器依赖；`PRELOADED_CLIENT_EXTERNALS = []` 不变）↔ 插件产物里 `var _pkg = require("<spec>")` 的 `<spec>` 与 `_pkg.<member>` 取用 ↔ pin 内核各包导出面 | `scripts/test/unit-plugin-module-table.test.js` 用例 1-5、8、13 | **1 条硬断链**：`dsh-better-sidebar`（0.15.3 旧皮）23 个旧图标成员（`Icon*14/16`）× 4 个产物 = 112 处未守卫取用 | **0**（**2026-10-17 复算 73 处 require 别名改写、434 处成员取用全判（在册 29 条 / 29 个目录）**；5 种正当守卫形态逐一验证）。先前的 75/322 是 0.15.3 旧皮口径：换 0.24.1 后 better-sidebar 自身变成 **19 别名 / 413 成员**，
 产物里 8 个 `Icon*16` 形态名字（自有 `src/client/icons.tsx` 共导出 10 个）全部是**插件自有符号**，
 **0 处从 primitives 具名取用**（实测 `grep -o '_primitives…Icon*14/16'` 零命中）；112 处两级回落改写连同 `primitives-icons.ts` 垫片**整层作废** |
-| 浏览器模块图（判据 C，A 的另半边） | 各插件 `exports['./client']` 入口 → 沿**相对 require** 走可达闭包 → 闭包内每个裸名 `require("<spec>")` 必须 ∈ `PLATFORM_MODULES` ∪ 该插件 `dsh.client.external`（`stripClientSuffix` 归一） | 同文件用例 9-10 | 判据本轮新建；建前盲区 = 裸第三方名（A 只判 `@deepseek-ai/*`）+ 入口落在 `dist/` 的产物被整目录跳过 | **26 条有 client 入口 / 26 个图文件 / 51 处裸名取用 → 0 表外、0 入口缺失、0 相对依赖断链**（2026-10-17 对 0.2.1-rc.1 复算；上一轮 rc.2 是 27/27/53，减少的 1 条入口与 2 处裸名取自退役件 `dsh-reasoning-effort`）。裸名全集恰为 `react×20, react/jsx-runtime×14, primitives×10, renderer×4, react-dom/client×2, react-dom×1` |
+| 浏览器模块图（判据 C，A 的另半边） | 各插件 `exports['./client']` 入口 → 沿**相对 require** 走可达闭包 → 闭包内每个裸名 `require("<spec>")` 必须 ∈ `PLATFORM_MODULES` ∪ 该插件 `dsh.client.external`（`stripClientSuffix` 归一） | 同文件用例 9-10 | 判据本轮新建；建前盲区 = 裸第三方名（A 只判 `@deepseek-ai/*`）+ 入口落在 `dist/` 的产物被整目录跳过 | **26 条有 client 入口 / 26 个图文件 / 51 处裸名取用 → 0 表外、0 入口缺失、0 相对依赖断链**（2026-10-17 对 0.2.1-rc.1 复算；上一轮 0.2.0-rc.2 是 27/27/53，减少的 1 条入口与 2 处裸名取自退役件 `dsh-reasoning-effort`）。裸名全集恰为 `react×20, react/jsx-runtime×14, primitives×10, renderer×4, react-dom/client×2, react-dom×1` |
 | manifest 入口可见性（全新环境判据） | 各插件 `main`/`exports` 指向的每个 JS 文件 ↔ 磁盘实存 ↔ `git check-ignore`（**引擎就是 git 自己**，不重写 ignore 语义；默认相对索引判定，正合「fresh clone 拿不拿得到」） | 同文件用例 11-12 | **1 条被遮蔽**：`dsh-prompt-optimizer` 的 `./client` → `dist/client.js` 落在通用 `dist/` 规则里，本机有、库里没有 | **58 条入口：0 磁盘缺失、0 被忽略遮蔽**（2026-10-17 对 0.2.1-rc.1 复算，比上一轮 60 少 2 条 = 退役件 `dsh-reasoning-effort` 的 `.` 与 `./client`；`!assets/plugins/dsh-prompt-optimizer/dist/**` 例外仍在位并被这条扫到） |
 | `dsh.client` 声明可解析性 | 各插件 `package.json` 的 `dsh.client.inject` / `external` ↔ `node_modules/@deepseek-ai/*` 实存（`stripClientSuffix` 按内核 `dsh-client-modules` 同形归一 `<id>/client`→`<id>`） | 同文件用例 6 | — | **50 条声明（inject 42 + external 8）0 落空**（2026-10-17 对 0.2.1-rc.1 复算；上一轮 57 = inject 49 + external 8，少的 7 条 inject 全属退役件 `dsh-reasoning-effort`。再上一轮记的 56 = inject 46 + external 10，差 1 条来自 better-sidebar 换代：它的 `inject` 涨到 5 条、两条 primitives 图标 `external` 扩表随垫片一起撤掉。落空的后果是整个 client bundle 在浏览器里静默不加载，与 peer 拒挂同族） |
 | 宿主半边 `inject` 服务名可解析性（判据 G，2026-10-17 第七条） | 按各件 `package.json` 的 `exports['.']`/`main` 解析**实际挂载**的宿主入口 → 抽顶层 `const inject` → 逐个服务名核对 pin 内核闭包扫出的提供集（`super(ctx,"NAME")` / `.provide("NAME")` / 局部字符串常量间接三形） | `scripts/test/unit-plugin-inject-services.test.js`（5 用例，纯函数 `scripts/lib/plugin-inject-services.js`） | **2 条违规**：`dsh-better-sidebar` 与 `dsh-basics-panel` 的宿主 inject 仍声明 `webRuntime`（判据写下时先跑真值，抓出的正是这两条；rc.2 时代它们只在无头跑里 pending，0.2.1 起恒 pending） | **0 违规 / 29 条全解析得到**（17 件声明非空 inject；提供集 159 名，含 connection/webServer/sessions/tools/settings，不含 webRuntime。事故形状回灌必判红、入口缺失必判 `entry-missing`） |
-| 已移除服务引用 | `kernel-pin.json` 的 `services.removed` 13 条 id ↔ 插件正文的 `ctx.get("<id>")` | 同文件用例 7 | — | **0 真实引用**（判据只用 `ctx.get` 形态：裸 id 做子串匹配会在 base64 载荷里疯狂误报，rc.2 实测 `e2b` 命中 easyrewrite 的字体数据 —— 那种判据常红等于没有判据） |
+| 已移除服务引用 | `kernel-pin.json` 的 `services.removed` 13 条 id ↔ 插件正文的 `ctx.get("<id>")` | 同文件用例 7 | — | **0 真实引用**（判据只用 `ctx.get` 形态：裸 id 做子串匹配会在 base64 载荷里疯狂误报，0.2.0-rc.2 实测 `e2b` 命中 easyrewrite 的字体数据 —— 那种判据常红等于没有判据） |
 
 每条守卫都带**反向捕获力**用例，不是「扫一遍求全绿」：
 `unit-plugin-peer-floor` 用内存合成 manifest 证明收紧区间必判拒（`^0.1.0`、`>=0.1.5-alpha.1 <0.1.6-0`），

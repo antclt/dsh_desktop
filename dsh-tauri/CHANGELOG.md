@@ -1,5 +1,28 @@
 # Changelog — DSH Desktop（Tauri 版，主线架构 v0.5.0 起）
 
+# DSH Desktop v1.0.6 — 已发布（2026-10-18 正式版；随包内核换代 0.2.1-rc.2，壳侧零改动）
+
+## 🔁 只换内核与适配层：Rust / 契约 / sidecar 一处未动
+
+> 本次改动全在 `dsh-desktop/` 的内核侧：pin、vendor、锁文件与补丁层。
+
+- **pin 与 vendor**：`scripts/compat/kernel-pin.json` 改 `0.2.1-rc.2` / `dsh-v0.2.1-rc.2`；
+  `vendor/dsh-kernel/` 换成 352 份离线 tgz（339 个 dsh 包 + 13 个框架件；rc.1 的 337 个 dsh 包
+  全在，新增 `dsh-client-ui-deepseek-model-label-1017` 与 `dsh-web-deepseek-api`）。
+  `package.json` 337 处依赖声明与 `package-lock.json` 同批重生成，`validate-pin` 绿。
+- **补丁层 62 项不变，只重锚一条**：`patch-web-search-baseurl` 的设置页文案半边按 rc.2
+  （设置页重写 + 新增 Search & Fetch API 字段）新字节重录；provider 半边锚点原位。
+  首次 `npm ci` 写入 74 处 / 失配 1 项 → 重锚后增量写入 1 处 / 失配 0，合计 75 处全落地；
+  `patch-surface` 重取 85 文件后 `verify` 复绿；`ta6-baseline-matrix` 按 rc.2 真跑重录，
+  矩阵与 rc.1 逐项相同（43 changed / 14 root / 5 target-absent）。
+- **门禁**：全量 Node **2277 例 / 0 fail / 0 cancelled**（pass 2268 / skip 9），`check-syntax` 通过；
+  Rust **709 passed / 0 failed / 4 ignored**（本次壳代码零改动，属回归复跑）。
+- **隔离实机**：boot 五步全绿（3.8s）、29 条内置插件在册、`web` 起服；真发一条消息过了提示词
+  装配期（隔离 home 无密钥，止步于 `no API key for provider route "deepseek-official"`），
+  `unknown prompt variable` / loader 静默隔离计数均为 0。
+- **发布公告已随迁**：`tauri-release.yml` 的公告正文已整段重写为 v1.0.6 / 内核 `0.2.1-rc.2`
+  口径（旧文案里的 `0.2.1-rc.1` 字样全部清除）。
+
 # DSH Desktop v1.0.5 — 已发布（2026-10-18 正式版；补发 v1.0.4 的 Windows 资产）
 
 ## 🩺 壳进程闪退根治：事件循环 panic 的退出闸门、孤儿内核收割与会话退出标记

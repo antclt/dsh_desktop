@@ -22,6 +22,11 @@
 //     dsh-client-ui-settings-plugins 的 `webSearch*` 前缀键，改为独立包
 //     dsh-client-ui-settings-web-search 的 `lib/client.js` 内联 locale 表
 //     `description` / `baseUrlHint`（值未变）。靶包与键名同步改锚。
+//     0.2.1-rc.2 再重靶：页面新增「启用新版 Web 搜索 API」开关与第二个地址字段
+//     （`searchApiBaseUrlHint`，追加 /search 或 /fetch），`description` 已不能单指
+//     Messages 协议（本补丁不再改它）；`baseUrlHint` 上游重写为带示例的文案，
+//     锚点按新字节重录，补丁叠加「仅支持 Anthropic 兼容 Messages API / 其它协议
+//     需对应提供方插件」的半句。
 //
 // 用法：
 //   node scripts/patch-web-search-baseurl.js [<node_modules 根目录>]
@@ -64,20 +69,12 @@ const PROVIDER_NEW_THROW_LINES = [
 
 const CLIENT_PAIRS = [
   [
-    'description: "Set up the DeepSeek search provider.",',
-    'description: "Set up the DeepSeek search provider (Anthropic-compatible Messages API).",',
+    'baseUrlHint: "Include the API prefix, such as https://api.deepseek.com/anthropic/v1. The provider appends /messages. Leave blank to restore the default.",',
+    'baseUrlHint: "Include the API prefix of the Anthropic-compatible Messages API, such as https://api.deepseek.com/anthropic/v1. The provider appends /messages; search services on other protocols (e.g. Exa) need their own provider plugin. Leave blank to restore the default.",',
   ],
   [
-    'baseUrlHint: "Leave blank to use the provider default.",',
-    'baseUrlHint: "This provider calls the Anthropic-compatible Messages API (POST <base>/messages). Enter that API\'s base URL; leave blank for the DeepSeek official default.",',
-  ],
-  [
-    'description: "设置 DeepSeek 的搜索提供方。",',
-    'description: "设置 DeepSeek 的搜索提供方（Anthropic 兼容 Messages API）。",',
-  ],
-  [
-    'baseUrlHint: "留空则使用提供方默认地址。",',
-    'baseUrlHint: "该提供方通过 Anthropic 兼容 Messages API 请求（POST <基址>/messages）。请填该协议的基址；留空则使用 DeepSeek 官方默认地址。",',
+    'baseUrlHint: "填写含 API 前缀的地址，例如 https://api.deepseek.com/anthropic/v1；程序追加 /messages，留空恢复默认。",',
+    'baseUrlHint: "填写 Anthropic 兼容 Messages API 的基址（含 API 前缀），例如 https://api.deepseek.com/anthropic/v1；程序追加 /messages。其它协议的搜索服务（如 Exa）需要对应的提供方插件；留空恢复默认。",',
   ],
 ];
 

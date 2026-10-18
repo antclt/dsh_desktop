@@ -42,17 +42,20 @@ function buildFakeTree(t) {
     '\t\tthrow searchEndpointError(endpoint, message);',
     '}',
   ].join('\n');
-  // rc.2 现场：文案随设置页拆分搬到 dsh-client-ui-settings-web-search 的内联
-  // locale 表，键名由 webSearch* 前缀改为表内 description / baseUrlHint。
+  // 0.2.1-rc.2 现场：文案随设置页拆分搬到 dsh-client-ui-settings-web-search 的
+  // 内联 locale 表；rc.2 又重写了 baseUrlHint 并新增 searchApiBaseUrlHint，
+  // 夹具按真字节造（见 lib/client.js）。
   const clientSrc = [
     'window.__ModuleLoader__.load({',
     '\tconst en = {',
     '\t\tdescription: "Set up the DeepSeek search provider.",',
-    '\t\tbaseUrlHint: "Leave blank to use the provider default.",',
+    '\t\tbaseUrlHint: "Include the API prefix, such as https://api.deepseek.com/anthropic/v1. The provider appends /messages. Leave blank to restore the default.",',
+    '\t\tsearchApiBaseUrlHint: "Include the API prefix, such as https://api.deepseek.com/v1/tools. The provider appends /search or /fetch. Leave blank to restore the default.",',
     '\t};',
     '\tconst zh = {',
     '\t\tdescription: "设置 DeepSeek 的搜索提供方。",',
-    '\t\tbaseUrlHint: "留空则使用提供方默认地址。",',
+    '\t\tbaseUrlHint: "填写含 API 前缀的地址，例如 https://api.deepseek.com/anthropic/v1；程序追加 /messages，留空恢复默认。",',
+    '\t\tsearchApiBaseUrlHint: "填写含 API 前缀的地址，例如 https://api.deepseek.com/v1/tools；程序追加 /search 或 /fetch，留空恢复默认。",',
     '\t};',
     '});',
   ].join('\n');
@@ -78,8 +81,9 @@ test('补丁脚本：一次应用、二次幂等、anchor 缺失跳过且不损�
   const client = fs.readFileSync(tree.client, 'utf8');
   assert.ok(provider.includes(MARKER) && provider.includes('normalizedBase'), 'provider 补丁落盘');
   assert.ok(client.includes(MARKER) && client.includes('Anthropic 兼容 Messages API'), 'client 文案补丁落盘');
-  assert.ok(client.includes('DeepSeek 官方默认地址'), '中文提示已替换');
-  assert.ok(client.includes("Enter that API's base URL"), '英文提示已替换');
+  assert.ok(client.includes('其它协议的搜索服务（如 Exa）需要对应的提供方插件'), '中文提示已替换');
+  assert.ok(client.includes('search services on other protocols (e.g. Exa) need their own provider plugin'), '英文提示已替换');
+  assert.ok(client.includes('searchApiBaseUrlHint: "填写含 API 前缀的地址'), '新版 Search/Fetch 字段文案不被波及');
   // 幂等：第二次零写入
   n = patchWebSearchBaseUrl(tree.root);
   assert.strictEqual(n, 0, '第二次运行应零写入');
@@ -94,6 +98,30 @@ test('补丁脚本：一次应用、二次幂等、anchor 缺失跳过且不损�
   assert.strictEqual(n, 0, 'anchor 不匹配应跳过');
   assert.deepStrictEqual(fs.readFileSync(tree.provider), beforeP, 'provider 字节级不变');
   assert.deepStrictEqual(fs.readFileSync(tree.client), beforeC, 'client 字节级不变');
+});
+
+test('锚点新鲜度反证：rc.1 旧 baseUrlHint 必须跳过 client 半边（0.2.1-rc.2 重靶）', (t) => {
+  // 证明 CLIENT_PAIRS 咬的是 rc.2 重写后的带示例文案，而不是「任何一版都能命中」。
+  const tree = buildFakeTree(t);
+  const rc1ClientSrc = [
+    'window.__ModuleLoader__.load({',
+    '\tconst en = {',
+    '\t\tdescription: "Set up the DeepSeek search provider.",',
+    '\t\tbaseUrlHint: "Leave blank to use the provider default.",',
+    '\t};',
+    '\tconst zh = {',
+    '\t\tdescription: "设置 DeepSeek 的搜索提供方。",',
+    '\t\tbaseUrlHint: "留空则使用提供方默认地址。",',
+    '\t};',
+    '});',
+  ].join('\n');
+  fs.writeFileSync(tree.client, rc1ClientSrc);
+  const before = fs.readFileSync(tree.client);
+  const stats = { anchorMissing: 0, failed: 0 };
+  const n = patchWebSearchBaseUrl(tree.root, () => {}, stats);
+  assert.strictEqual(n, 1, '仅 provider 半边应被补');
+  assert.strictEqual(stats.anchorMissing, 1, 'rc.1 旧文案应计入 anchorMissing');
+  assert.deepStrictEqual(fs.readFileSync(tree.client), before, '失配时 client 字节级不变');
 });
 
 test('锚点新鲜度反证：旧形态前缀键（0.1.6 文案表）必须跳过 client 半边', (t) => {

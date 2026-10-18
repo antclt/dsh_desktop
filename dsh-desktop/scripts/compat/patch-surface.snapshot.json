@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-17T17:46:53.796Z",
+  "generatedAt": "2026-10-18T10:30:43.808Z",
   "kernelRoot": "@deepseek-ai",
   "markerCount": 85,
   "surface": [
@@ -187,7 +187,7 @@
     },
     {
       "file": "dsh-client-ui-settings-account/lib/client.js",
-      "sha256": "87cfb8679364cfe5",
+      "sha256": "68d62d5332fcc01e",
       "markers": [
         "onboarding silent update/complete guards report which guard fired",
         "onboarding step advance must not depend on a rendering frame",
@@ -212,7 +212,7 @@
     },
     {
       "file": "dsh-client-ui-settings-web-search/lib/client.js",
-      "sha256": "e5b745948e828e66",
+      "sha256": "3bddd146cdf3c7e9",
       "markers": [
         "issue #20"
       ]
@@ -237,7 +237,7 @@
     },
     {
       "file": "dsh-cordis-client-runner/lib/client.js",
-      "sha256": "7b6ca8b2282596d9",
+      "sha256": "49e9643007b01990",
       "markers": [
         "derive keyed slot key for unkeyed registrations"
       ]
@@ -597,7 +597,7 @@
     },
     {
       "file": "dsh-web-search-deepseek/lib/index.js",
-      "sha256": "2cfa68d56e9cc828",
+      "sha256": "1d4ea9e7845cde45",
       "markers": [
         "issue #20"
       ]

@@ -1,7 +1,7 @@
 'use strict';
 
 // ---------------------------------------------------------------------------
-// TA6 元测试 6：58 补丁 × pristine 内核形态判定矩阵（基线快照，长期价值最高）。
+// TA6 元测试 6：62 补丁 × pristine 内核形态判定矩阵（基线快照，长期价值最高）。
 //
 // 对 pristine 内核闭包按 registry order 编排序跑一遍全部 file transform——同文件
 // 多补丁时，后一条的输入就是前一条的产物，判定与引擎真实顺序一致；root 规格记
@@ -124,34 +124,21 @@ function integrityProblems(ids, baseline) {
 }
 
 // ===========================================================================
-// 基线快照（2026-10-17 重录：0.2.1-rc.1 形态 = .tmp-kernel/.consumer-0.2.1-rc.1
+// 基线快照（2026-10-18 重录：0.2.1-rc.2 形态 = .tmp-kernel/.consumer-0.2.1-rc.2
 // 的 npm 闭包解包树（node scripts/install-pristine-kernel.mjs 按 vendor tarball
-// 离线解出 350 包），48 file + 14 root = 62 项，逐项由本文件 computeMatrix 真跑
+// 离线解出 352 包），48 file + 14 root = 62 项，逐项由本文件 computeMatrix 真跑
 // 录入，不是手工填值。判定构成：43 changed / 14 root / 5 target-absent，
-// 零 anchor-missing、零 already、零 THROW —— 与 scripts/patch-deps.js 的
-// 「写入 75 处 / 失配 0 / 失败 0 / 共 62 项」实况同源，两者互为对账。）
+// 零 anchor-missing、零 already、零 THROW —— 与 scripts/patch-deps.js 的实况同源：
+// 首次 npm ci 写入 74 处 + web-search client 失配 1 项，按 rc.2 新字节重锚后增量
+// 写入 1 处 / 失配 0，合计 75 处、62 项全落地，两者互为对账。
 //
-// 与 rc.2 快照（42 changed / 15 root / 5 target-absent = 62）的差异，逐条是换代
-// 本身的量变，不是判据放宽：
-//   · pi-ai-opencode-go-models → 整条退役（root 行同批摘除，root 因此 15→14）：
-//     0.2.1 带来的 pi-ai 0.87.1→1.3.0 里端点与 catalog 都不再有该型号；
-//   · journal-prepend-continuity → 仍 'changed'，但靶文件迁移：dsh-api-gateway 把
-//     lib/client.js 拆成 client.node.js + client.browser.js，两半各命中一次；
-//   · agent-preset-fallback → 仍 'changed'，靶从 lib/index.js + lib/invariant.js
-//     收成只有 lib/index.js（上游删了 invariant）；
-//   · pi-ai-tool-name-wire → 仍 'changed'，出站收口点从 toolsOf 的 map 回调换成
-//     具名 piTool（toolsOf 与增量 toolsAdded 共用它）；
-//   · chat-scroll-autoload-older → 仍 'changed'，靠 chat-scroll-patches 新增的
-//     世代 C 锚点（data-chat-motion 那两行）命中；
-//   · adapter-prepare-call-guard → 仍 'changed'，上游 prepareCall 签名改为
-//     (provider, model, signal)，锚点随之重取；
-//   · loader-import-failure-report → 仍 'changed'，cordis-plugin-loader 1.0.6 把
-//     局部量 exports 改名 moduleNamespace，catch 体锚点同步；
-//   · profile-bundle-guard-appboot → 仍 'changed'，上游 app-boot 新增
-//     dropRetiredBundles 包裹，守卫改为在其返回值上做同样的容错回落。
+// 0.2.1-rc.1 → 0.2.1-rc.2 的矩阵**逐项不变**：四份上游字节变动（settings-account
+// 的版本号、web-search 设置页重写 + 新 Search/Fetch 字段、cordis-client-runner 的
+// 内置件清单、web-search-deepseek 的 thinking 参数与错误文案）全部在补丁层重锚后
+// 仍判 changed，没有新增 anchor-missing，也没有补丁因此退役。
 // ===========================================================================
 const BASELINE = {
-  '0.2.1-rc.1': {
+  '0.2.1-rc.2': {
     'slot-legacy-key': 'changed',
     'slot-unkeyed-compat': 'changed',
     'slot-error-isolation': 'changed',
