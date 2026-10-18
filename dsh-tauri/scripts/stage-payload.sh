@@ -275,5 +275,16 @@ if ! node "$REPO_ROOT/dsh-desktop/scripts/verify-payload-patches.js" "$DST"; the
   exit 1
 fi
 
+# ---- 构建期路径门禁（2026-10-17 v1.0.4 实错拦截，必须最后跑）----
+# makensis 拿到的是 tauri.conf.json resources from 串的**未归一化**字面量，CI 前缀 94 字符、
+# 本机 55 字符——同一条 payload 本机出包全绿、CI 两个 Windows job 同点炸在 installer.nsi:33251
+# （File: failed opening file，258 字符的邻居进得去、260 的进不去）。判据与剪除清单都在
+# dsh-desktop/scripts/lib/payload-plugin-deps.js 的 NSIS_SOURCE_*，单测 unit-payload-plugin-deps。
+# 位置硬要求：node_modules 镜像 + compat 注入之后（这里量的是最终进包的那棵树）。
+node "$REPO_ROOT/dsh-tauri/scripts/stage-nsis-path-gate.mjs" "$DST" || {
+  echo "[stage] FATAL: payload 越过打包器路径墙——拒绝打包（修法见上面三条出路）" >&2
+  exit 1
+}
+
 echo "[stage] 完成。体积统计："
 du -sm "$DST" "$DST/node_modules" "$DST/vendor" "$DST/assets" 2>/dev/null

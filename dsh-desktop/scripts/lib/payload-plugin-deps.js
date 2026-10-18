@@ -1,9 +1,11 @@
 'use strict';
 
 // ---------------------------------------------------------------------------
-// 内置线（v1.0.0，2026-10-08 裁定：`assets/plugins` 整树进安装包）带来的两条
+// 内置线（v1.0.0，2026-10-08 裁定：`assets/plugins` 整树进安装包）带来的三条
 // **只属于交付面**的风险，判据收敛在这里，编排（走盘 / 删除 / 报错）留在调用方
-// `dsh-tauri/scripts/stage-plugin-gate.mjs` 与 CI staging。
+// `dsh-tauri/scripts/stage-plugin-gate.mjs`（① 残留 ② .pnpm ③ 安装态超长）
+// 与 `dsh-tauri/scripts/stage-nsis-path-gate.mjs`（④ 构建期 makensis 源路径），
+// CI 的五个架构 staging 同口径。
 //
 // 为什么此前不需要、现在需要：
 //   • 旧口径把整个 `assets/plugins` 挡在包外，dev 树里有什么都不影响安装包；
@@ -14,6 +16,9 @@
 //   • 超长路径是打包器层面的硬失败：NSIS 的 File 指令在 >260 字符处 "failed opening file"
 //     直接中断建包（历史实错 abort 于 installer.nsi:15383）。安装态实际长度 =
 //     安装根前缀 + payload 相对路径，所以判据要带前缀算，只看相对路径会漏判。
+//     2026-10-17 又实测出**第二道同族但独立的墙**——构建机上 makensis 的源路径（未归一化的
+//     `..\..\..\` 字面量 + CI 前缀 94 字符），本机前缀短 39 字符永远量不到：见下面
+//     NSIS_SOURCE_* 一段。
 // ---------------------------------------------------------------------------
 
 /** 最坏情况安装根前缀（currentUser 缺省 `%LOCALAPPDATA%`，但 Program Files 更长更严）。 */
@@ -21,6 +26,52 @@ const INSTALL_PREFIX_DEFAULT = 'C:\\Program Files\\DSH Desktop\\resources\\dsh-d
 
 /** 上限留 20 字符余量：用户可自选更深的安装目录，260 是打包器的断点而不是我们的判据。 */
 const PATH_LIMIT_DEFAULT = 240;
+
+// ---------------------------------------------------------------------------
+// 构建期（makensis 源路径）断点——与上面的安装期前缀是**两条独立的墙**。
+//
+// 2026-10-17 v1.0.4 发布实测：本机 `tauri build` 出包 195,643,131B 全绿，CI 的
+// Windows x64 与 ARM64 两个 job 却同点炸在 `installer.nsi:33251`
+// `File: failed opening file "…\descriptions\federatedAuthUserInfoRequestNoReturningUserFromFetchedAccounts.md"`，
+// 而 v1.0.2/v1.0.3（内核 0.2.0-rc.2）同一条流水线正常出 Windows 包。
+// 三条实测定性：
+//   ① 墙在**构建机源路径**，不在安装路径：makensis 拿到的是 tauri.conf.json
+//      `bundle.resources` 的 from 串**未归一化**的字面量（`…\src\app\..\..\..\package-payload\…`），
+//      `..\..\..\` 一个字符都没被吃掉——同一次 CI 里 258 字符的邻居文件正常打进了包，
+//      260 字符的中断，259 无实证（字母序在 260 那条之后，永远没走到）。
+//   ② 本机前缀只有 55 字符（`D:\workspace\dsh\…`），CI 是 94
+//      （`D:\a\dsh_desktop\dsh_desktop\…`）——**差 39 个字符，本机永远量不到**。
+//   ③ 越线的 5 个文件全在 `@deepseek-ai/dsh-experimental-inspector/lib/devtools/
+//      models/issues_manager/descriptions/*.md`（Chrome DevTools 前端按 URL 懒取的议题说明文本，
+//      rc.2 的该包里 0 命中，0.2.1-rc.1 新增 236 条）——是内核换代带进来的，不是我们的靶文件。
+// 所以判据按 CI 前缀算（CI 是发布通道），断点取**已证通过的 258**，
+// 259 及以上一律按越线处理；剪除面是下面这份命名清单，清单外越线即拒绝打包——
+// 宁可 staging 早失败，也不再让 makensis 跑了 20 分钟 mid-build 炸。
+// ---------------------------------------------------------------------------
+
+/** CI（windows-latest）staging 的字面源路径前缀，含结尾分隔符；长度由单测咬住。 */
+const NSIS_SOURCE_PREFIX_DEFAULT =
+  'D:\\a\\dsh_desktop\\dsh_desktop\\dsh-tauri\\src-tauri\\src\\app\\..\\..\\..\\package-payload\\dsh-desktop\\';
+
+/** makensis 源路径上限：258 实测通过 / 260 实测中断，259 无实证故按越线处理。 */
+const NSIS_SOURCE_LIMIT = 258;
+
+/** 越线文件所在目录（DevTools 议题说明文本，运行时按 URL 懒取，删掉不影响装载）。 */
+const NSIS_SOURCE_PRUNE_DIR =
+  'node_modules/@deepseek-ai/dsh-experimental-inspector/lib/devtools/models/issues_manager/descriptions/';
+
+/**
+ * 随包剪除清单：payload 里按 NSIS_SOURCE_PREFIX_DEFAULT 计算会越过 makensis 断点的内核文件。
+ * 只列名字（不写「凡超长即删」）是刻意的——丢出去的每个文件都必须是有名有姓的决定，
+ * 清单外再冒出一条越线时由门禁 FATAL 逼一次显式裁定（加长前缀的结构性修法见 CHANGELOG）。
+ */
+const NSIS_SOURCE_PRUNES = [
+  'selectElementAccessibilityInteractiveContentAttributesSelectDescendant.md',
+  'genericFormInputAssignedAutocompleteValueToIdOrNameAttributeError.md',
+  'federatedAuthUserInfoRequestNoReturningUserFromFetchedAccounts.md',
+  'summaryElementAccessibilityInteractiveContentSummaryDescendant.md',
+  'genericFormInputHasWrongButWellIntendedAutocompleteValueError.md',
+].map((n) => NSIS_SOURCE_PRUNE_DIR + n);
 
 /**
  * 交付面应当剪除的插件内层 node_modules（相对 `assets/plugins` 的路径）。
@@ -67,10 +118,26 @@ function longestInstallPath(relPaths, opts = {}) {
   return top;
 }
 
+/** 构建期（makensis 源路径）同款判据，前缀/上限钉死为 CI 实测口径——调用方不参与选参数。 */
+function overlongSourceFiles(relPaths) {
+  return overlongFiles(relPaths, { prefix: NSIS_SOURCE_PREFIX_DEFAULT, limit: NSIS_SOURCE_LIMIT });
+}
+
+/** 一条相对路径在 CI 源路径口径下的长度（自述用，避免「静默通过」）。 */
+function sourcePathLength(rel) {
+  return (NSIS_SOURCE_PREFIX_DEFAULT + rel.replace(/\//g, '\\')).length;
+}
+
 module.exports = {
   INSTALL_PREFIX_DEFAULT,
   PATH_LIMIT_DEFAULT,
+  NSIS_SOURCE_PREFIX_DEFAULT,
+  NSIS_SOURCE_LIMIT,
+  NSIS_SOURCE_PRUNE_DIR,
+  NSIS_SOURCE_PRUNES,
   residueNodeModules,
   overlongFiles,
+  overlongSourceFiles,
+  sourcePathLength,
   longestInstallPath,
 };

@@ -240,6 +240,11 @@ jobs:
             exit 1
           fi
           echo "OK: client-compat.js in payload ($(stat -c%s "$COMPAT") bytes)"
+          # 构建期路径门禁（与 stage-payload.sh 同一份判据；五个架构各有一份 staging，五处同改）：
+          # makensis 拿到的是 resources from 串的未归一化字面量，CI 前缀 94 字符、本机 55——
+          # v1.0.4 就是本机全绿、Windows x64/ARM64 同点炸在 installer.nsi:33251。必须在
+          # node_modules 镜像与 compat 注入之后跑（这里量的是最终进包的那棵树）。
+          node dsh-tauri/scripts/stage-nsis-path-gate.mjs "$DEST"
           echo "Payload: $(du -sm "$DEST" | cut -f1)MB"
         shell: bash
 
@@ -533,6 +538,11 @@ jobs:
             exit 1
           fi
           echo "OK: client-compat.js in payload ($(stat -c%s "$COMPAT") bytes)"
+          # 构建期路径门禁（与 stage-payload.sh 同一份判据；五个架构各有一份 staging，五处同改）：
+          # makensis 拿到的是 resources from 串的未归一化字面量，CI 前缀 94 字符、本机 55——
+          # v1.0.4 就是本机全绿、Windows x64/ARM64 同点炸在 installer.nsi:33251。必须在
+          # node_modules 镜像与 compat 注入之后跑（这里量的是最终进包的那棵树）。
+          node dsh-tauri/scripts/stage-nsis-path-gate.mjs "$DEST"
           echo "Payload: $(du -sm "$DEST" | cut -f1)MB"
         shell: bash
 
@@ -751,6 +761,11 @@ jobs:
             exit 1
           fi
           echo "OK: client-compat.js in payload ($(stat -c%s "$COMPAT") bytes)"
+          # 构建期路径门禁（与 stage-payload.sh 同一份判据；五个架构各有一份 staging，五处同改）：
+          # makensis 拿到的是 resources from 串的未归一化字面量，CI 前缀 94 字符、本机 55——
+          # v1.0.4 就是本机全绿、Windows x64/ARM64 同点炸在 installer.nsi:33251。必须在
+          # node_modules 镜像与 compat 注入之后跑（这里量的是最终进包的那棵树）。
+          node dsh-tauri/scripts/stage-nsis-path-gate.mjs "$DEST"
           echo "Payload: $(du -sm "$DEST" | cut -f1)MB"
         shell: bash
 
@@ -1004,6 +1019,11 @@ jobs:
           # 的 musl_x64/ 目录等）会找 libc.musl-x86_64.so.1（glibc runner 上
           # 不存在）→ AppImage 打包失败。glibc 系统上 musl 产物全是死重量。
           find "$DEST/node_modules" "$DEST/assets" -iname "*musl*" -not -name "*.py" -exec rm -rf {} + 2>/dev/null || true
+          # 构建期路径门禁（与 stage-payload.sh 同一份判据；五个架构各有一份 staging，五处同改）：
+          # makensis 拿到的是 resources from 串的未归一化字面量，CI 前缀 94 字符、本机 55——
+          # v1.0.4 就是本机全绿、Windows x64/ARM64 同点炸在 installer.nsi:33251。必须在
+          # node_modules 镜像与 compat 注入之后跑（这里量的是最终进包的那棵树）。
+          node dsh-tauri/scripts/stage-nsis-path-gate.mjs "$DEST"
           echo "Payload: $(du -sm "$DEST" | cut -f1)MB"
 
       - name: Build installer
@@ -1194,6 +1214,11 @@ jobs:
           # 只读 JS 侧 metapackage。glob 精准命中各平台 variant（codex-win32-x64 /
           # codex-linux-x64 / claude-agent-sdk-darwin-arm64 ...），保留 metapackage 不断 import 图。
           rm -rf "$DEST"/node_modules/@openai/codex-* "$DEST"/node_modules/@anthropic-ai/claude-agent-sdk-*
+          # 构建期路径门禁（与 stage-payload.sh 同一份判据；五个架构各有一份 staging，五处同改）：
+          # makensis 拿到的是 resources from 串的未归一化字面量，CI 前缀 94 字符、本机 55——
+          # v1.0.4 就是本机全绿、Windows x64/ARM64 同点炸在 installer.nsi:33251。必须在
+          # node_modules 镜像与 compat 注入之后跑（这里量的是最终进包的那棵树）。
+          node dsh-tauri/scripts/stage-nsis-path-gate.mjs "$DEST"
           echo "Payload: $(du -sm "$DEST" | cut -f1)MB"
 
       - name: Build installer
@@ -1406,114 +1431,149 @@ jobs:
           [ "$fail" -eq 0 ] || exit 1
           echo "OK: ${main_n} 个主资产 + ${side_n} 个边车全部通过版本/体积/边车校验"
 
+      - name: Assert required assets (期望集合齐备 · 主平台缺件即拦)
+        id: assets
+        # 上面那道只核对**已经收集到**的资产，从不问「本该有哪几份」——而本 job 的 needs 判定是
+        # 「任一平台成功即放行」。2026-10-17 v1.0.4 就是这么把正式版发出去的：Windows x64 与
+        # ARM64 两个 job 都炸在 makensis 路径墙、Portable 被跳过，publish 照样创建 release，
+        # 于是 releases/latest 指向一个**只有 Linux/macOS 资产**的正式版，主平台用户收到更新
+        # 提示却拿不到任何包。这条补齐「期望集合」那一侧的判据：
+        #   • 主平台（Windows x64 NSIS）缺件 → 直接拦，宁可这个 tag 没有 release；
+        #   • 其它平台缺件 → 不拦发包，但强制降级为**预发布**：prerelease 不进 /releases/latest，
+        #     更新器看不到本版（转正姿势与核验读法见 .github/RELEASE_RUNBOOK.md §8.2）。
+        # 资产名按本工作流头部命名表逐字拼（不用 glob——glob 漏了会「存在但错版本」也判不到）。
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.ver.outputs.version }}'
+          cd release-assets
+          PRIMARY="DSH-Desktop-Setup-${VERSION}-win-x64.exe"
+          expected=(
+            "$PRIMARY"
+            "DSH-Desktop-Setup-${VERSION}-win-arm64.exe"
+            "DSH-Desktop-Portable-${VERSION}-win-x64.zip"
+            "DSH-Desktop-Portable-${VERSION}-win-x64-lite.zip"
+            "DSH-Desktop-${VERSION}-macos-arm64.dmg"
+            "DSH-Desktop-${VERSION}-linux-x64.AppImage"
+            "dsh-desktop_${VERSION}_amd64.deb"
+          )
+          missing=()
+          for a in "${expected[@]}"; do
+            if [ ! -f "$a" ]; then missing+=("$a"); fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "OK: 期望的 ${#expected[@]} 项资产齐备（含主平台 ${PRIMARY}）"
+            echo "degraded=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for m in "${missing[@]}"; do echo "缺件: $m"; done
+          for m in "${missing[@]}"; do
+            if [ "$m" = "$PRIMARY" ]; then
+              echo "::error::主平台资产缺失（$PRIMARY）——拒绝发布：v1.0.4 正是带着这个缺口把正式版发出去并占了 releases/latest"
+              exit 1
+            fi
+          done
+          echo "::warning::非主平台缺件 ${#missing[@]} 项 —— 本版强制降级为预发布（不进 releases/latest），补齐后按 runbook §8.2 转正"
+          echo "degraded=true" >> "$GITHUB_OUTPUT"
+
       - name: Generate release notes
         run: |
           TAG='${{ steps.ver.outputs.tag }}'
           VERSION='${{ steps.ver.outputs.version }}'
           cat > release-notes.md << EOF
-          # DSH Desktop ${VERSION}（正式版 · 全平台）
+          # DSH Desktop ${VERSION}（正式版 · 全平台补发）
 
           > 本版是**正式版**：进入 GitHub 的 \`releases/latest\`，客户端右上角 ⋯ 菜单的在线更新检查轮询的正是
-          > latest，所以存量用户会收到推送。随包内核由 \`0.2.0-rc.2\` 换代到 **\`0.2.1-rc.1\`**，属跨代变更，
-          > 升级后首启会重算一次补丁层与插件同步（实测 boot 五步全 OK）。
+          > latest，所以存量用户会收到推送。它是 **v1.0.4 的补发版**：v1.0.4 因打包器的构建期路径墙缺少
+          > **全部 Windows 资产**（Linux / macOS 资产正常），本版用同一份工作树补齐 Windows x64、ARM64
+          > 安装包与便携包，并在发布流水线里加了两道闸门，避免不完整的正式版再次被推成 latest。
 
           ## 🎯 本版重点
 
-          1. **随包内核换代 \`0.2.0-rc.2\` → \`0.2.1-rc.1\`**：pin / 离线 vendor tarball / lock 三线同改，
-             8 处补丁锚点按新内核真实字节重录。构建期补丁层的净数仍是 **62 项**，但成分变了：
-             退役 \`pi-ai-opencode-go-models\`（0.2.1 上游已自带 opencode-go 目录整形，62→61），
-             同时把 v1.0.3 的 macOS 根治补丁 \`appboot-bootstrap-singleton\` 吸收进这条线（61→62）——
-             它的两条锚点在 0.2.1-rc.1 的 \`dsh-app-boot/lib/index.js\` 逐字在位，新鲜 \`npm ci\` 实测
-             **写入 75 处 / 失配 0 / 失败 0 / 共 62 项**。
-          2. **「文件 — 资源管理器」打不开文件（HTTP 405）根治**：见下方修复第 1 条。这是本版对日常使用影响最大的一条。
-          3. **内置插件第一次能在界面里管理**：新增自研 \`dsh-builtin-manager\`（设置 → 插件 → 「内置插件」页签，
-             搜索 / 状态筛选 / 行内启停反馈）；右栏新增「目标收尾」标签页 \`dsh-goal-completion\`（补上官方 GoalBar
-             没暴露的 complete 动作）。随包内置插件在册 **29** 条。
-          4. **提示词润色 \`dsh-prompt-optimizer\` 2.4.0**：接上上一轮对话作为素材、先输出「理解到的意图」供核对、
-             写回草稿支持一键撤销。
-          5. **发消息链路的跨代兼容**：0.2.1 撤除了 \`{{cwd}}\` 提示词变量，\`dsh-workspace-anchor\` 改为自带实路径
-             （旧版会让**每一条**消息在装配期失败，界面只显示「处理失败 / UNKNOWN」）。
+          1. **Windows 资产补齐 + 发布门禁**：见下方「🚦 发布流水线」两条。这是本版存在的首要原因。
+          2. **自动压缩弹窗不再清空你写了一半的草稿**（\`dsh-auto-compact\` / \`dsh-change-review\` 0.1.2）：
+             替用户提交前先过「草稿为空 + 会话空闲」两道闸门；不满足就等，且不消耗冷却、不弹误导提示。
+          3. **壳进程闪退 / 自动重启的根治**：退出闸门 + 窗口路径 panic 隔离、孤儿内核收割、panic 完整回溯、
+             会话退出标记、托盘重启竞态修复。见下方修复第 2 条。
+          4. **v1.0.4 的内核与插件内容原样保留**：内核仍是 \`0.2.1-rc.1\`，构建期补丁层仍是 **62 项**，
+             内置插件在册 **29** 条；v1.0.4 已修复的 HTTP 405、\`{{cwd}}\` 消息装配失败、引导页卡「开始设置」、
+             文件拖入、余额开关等全部继续生效。
 
           ## 🛠 修复
 
-          **1. 「文件 — 资源管理器查看不了文件，提示 HTTP 405」（\`dsh-better-sidebar\` 0.24.2 / \`dsh-basics-panel\` 0.4.2）**
-          根因：0.2.1 内核删除了 \`webRuntime\` 服务（HTTP 栅栏要用的 \`trustedHosts\` 迁到 \`connection\` 服务），
-          而这两件内置插件的宿主半边仍声明 \`inject: [..., 'webRuntime', ...]\`。cordis 的 \`inject\` 是就绪门，
-          名字解析不到就让整条插件永久 pending 并被静默隔离，于是它们注册的 \`/sidebar/*\`、\`/basics/*\` 路由
-          一条都没挂；请求落到内核 SPA 兜底（只认 GET/HEAD），POST 拿到**空体 405**，界面就报 HTTP 405。
-          同期 boot 五步全绿、29 条插件无一 \`failed to load\`、内核进程正常监听——静态面与开机面都不作证。
-          现在两件都改读 \`connection.trustedHosts\`。实测（隔离内核真机）：\`POST /sidebar/api/fs.trees\` → 200 真实目录列表、
-          \`POST /sidebar/api/fs.read\` → 200 文件正文、\`POST /basics/api/…\` → 插件自己的 JSON 信封（不再是空体 405），
-          且 stderr 零 \`pending (waiting for\`。同批新增第七道静态判据 \`unit-plugin-inject-services\`
-          （内置插件宿主半边声明的每个服务名，必须能在 pin 内核闭包里扫到 provider），事故原形带回灌必判红。
+          **1. 右下角自动压缩弹窗强制清空当前草稿（\`dsh-auto-compact\` / \`dsh-change-review\` 0.1.2）**
+          这两件内置插件都用 \`inputActions.setDraft(text)\` + \`submit()\` 以用户身份提交命令，而内核这条 API
+          的契约是 **Replace the whole draft**，并会立刻把内容写进该会话的持久化草稿；成功提交后
+          \`commit-draft\` 还会清掉撤销栈——用户写了一半的引导词不是被遮挡，是**不可恢复地被覆盖**。
+          旧判据只看 \`enabled / 阈值 / 冷却\`，没判草稿非空、没判轮次在跑；而 \`/compact\` 本身要求 agent
+          空闲，于是「草稿已丢 + 命令被拒」双重坏。现在提交前按内核 composer 的同源口径过 \`composerGate\`：
+          草稿非空（含附件）、输入形态不是 plain、会话 \`running\` 或 \`pendingSubmissions\` 非空、快照读不到，
+          一律不提交。自动那一路被挡时**不记冷却**（等输入框空了补做），也不再弹误导提示。
+          回归锁 \`unit-auto-compact-gate\` 17 例，含四条反证（空草稿放行 / 非空拦截 / 忙碌拦截 / 被挡不记冷却）。
 
-          **2. 每条消息「处理失败 / UNKNOWN」（\`dsh-workspace-anchor\` 0.1.1）**
-          0.2.1 的 \`dsh-agent-loop\` 不再注册 \`cwd\` 提示词变量，锚点节里的 \`{{cwd}}\` 在装配期抛
-          \`unknown prompt variable "{{cwd}}"\`。修法与内核版本无关：锚点由插件自己填入会话工作目录实路径并关掉插值扫描，
-          同时把 \`cwd\` 变量按原形状补注册回来（别的插件节与用户自写提示词里的 \`{{cwd}}\` 继续可解析）。
+          **2. 会话每隔一两小时自动闪退重启（壳侧根治，Rust）**
+          用户报障的「闪退」在日志里对应两种形态：内核 node 以 \`0xC0000409\`（fail-fast abort）退出后
+          supervisor 自动拉起并整页重载；以及壳主线程在 tao 事件循环里 panic 后直接消失。tao 在窗口过程
+          捕获的 panic 不会当场抛出，而是暂存到下一次消息循环 \`resume_unwind\`，从 \`.run()\` 直接逃逸——
+          此时 \`RunEvent::ExitRequested/Exit\` 全不执行，内核树、session watcher、单实例锁无人收割。六条一起上：
+          - **退出闸门**：\`ExitRequested\` 先置 \`EXITING\`，此后所有跨线程触窗动作（KernelReady 导航 /
+            事件路由 / 渲染心跳 / 诊断探针 / 通知审批）先判闸门再动作，退出中一律不碰窗口；
+          - **panic 隔离**：上述每条窗口路径各自包 \`catch_unwind\`，单条失败只记日志，不带塌消息循环；
+          - **围底收尾**：\`.run()\` 外层再包一层 \`catch_unwind\`，真逃逸时执行 \`emergency_teardown\`
+            （关 supervisor / 收 watcher / 释放单实例锁 / 标记非正常退出）并以退出码 70 结束；
+          - **孤儿内核收割**：每次 spawn 后写 \`<app_data>/kernel.pid.json\`（pid / exe / port，tmp+rename 原子落盘）。
+            下次启动在选端口前读取并判定：**记账 exe 必须与本次 node 一致，且 Windows 进程映像路径复核一致**
+            才收割整树（防 pid 复用误杀）；任一不成立一律不动，记账在判定后清除；
+          - **panic 回溯**：panic hook 追加 \`Backtrace::force_capture()\`，\`panics.log\` 不再只有一行位置；
+          - **会话退出标记** \`logs/last-session.txt\`：正常退出写 \`clean=1\`，启动期写 \`clean=0\`；
+            下次启动据此区分「用户自己关的」与「壳自己没的」，排查不用再靠猜；
+          - **重启竞态**：旧的 \`cmd /C timeout /t 2\` 在 GUI 进程（stdin 被重定向）里会立刻返回，
+            继任进程与正在退出的旧实例抢单实例锁后静默退出。现改为按旧 pid 轮询（PowerShell，上限 60s）
+            后再 \`Start-Process\`，并以 \`ping -n 4\` 作兜底延迟。
 
-          **3. Windows 部分机型「点击开始设置没反应」**
-          内核引导页把步骤推进挂在 CSS 动画的 \`element.animate().finished\` 上；最小化 / 收到托盘 / 被遮挡 / RDP /
-          GPU 合成退化时**渲染时间线冻结而 JS 照跑**，\`finished\` 永不 resolve，按钮就永久 disabled 且不报错。
-          现补 400ms 有界回落推进，并把五条静默 guard 的命中打成可观测日志（真走回落才有 \`[onboarding-timeline]\`）。
+          **v1.0.4 已修复的内容在本版继续生效**（HTTP 405、\`{{cwd}}\` 消息装配失败、引导页卡「开始设置」、
+          文件拖入、余额开关、macOS 设置写入、macOS profile 别名链接等，详见 v1.0.4 的发布说明）。
 
-          **4. 把文件拖进窗口没反应**
-          Tauri/wry 默认 \`drag_drop_handler_enabled: true\`，在 Windows 上随之 \`SetAllowExternalDrop(false)\`——
-          WebView2 不再向页面派发任何 HTML5 拖放，而内核对 composer 附件链依赖它。现主窗与浮窗显式放行外部拖放，
-          静态页窗口保持默认。真机用系统拖源 + SendInput + CDP 页面事件计数验证（修复前 0 条，修复后事件到达）。
+          ## 🚦 发布流水线（本版新增的两道闸门）
 
-          **5. 「展开为结构化」后点「替换草稿」无反应（\`dsh-prompt-optimizer\` 2.2.1）**
-          DSH 的 composer 是 Lexical，粘贴多行文本走的是它自己的事务通道；旧写回按单行 \`insertText\` 提交，多行结果被吞。
-          现改走粘贴事件通道，并配套 2.4.0 的「一键撤销」（记录原草稿、按钮翻 \`↩\`，草稿被手改即作废）。
+          **A. NSIS 构建期路径墙门禁**（\`dsh-tauri/scripts/stage-nsis-path-gate.mjs\`）
+          v1.0.4 的 Windows 构建全部失败在 \`Build installer\`：\`makensis\` 拿到的是 \`tauri.conf.json\` 里
+          \`bundle.resources\` 的 from 串**未归一化**字面量（CI 前缀 94 字符，本机 55 字符），Windows MAX_PATH
+          260 就地生效，\`installer.nsi\` 在一条 260 字符的 DevTools 议题文本上 \`File: failed opening file\`。
+          现在 staging 末尾（必须在 \`node_modules\` 镜像与 compat 注入之后）按安装路径上限 240 预检：
+          5 条越线的 \`dsh-experimental-inspector/.../issues_manager/descriptions/*.md\` 按有名有姓的清单剪除，
+          清单外任何新越线文件 FATAL 并列出三条出路（加清单 / 缩短 staging 路径 / 上游压短文件名），
+          不放行「跑到一半炸」的发包。
 
-          **6. ⋯ 菜单「显示余额 / 本轮费用」是死开关**
-          菜单写壳侧 \`settings.json\`，插件读内核设置条目，两边互不相通，且该插件从未导出 Config——点了没反应也不报错。
-          现退役该菜单项，开关移到「余额」插件自己的设置条目里（同时补 \`dsh-balance\` 的 Config 声明与设置页）。
+          **B. 发布资产期望集合门禁**
+          v1.0.4 的 \`Publish Release\` 不看构建结论，Windows 全挂也照样把只有 Linux/macOS 的版本推成 latest——
+          主平台用户点更新拿不到包。现在发布前核对 7 项期望资产：**Windows x64 NSIS 主资产缺失 → 直接拒绝发布**；
+          其他平台缺件则降级为 prerelease（不进 \`latest\`、更新器看不到），不再产生「latest 指向残包」。
 
-          **7. macOS 首启「未能保存设置，请重试。」+ 9 条内置插件 \`failed to load\`**（承 v1.0.2 的根因修复）
-          profile 里一条 pnpm \`npm:\` 别名链接把 scoped 的 \`@deepseek-ai/cosmokit\` 指到未 scoped 的旧版本，
-          ESM 链接期即 \`SyntaxError\`，条目连 fiber 都没建，日志只剩一行 \`failed to load\`。
-          判据「链接落点的包名 ≠ 目标 \`package.json\` 的 name」已进 boot 的 repair 步自愈。
+          ## 📦 随包内置插件清单（在册 29 条，本版无增删）
 
-          **8. macOS 上「任何设置都存不了」（\`appboot-bootstrap-singleton\`，承 v1.0.3）**
-          macOS APFS 默认大小写不敏感，但 ESM 模块缓存按 URL 字符串**区分大小写**：壳 supervisor 拼
-          \`Contents/resources\`（小写 r）而 loader 走磁盘真实的 \`Contents/Resources\`（大写 R），同一份
-          \`dsh-app-boot\` 被当成两个模块实例，各持一份模块级 \`bootstrapIncludes\` WeakMap——登记进甲实例的
-          根 Include，reconcile 在乙实例 \`get\` 必落空，抛 \`requires the root Include entry\`，被
-          \`dsh-api-settings-controller\` 包成 \`settings/rejected\`，观感就是「点开始设置进不去」+
-          「未能保存设置，请重试。」反复回滚。修法是把表提升成 \`globalThis\` 单例（数据侧收口，不动
-          Rust 壳的 spawn 大小写、也就不必三平台复验）。本版把这条补丁吸收进 0.2.1 换代线：
-          两条锚点在 \`dsh-app-boot/lib/index.js\` 逐字在位，真跑判定 \`changed\`。
+          - **本版升级**：\`dsh-auto-compact\` 0.1.1 → **0.1.2**、\`dsh-change-review\` 0.1.1 → **0.1.2**
+            （提交前闸门，见修复第 1 条）。
+          - **与 v1.0.4 相同**：\`dsh-builtin-manager\` 0.2.0、\`dsh-goal-completion\` 0.1.0、
+            \`dsh-prompt-optimizer\` 2.4.0、\`dsh-prompt-custom\` 0.5.0、\`dsh-better-sidebar\` 0.24.2、
+            \`dsh-basics-panel\` 0.4.2、\`dsh-workspace-anchor\` 0.1.1 等，共 29 条。
 
-          ## 📦 随包内置插件清单变化（在册 29 条）
+          ## ✅ 验证（2026-10-18 实测基线）
 
-          - **新增**：\`dsh-builtin-manager\` 0.2.0（内置插件管理页）、\`dsh-goal-completion\` 0.1.0（右栏目标收尾标签页）。
-          - **退役**：\`dsh-reasoning-effort\` 0.8.1 —— 内核 0.2.1 已整块接走推理强度设置面（\`ModelReasoningEfforts\` 编辑器 +
-            同一份 \`validateReasoningEfforts\` 校验），它的 Codex 风格滑块与官方 composer 选择器重复。
-            撤装是同步清单的反向操作（登记撤回账、开机自动清理旧落点），用户数据不动。
-          - **升级**：\`dsh-prompt-optimizer\` 2.3.0 → 2.4.0、\`dsh-prompt-custom\` 0.4.0 → 0.5.0（设置页卡片化 + 内核设计系统）、
-            \`dsh-better-sidebar\` 0.24.1 → 0.24.2、\`dsh-basics-panel\` 0.4.1 → 0.4.2、\`dsh-workspace-anchor\` 0.1.0 → 0.1.1。
-
-          ## ✅ 验证（2026-10-17 实测基线）
-
-          - Node 侧：\`scripts/test/\` 204 个测试文件，\`npm test\` = **2238 例 / 0 fail / 0 cancelled**
-            （pass 2229 / skip 9；skip 逐条是环境缺料，如 pristine 夹具缺第三方模型包、本机无兄弟仓库克隆）。
-          - 兼容四闸：\`check-syntax\` 通过；\`validate-pin\` → \`✓ dsh-v0.2.1-rc.1（offline-tarball）\`；
-            \`patch-surface verify\` → **85 文件与快照一致、零漂移**；补丁计数哨兵（61 / root 14 / cli 25）随迁。
-          - Rust 侧：\`cargo test --workspace --target x86_64-pc-windows-gnu\`（与 \`RUSTUP_TOOLCHAIN\` 配对）
-            **693 passed / 0 failed / 4 ignored**（36 个 target），契约审计 \`no_extra_commands_beyond_contract_and_poc\` 在位。
-          - 安装布局冒烟 \`smoke-installed.sh\`（手拼布局 + 全隔离 \`DSH_HOME\`/\`DSH_TAURI_USERDATA\`，绝不跑真安装器）**PASS**：
-            boot 五步全 OK、\`补丁应用汇总 写入 0 / 失配 0 / 共 61\`、29 条内置插件镜像进 profile、
-            \`✓ 插件加载零致命错误\`、page-error 总数 0、杀壳后残留监听 0（这一轮跑在换代 payload 上）。
-            405 修复后的第二轮包（195,643,131 B / sha256 \`36def038…57bb8e31\`）在同一套手拼布局上按
-            boot 与路由两层复验：boot 五步全 OK + 共 61（那两轮的补丁层就是 61 项），
-            \`POST /sidebar/api/fs.trees\` 由换代那轮的
-            **空体 405** 变成 **400 且带插件自己的 envelope**（这条只能来自插件的 dispatch，兜底给不出信封）。
-          - 合并 v1.0.3 的 macOS 补丁后，补丁层为 **62 项**：新鲜 \`npm ci\` 实测
-            **写入 75 处 / 失配 0 / 失败 0 / 共 62**，\`patch-surface verify\` 85 文件零漂移
-            （marker 家族 84→85），\`ta6-baseline-matrix\` 按真跑新增 \`appboot-bootstrap-singleton=changed\` 一行。
-          - 隔离内核实机：发一条真消息走到预期的 \`MISSING_CREDENTIAL\`（证明装配期已过），
-            并逐条打资源管理器与基础能力面板的路由（见修复第 1 条的实测状态码）。
+          - Node 侧：\`scripts/test/\` **206 个测试文件**，\`npm test\` = **2275 例 / 0 fail / 0 cancelled**
+            （pass 2266 / skip 9；skip 逐条是环境缺料，如 pristine 夹具缺第三方模型包、本机无兄弟仓库克隆）。
+          - 兼容三闸：\`check-syntax\` 通过；\`validate-pin\` → \`✓ dsh-v0.2.1-rc.1（offline-tarball）\`；
+            \`patch-surface verify\` → **85 文件与快照一致、零漂移**；补丁层 **62 项**（root 14 + file 48）。
+          - Rust 侧：gnu 链配对实跑（\`RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu\` +
+            \`--target x86_64-pc-windows-gnu\`）**709 passed / 0 failed / 4 ignored**（8 个 crate / 36 个 target）；
+            新增的 \`crash_hardening_shape\` 7 例、\`stale_kernel\` 4 例与
+            \`session_marker_roundtrip_distinguishes_clean_exit\` 全绿。
+          - 安装布局冒烟 \`smoke-installed.sh\`（手拼布局 + 全隔离 \`DSH_HOME\`/\`DSH_TAURI_USERDATA\`，绝不跑真安装器）
+            在 v1.0.4 同 payload 轮次 **PASS**：boot 五步全 OK、\`补丁应用汇总 写入 0 / 失配 0 / 共 62\`、
+            29 条内置插件镜像进 profile、\`✓ 插件加载零致命错误\`、page-error 总数 0、杀壳后残留监听 0。
+            本版壳侧改动集中在退出与孤儿收割路径，未在本机重跑该脚本（脚本收尾按镜像名 \`taskkill\`，
+            会误伤本机正在使用的实例），Windows 安装包由 CI 全新建包。
+          - 隔离内核实机（v1.0.4 同 payload）：发一条真消息走到预期的 \`MISSING_CREDENTIAL\`（证明装配期已过），
+            \`POST /sidebar/api/fs.trees\` / \`fs.read\` → 200，\`/basics/api/*\` 返回插件自己的 JSON 信封。
 
           ## 安装包
 
@@ -1560,6 +1620,8 @@ jobs:
           # 否则 create 走「从本地 git 推断」路径直接 fatal（v0.5.1 第三跑
           # 实证：六资产校验全过、create 崩在 not a git repository）。
           GH_REPO: myYangyunfan/dsh_desktop
+          # 上一道「期望集合」门禁的结论：非主平台缺件时本版出生即预发布（不进 latest）。
+          ASSETS_DEGRADED: ${{ steps.assets.outputs.degraded }}
         run: |
           set -euo pipefail
           TAG='${{ steps.ver.outputs.tag }}'
@@ -1568,9 +1630,11 @@ jobs:
             # 缺省不带 --prerelease：更新器的 /releases/latest 端点跳过 prerelease，
             # 出生即 prerelease 意味着更新检查永远看不到新版本（直到手动翻
             # latest——v0.5.7 首发即踩，「自动更新一直不生效」的全局根因之一）。
-            # 需要预发布形态时由工作流顶层 RELEASE_PRERELEASE 开关显式开启（v1.0.2）。
-            if [ "${RELEASE_PRERELEASE}" = "true" ]; then
-              echo "RELEASE_PRERELEASE=true —— 以预发布形态创建（不进 /releases/latest，更新器看不到本版）"
+            # 需要预发布形态时由工作流顶层 RELEASE_PRERELEASE 开关显式开启（v1.0.2）；
+            # ASSETS_DEGRADED=true（有平台缺件但不是主平台）是**被动**降级，理由见上一道门禁：
+            # 让 latest 继续停在上一个完整版本，而不是指向一个点了更新却拿不到包的正式版。
+            if [ "${RELEASE_PRERELEASE}" = "true" ] || [ "${ASSETS_DEGRADED}" = "true" ]; then
+              echo "以预发布形态创建（RELEASE_PRERELEASE=${RELEASE_PRERELEASE} ASSETS_DEGRADED=${ASSETS_DEGRADED}）——不进 /releases/latest，更新器看不到本版"
               gh release create "$TAG" --prerelease --title "DSH Desktop $TAG（预发布）" --notes-file release-notes.md
             else
               gh release create "$TAG" --title "DSH Desktop $TAG" --notes-file release-notes.md
