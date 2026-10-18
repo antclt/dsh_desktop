@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# 行尾策略：文本一律 LF。这不是风格偏好，是 2026-10-18 实测出来的发布阻塞根因之一。
+#
+# 为什么必须写死在这里：GitHub 的 windows-latest 镜像在**全局** gitconfig 里带
+# `core.autocrlf=true`（本机 Git Bash 的同名配置来自 `C:/Program Files/Git/etc/gitconfig`，
+# 但本机工作树里的文件多是工具直接写盘的 LF，所以本地永远复现不出来）。
+# 于是同一份 main，CI 的 checkout 把文本变成 CRLF，本机的仍是 LF，而三类判据都按**字节**比：
+#   • `unit-prompt-optimizer-upgrade`「src ↔ dist 同源：内联 sourcemap 的 sourcesContent 与磁盘逐字节一致」
+#     ——CI 上 20 个 src 文件全报不一致；
+#   • 反证类用例的**多行锚点**（`src.includes('…{\n\t\tsetAction(…')` / `findComposerHost` 落点）
+#     ——CRLF 下 `includes` 恒 false，`replace` 静默空转：一条 `assert.ok(锚点在位)` 当场判红，
+#     另一条（dsh-goal-completion 反证 1）连锚点都不核，变异没打上就把「未变异的成功渲染」当成
+#     反证结果，日志里表现为「守卫摘掉后页面会谎报完成」——**测试全绿/全红都不等于判据在跑**。
+# 三条红在同一次 CI run 里一起出现、本地 npm test 2251 例 0 fail，就是这个落差。
+#
+# `text=auto` 让 git 自己认二进制，下面再对压缩包/图像/原生件显式声明，防止 vendor 的
+# 344 个内核 tgz 被误当文本规整化（那是发包事故面）。
+# ---------------------------------------------------------------------------
+
+* text=auto eol=lf
+
+# 载荷与原生件：绝不参与行尾转换
+*.tgz  -text
+*.gz   -text
+*.zip  -text
+*.png  -text
+*.jpg  -text
+*.jpeg -text
+*.gif  -text
+*.ico  -text
+*.icns -text
+*.svg  text eol=lf
+*.woff -text
+*.woff2 -text
+*.node -text
+*.dll  -text
+*.exe  -text
+*.dylib -text
+*.so   -text
+*.map  -text
+
+# 脚本类：LF 是硬要求（CRLF 的 .sh 在 bash 下直接坏，CRLF 的 .ps1/.cmd 历史上就是 LF 提交的）
+*.sh   text eol=lf
+*.bash text eol=lf
+*.ps1  text eol=lf
+*.cmd  text eol=lf
+*.bat  text eol=lf
+
+# NSIS 与 Rust：模板由 makensis 读，LF 已实测可用（v1.0.0~1.0.4 的包都是 LF 源）
+*.nsi  text eol=lf
+*.nsh  text eol=lf
+*.rs   text eol=lf
