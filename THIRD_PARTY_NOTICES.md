@@ -766,11 +766,11 @@ CI 五个架构的 staging 同口径），装机后首次开机由 boot 的插�
 | @dsh-external/dsh-subagent-lens | 0.1.1 | MIT |
 | @dsh-external/dsh-super-injector | 0.3.1 | BSD-3-Clause |
 | billion-context-dsh | 0.2.26 | MIT |
-| dsh-auto-compact | 0.1.1 | MIT |
+| dsh-auto-compact | 0.1.2 | MIT |
 | dsh-basics-panel | 0.4.2 | MIT |
 | dsh-better-sidebar | 0.24.2 | MIT |
 | dsh-builtin-manager | 0.2.0 | MIT |
-| dsh-change-review | 0.1.1 | MIT |
+| dsh-change-review | 0.1.2 | MIT |
 | dsh-easyrewrite | 2.6.0 | MIT |
 | dsh-input-fold | 0.1.1 | MIT |
 | dsh-input-history | 0.1.1 | MIT |

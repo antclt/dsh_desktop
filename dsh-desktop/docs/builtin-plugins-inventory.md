@@ -86,8 +86,8 @@
 | 14 | `openclaw-bridge` | `@deepseek-ai/dsh-openclaw-bridge` | 0.8.1 | 微信 / 飞书官方频道桥接入 DSH agent 会话（分片回写、去重限流） | `hzhz314159/openclaw-dsh-bridge`，MIT（0.8.1 起设置面换成 codegen `settings-host` 垫片，`ctx.settings.register` 形态作废，锚点见 `scripts/test/unit-openclaw-settings-inject.test.js`） |
 | 15 | `input-history` | `dsh-input-history` | 0.1.1 | 输入框 ↑/↓ 终端式已发送消息回溯（空草稿才触发、编辑即复位、按会话隔离） | 自研 |
 | 16 | `dsh-easyrewrite` | `dsh-easyrewrite` | 2.6.0 | 消息撤回 / 重编辑 + 版本翻页器 `< X >`（撤回/重发产生的版本家族切换）+ 自带设置中心与草稿自动备份（0.6.4 起取代自研 dsh-message-rewind；后三项是 2.6.0 的自带面，`lib/client.js:2577/4324` 与 `lib/index.js:319` 的 `ctx.settings.register` 实测，先前本格只记了撤回半边） | Renzic-Stone/DSH-EasyRewrite，MIT（2.6.0 = 上游 main 与 npm latest 同版；本版起 `data-time-hover-root` 由它自写自收窄，不再是宿主锚） |
-| 17 | `change-review` | `dsh-change-review` | 0.1.1 | AI 变更审核：让模型复查自己刚做的改动（正确性 / 安全性 / 目标一致性） | 自研 |
-| 18 | `auto-compact` | `dsh-auto-compact` | 0.1.1 | contextPressure 达阈值（默认 80%，可调）自动发送 `/compact` | 自研 |
+| 17 | `change-review` | `dsh-change-review` | 0.1.2 | AI 变更审核：让模型复查自己刚做的改动（正确性 / 安全性 / 目标一致性） | 自研 |
+| 18 | `auto-compact` | `dsh-auto-compact` | 0.1.2 | contextPressure 达阈值（默认 80%，可调）自动发送 `/compact` | 自研 |
 | 19 | `offpeak` | `dsh-offpeak` | 1.0.1 | 峰谷价格卫士：高峰时段拦截发送提醒，可定时到低价时段自动执行 | `christophersmith2737-commits/OffPeak`，MIT（vendored，非自研；上游 main 仍 1.0.0，1.0.1 取自 d-pack） |
 | 20 | `settings-nav-custom` | `dsh-settings-nav-custom` | 0.1.1 | 设置页左侧导航项显示 / 隐藏与排序（localStorage 持久化） | **EAC 移植**（`DSH-EAC/EAC-Desktop`，`LICENSE` 署 Deepseek Harness EAC contributors，MIT） |
 | 21 | `settings-groups` | `dsh-settings-groups` | 0.1.1 | 把设置「常规」页低频选项收进底部可折叠「高级选项」组 | 自研（README 自称「EAC 配套插件」不构成来源证据，见 §三 3.2 末的反例说明） |
@@ -518,8 +518,8 @@ npm 列额外带 `身份 <same|foreign|unverifiable|unknown>／维护者`——*
 |  14 | `openclaw-bridge` | `dsh-openclaw-bridge` | 0.8.1 | 6 peer `>=0.1.0-rc.6 <2` | 0.8.1（等版） | 未发布 | 3 别名 / 2 成员 / 4 裸名 → 缺失 0 · 表外 0 · 声明 4 · 移除引用 0 | 维持；设置面已是 codegen `settings-host` 垫片形态  |
 |  15 | `input-history` | `dsh-input-history` | 0.1.1 | 1 peer `>=0.1.0-rc.6 <2` | 0.1.1（等版） | 0.3.2（他们更高｜身份 unverifiable／sunshaobei） | 0 别名 / 0 成员 / 1 裸名 → 缺失 0 · 表外 0 · 声明 1 · 移除引用 0 | 维持；**禁止按名更新**（同 #4 型撞名：npm 那条是 `sunshaobei/dsh-input-history`）  |
 |  16 | `dsh-easyrewrite` | `dsh-easyrewrite` | 2.6.0 | 0 peer | 2.5.3（我们更高） | 2.6.0（等版｜身份 same／renzic-stone） | 2 别名 / 8 成员 / 2 裸名 → 缺失 0 · 表外 0 · 声明 3 · 移除引用 0 | 维持；它的 `pickIcon(旧名, 新名)` 就是本轮图标守卫认下来的正当回落形态来源  |
-|  17 | `change-review` | `dsh-change-review` | 0.1.1 | 0 peer | 0.1.1（等版） | 未发布 | 1 别名 / 0 成员 / 1 裸名 → 缺失 0 · 表外 0 · 声明 2 · 移除引用 0 | 维持  |
-|  18 | `auto-compact` | `dsh-auto-compact` | 0.1.1 | 0 peer | 0.1.1（等版） | 未发布 | 1 别名 / 0 成员 / 1 裸名 → 缺失 0 · 表外 0 · 声明 2 · 移除引用 0 | 维持  |
+|  17 | `change-review` | `dsh-change-review` | 0.1.2 | 0 peer | 0.1.2（等版） | 未发布 | 1 别名 / 0 成员 / 1 裸名 → 缺失 0 · 表外 0 · 声明 2 · 移除引用 0 | 维持  |
+|  18 | `auto-compact` | `dsh-auto-compact` | 0.1.2 | 0 peer | 0.1.2（等版） | 未发布 | 1 别名 / 0 成员 / 1 裸名 → 缺失 0 · 表外 0 · 声明 2 · 移除引用 0 | 维持  |
 |  19 | `offpeak` | `dsh-offpeak` | 1.0.1 | 0 peer | 1.0.1（等版） | 未发布 | 0 别名 / 0 成员 / 0 裸名 → 缺失 0 · 表外 0 · 声明 0 · 移除引用 0 | 维持  |
 |  20 | `settings-nav-custom` | `dsh-settings-nav-custom` | 0.1.1 | 0 peer | 0.1.1（等版） | 未发布 | 0 别名 / 0 成员 / 0 裸名 → 缺失 0 · 表外 0 · 声明 1 · 移除引用 0 | 维持（EAC 移植件走 EAC 账本通道，非 npm）  |
 |  21 | `settings-groups` | `dsh-settings-groups` | 0.1.1 | 0 peer | 0.1.1（等版） | 未发布 | 0 别名 / 0 成员 / 0 裸名 → 缺失 0 · 表外 0 · 声明 1 · 移除引用 0 | 维持  |

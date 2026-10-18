@@ -185,8 +185,8 @@ Controlled by `bundle.targets` in `tauri.conf.json` — add or remove entries to
 | `@deepseek-ai/dsh-openclaw-bridge` | 0.8.1 | Bridges WeChat / Feishu official channels into DSH agent sessions (chunked write-back, dedup, rate limit) | [hzhz314159/openclaw-dsh-bridge](https://github.com/hzhz314159/openclaw-dsh-bridge) · MIT |
 | `dsh-input-history` | 0.1.1 | Terminal-style ↑/↓ history of sent messages in the composer, scoped per session | In-house · MIT |
 | `dsh-easyrewrite` | 2.6.0 | Message recall and re-edit, a version pager, and its own settings centre | [Renzic-Stone/DSH-EasyRewrite](https://github.com/Renzic-Stone/DSH-EasyRewrite) · MIT |
-| `dsh-change-review` | 0.1.1 | AI change review: the model re-checks its own just-made edits for correctness, safety and intent | In-house · MIT |
-| `dsh-auto-compact` | 0.1.1 | Auto-sends /compact once contextPressure crosses a threshold (80% by default, configurable) | In-house · MIT |
+| `dsh-change-review` | 0.1.2 | AI change review: the model re-checks its own just-made edits for correctness, safety and intent | In-house · MIT |
+| `dsh-auto-compact` | 0.1.2 | Auto-sends /compact once contextPressure crosses a threshold (80% by default, configurable) | In-house · MIT |
 | `dsh-offpeak` | 1.0.1 | Tidal-price guard: warns before sending at peak, and can defer work to off-peak windows | [christophersmith2737-commits/OffPeak](https://github.com/christophersmith2737-commits/OffPeak) · MIT |
 | `dsh-settings-nav-custom` | 0.1.1 | Show / hide and reorder the left-hand Settings nav items (persisted in localStorage) | Ported from EAC [DSH-EAC/EAC-Desktop](https://github.com/DSH-EAC/EAC-Desktop) · MIT |
 | `dsh-settings-groups` | 0.1.1 | Folds low-frequency General-settings rows into a collapsible "Advanced" group | In-house · MIT |

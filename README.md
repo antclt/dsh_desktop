@@ -171,8 +171,8 @@ v0.5.0 起发布走 **Tauri GitHub Actions 云端流水线**（[`tauri-release.y
 | `@deepseek-ai/dsh-openclaw-bridge` | 0.8.1 | 微信 / 飞书官方频道桥接入 DSH agent 会话（分片回写、去重限流） | [hzhz314159/openclaw-dsh-bridge](https://github.com/hzhz314159/openclaw-dsh-bridge) · MIT |
 | `dsh-input-history` | 0.1.1 | 输入框 ↑/↓ 终端式已发送消息回溯（按会话隔离） | 自研 · MIT |
 | `dsh-easyrewrite` | 2.6.0 | 消息撤回 / 重编辑 + 版本翻页器 + 自带设置中心 | [Renzic-Stone/DSH-EasyRewrite](https://github.com/Renzic-Stone/DSH-EasyRewrite) · MIT |
-| `dsh-change-review` | 0.1.1 | AI 变更审核：让模型复查自己刚做的改动（正确性 / 安全性 / 目标一致性） | 自研 · MIT |
-| `dsh-auto-compact` | 0.1.1 | contextPressure 达阈值（默认 80%，可调）自动发送 /compact | 自研 · MIT |
+| `dsh-change-review` | 0.1.2 | AI 变更审核：让模型复查自己刚做的改动（正确性 / 安全性 / 目标一致性） | 自研 · MIT |
+| `dsh-auto-compact` | 0.1.2 | contextPressure 达阈值（默认 80%，可调）自动发送 /compact | 自研 · MIT |
 | `dsh-offpeak` | 1.0.1 | 峰谷价格卫士：高峰时段拦截发送提醒，可定时到低价时段自动执行 | [christophersmith2737-commits/OffPeak](https://github.com/christophersmith2737-commits/OffPeak) · MIT |
 | `dsh-settings-nav-custom` | 0.1.1 | 设置页左侧导航项显示 / 隐藏与排序（localStorage 持久化） | EAC 移植 [DSH-EAC/EAC-Desktop](https://github.com/DSH-EAC/EAC-Desktop) · MIT |
 | `dsh-settings-groups` | 0.1.1 | 把设置「常规」页低频选项收进底部可折叠「高级选项」组 | 自研 · MIT |
