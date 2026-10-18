@@ -19,6 +19,119 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-18
+
+v1.0.5 是 v1.0.4 的补发版：v1.0.4 因 makensis 构建期路径墙缺了 Windows 全部资产（见下方
+`fix(release)` 条目），本版用同一份工作树补上 Windows x64 / ARM64 / 便携包，并在发布流水线里
+新增「期望集合」门禁——主平台缺件直接拒绝发布，不会再把不完整的正式版推成 `latest`。
+同时收入两项用户报障的根治：自动压缩清空草稿（`dsh-auto-compact` / `dsh-change-review` 0.1.2）
+与壳进程闪退（Rust 侧退出闸门、孤儿内核收割、会话退出标记，详见
+[`dsh-tauri/CHANGELOG.md`](../dsh-tauri/CHANGELOG.md) 的 v1.0.5 段）。内核与补丁层不变
+（`0.2.1-rc.1` / 62 项），内置插件在册 29 条。
+
+### fix(companion)：右下角「已自动压缩」把我写了一半的草稿清掉了——`dsh-auto-compact` / `dsh-change-review` 0.1.2 加提交前闸门
+
+- **用户报障（2026-10-18）**：「正在会话沟通，打了一大半内容，突然弹出自动压缩上下文的弹窗，
+  写了半天的引导词直接给我清空了」。凶手不是提示，是提示旁边那次提交：
+  `fireCompact` 无条件 `inputActions.setDraft("/compact")`，而内核这条 API 的契约是
+  **整篇替换**——`@deepseek-ai/dsh-client-ui-conversation/lib/client.js:15023`
+  原文 `Replace the whole draft (persisted-draft seed and programmatic writes)`，
+  且 `publish()` 会立刻把它写进该会话的**持久化**草稿（`:15708-15716` +
+  `:17965` 的 `bindDraftPersistence(actions.setDraft)`），成功提交后 `commit-draft` 还会
+  砍掉 undo 栈（`lib/types/client/contract/input.d.ts:380-388`）。
+  所以半篇引导词不是「被挡住」，是不可恢复地被覆盖。旧触发链只有
+  `enabled / 阈值 / 冷却` 三道判据，既没判草稿非空、也没判这一轮在跑，
+  而 `/compact` 本身要求 agent 空闲——忙时还会「草稿已丢 + 压缩被内核拒」双重坏；
+  设置页那句「仅在对话空闲时进行」在 0.1.1 里是不成立的文案。
+- **修法（一层纯函数 + 两处接线）**：新增 `composerGate(input, session)`，判据**照内核
+  InputBar 的同源口径**（`:18803-18806`：`empty = draft.trim() === "" && attachments.length === 0`；
+  `machineBusy = phase === "adjudicating" || "submitting"`）加上
+  `useSession(s => s.running / s.pendingSubmissions)`：草稿有内容或有附件 → `has-content`；
+  形态非 `plain` 或轮次在跑 → `busy`；`useInput`/`useSession` 读不到或形状不认识 → `unknown`。
+  **只有 `ready` 才提交**；自动那一路被挡时**不记冷却**（等输入框空了由下一次投影更新补做），
+  也不弹那条误导性提示；设置页「立即压缩」走同一道门，被挡时把原因说出来
+  （新增 `nowBlocked` / `nowUnknown` 中英文案），`note` 改成与真判据一致。
+  `dsh-change-review` 是同一条根的第二个实例（它把一大段生成的审核提示写进草稿，
+  自动模式在「变更停止 20 秒」后触发，那一刻用户很可能正在写下一轮），同批加闸门，
+  并把 `fireReview` 的返回从布尔改成状态串 `fired / blocked / none`
+  （旧调用点用真值判断，字符串会变恒真——两处调用点同批改），被挡时**保留 `pendingChanges`**。
+- **为什么不读 `inputActions`**：那个对象只有 8 个方法
+  （`captureInsertion / insertText / setDraft / persistDraft / addAttachments /
+  removeAttachment / pruneAttachments / submit`，`:14932-14958`），
+  **没有** `state` / `getDraft` / `draft` / `busy` / `canSubmit` 任何一项——按那些字段读会恒
+  `undefined`，守卫就做成静默死的（本仓第三次踩「幽灵字段」）。快照的 sanctioned 来源是 dock
+  occupant 的标准注入面 `hooks.input = shell.state` / `hooks.session`（`:19738-19753`）。
+- **顺带逮到一条行尾落差**：写反证用例时发现 `assets/plugins/dsh-{auto-compact,change-review}/lib/client.js`
+  在本机工作树是 **CRLF**（index 是 LF，`git ls-files --eol` 实测 `i/lf w/crlf`，本机
+  `core.autocrlf=true` 来自 `C:/Program Files/Git/etc/gitconfig`），多行锚点的 `src.replace`
+  在我机器上**静默空转**——变异体等于原件，反证用例却在报绿。这正是上面 `fix(release)`
+  条目里 CI 三条红的同一个成因。夹具进门先把 `\r\n` 拍平（本机与 CI 从同一字节起步），
+  仓库级修法是新增的根目录 `.gitattributes`。
+- **实测**：新增 `scripts/test/unit-auto-compact-gate.test.js` **17 例全绿**（判据表 12 条断言 ×
+  两件内置件、两件实现逐字同源的防漏修锁、occupant 渲染级「草稿非空时 `setDraft` 一次都不许发生」、
+  附件 / `claimed` / `running` / 读不到快照四类停手、被挡不记冷却的「补做」顺序、手动按钮被挡的
+  文案与空闲时的正常发送、change-review 半边保留待审内容连点两次仍不发，
+  外加**反证四条**：摘掉闸门判断、把 `composerGate` 改成恒 `ready`、把「跳过也记冷却」写回去、
+  摘掉 `blocked` 分支——每条都让对应用例按预期变形，另有一条断言变异锚点真的命中）；
+  挂载方式与 `unit-goal-completion-client` / `unit-builtin-manager-client` 同族
+  （真实 React + dispatcher 槽位手驱，非浏览器语义，不冒充真机实测）。
+- **台账随迁**：两件 `package.json` 0.1.1 → 0.1.2，五处逐名同步（`THIRD_PARTY_NOTICES.md` §4.1、
+  `docs/builtin-plugins-inventory.md` §一 与 §5.2 各一行、`README.md`、`README.en.md`），
+  由 `unit-hub-registry` 的 `ledgerDiff` 咬名称/版本/许可与中英互对。
+- **给当下就在被咬的用户（不必等发版）**：设置 → 「自动压缩」把开关关掉即可
+  （配置在浏览器 localStorage，不改文件、不动用户数据）；或在内置插件管理页停用
+  `dsh-auto-compact`。`dsh-change-review` 默认是手动模式，只有切成「自动」才会有同款风险。
+
+### fix(release)：v1.0.4 的 Windows 包在 CI 断在 makensis 路径墙——新增构建期第二道 staging 门禁；CI 行尾差异用 `.gitattributes` 收口
+
+两条都是「本机全绿、CI 红」的形态，且都只在 Windows 发布通道上显形。取证与判据同批入库。
+
+- **用户可见后果**：tag `v1.0.4` 的发布 run 39056936067 里 `Windows x64 (NSIS)` 与
+  `Windows ARM64` 两个 job 失败、`Windows x64 Portable (zip)` 被跳过，而 `Publish Release`
+  照跑并成功——正式版 v1.0.4 已上线但**只有 Linux/macOS 资产**（`gh release view v1.0.4` 实测
+  6 条资产里无一条 Windows），`releases/latest` 也指向它。主平台的更新链因此拿不到包。
+- **根因（构建期的第二道路径墙，与安装态那道不同源）**：`makensis` 拿到的是
+  `tauri.conf.json` 里 `bundle.resources` 的 from 串**未归一化**的字面量
+  （`D:\a\dsh_desktop\dsh_desktop\dsh-tauri\src-tauri\src\app\..\..\..\package-payload\dsh-desktop\…`，
+  94 字符前缀），`..\..\..\` 一个字符都没被吃掉。x64 与 ARM64 两个 job **同点**炸在
+  `installer.nsi:33251`：`File: failed opening file "…\dsh-experimental-inspector\lib\devtools\
+  models\issues_manager\descriptions\federatedAuthUserInfoRequestNoReturningUserFromFetchedAccounts.md"`。
+  同一次 CI 里 258 字符的邻居文件正常进了包，260 字符的中断——墙就在 259/260 之间。
+- **为什么本机与上一版都看不见**：本机 staging 前缀只有 55 字符（`D:\workspace\dsh\…`），
+  同一条树最长 229——**短 39 个字符，本地打包永远量不到**；v1.0.2/v1.0.3（内核 0.2.0-rc.2）
+  的 `dsh-experimental-inspector` 包里 `issues_manager/descriptions/` **0 命中**（实测 tarball 列表），
+  0.2.1-rc.1 新增 236 条议题说明文本，才把最长名顶到 268/263/260/260/259。是内核换代带进来的，
+  与我们的补丁层无关。
+- **修法（判据在 lib、走盘在门禁、位置由测试咬死）**：
+  - `scripts/lib/payload-plugin-deps.js` 新增 `NSIS_SOURCE_PREFIX_DEFAULT`（94，CI 口径）、
+    `NSIS_SOURCE_LIMIT`（**258**——按已证通过的长度收口，259 因字母序在 260 那条之后、CI 从未走到，
+    无实证故从严）、`NSIS_SOURCE_PRUNE_DIR` / `NSIS_SOURCE_PRUNES`（**5 条有名有姓**的越线文件）。
+  - 新增 `dsh-tauri/scripts/stage-nsis-path-gate.mjs`：① 拿 `tauri.conf.json` 现场拼前缀与常量对账
+    （挪 staging 名/位即叫）；② 按清单剪除（DevTools 前端按 URL 懒取的说明文本，缺了只是议题面板
+    某几条没有正文，不影响装载）；③ 全 payload 走盘，**清单外**再冒一条越线即 FATAL 并列出三条出路
+    （加清单 / 缩短 staging 路径腾前缀 / 上游压短文件名），安装态 240 那条墙也一并覆盖到内核文件；
+    ④ 合规时把「最长 CI 源路径 + 剩余量」打出来，不许静默通过。
+  - 接线位置是硬要求：必须在 `node_modules` 镜像与 compat 注入**之后**——现有的
+    `stage-plugin-gate.mjs` 跑在 assets 镜像之后、那时 payload 里还没有内核树，所以它管不到这条墙。
+    `stage-payload.sh` 末尾 1 处 + `tauri-release.yml` 五个架构 staging 各 1 处（五处同改）。
+- **实测**：对现有本地 payload（82 574 个文件）跑新门禁 → 剪除 5 条、最长安装路径 215（< 240）、
+  exit 0；2.6s 走盘。`unit-payload-plugin-deps` 由 7 例增至 14 例：前缀与 `tauri.conf.json` 对账、
+  清单每条真的越线、258 放行/259 判红的边界、**反证「同一条文件在本机前缀下全绿」**（把本机量不到
+  这件事钉成判据）、**实测哨兵**（走 pin 内核闭包里的 inspector 包，断言越线集合恰好等于清单——
+  内核换代新增越线文件当场红）、接线判据 + 三种漏接变异的反证。
+- **CI 行尾差异（同批，`.gitattributes` 新建）**：ci.yml run 39056911580 的 3 条红
+  （`unit-prompt-optimizer-upgrade` 的「src ↔ dist 逐字节一致」20 个源文件全报不一致、
+  `unit-prompt-optimizer-context-intent` D6 反证「composer 观察落点锚点丢失」、
+  `unit-goal-completion-client` 反证 1「守卫摘掉后页面会谎报完成」）同源于 windows-latest 镜像
+  **全局** `core.autocrlf=true` 把 checkout 变成 CRLF——多行锚点 `src.includes('…{\n\t\tsetAction(…')`
+  恒 false，`replace` 静默空转，于是一条有 `assert.ok` 的当场判红、另一条连锚点都不核就把
+  「未变异的成功渲染」当成反证结果。本机工作树是工具直接写盘的 LF（`git ls-files --eol` 实测
+  `i/lf w/lf`），本地 2251 例 0 fail 复现不出来。新 `.gitattributes` 钉 `* text=auto eol=lf`
+  并对 `*.tgz`/图像/原生件 `-text`（vendor 的 344 个内核 tgz 绝不允许被当文本规整化）；
+  加入后 `git status` 仍只有本次改动 6 项，无大规模重标。
+- **裁定与补发**：不重做 v1.0.4，以 **v1.0.5** 补发（本版即该裁定的产物）。
+  Windows 资产的补齐只能在 CI 上验证——本机的路径短，构不出这条墙。
+
 ### merge(main)：吸收 GitHub 侧 v1.0.3 的 macOS 设置写入根治，补丁层 61→62 与 0.2.1 换代合流
 
 - **分叉事实**：本地这条线（内核换代 + 405 根治 + 插件迭代）自 `4f11af31e` 起未推，而

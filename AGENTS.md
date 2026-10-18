@@ -188,7 +188,7 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   现在两件的 `pending` 计数应为 **0**；若再出现 `pending (waiting for <X>)`，按上一条的姿势去 pin 闭包查 X 的 provider，
   而不是当作 headless 副产品放过。仍属正常噪声的只有一条：插件自建的
   `/sidebar/ws/agent-opens` 在无头跑里连不上（没有页面就没有 socket）。
-- **CI 全量单测有两类「本机假绿」环境差（2026-10-10 根治，勿重复踩）**：
+- **CI 全量单测有三类「本机假绿」环境差（2026-10-10 根治前两类，2026-10-18 根治第三类，勿重复踩）**：
   ① 本机 node 24 容忍「await 一个被 unref 的 0ms 定时器」，CI 的 node 22 会整体
   `cancelledByParent`（`Promise resolution is still pending but the event loop has already
   resolved`）——测试床冲刷辅助一律用 `setImmediate`，**别写 `setTimeout(...).unref()`**；
@@ -199,10 +199,35 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   「pristine 闭包在位」而非 skip——ci.yml 已固定在全量单测前跑
   `node scripts/install-pristine-kernel.mjs`（离线 vendor tarball 解出，幂等）；
   本机删 `.tmp-kernel` 即复现同款红。
+  ③ **行尾**：windows-latest 镜像在**全局** gitconfig 里带 `core.autocrlf=true`，checkout 把文本
+  变成 CRLF，而本机工作树是工具直接写盘的 LF（`git ls-files --eol` 实测 `i/lf w/lf`）——于是
+  「按字节比」的判据在 CI 与本机分叉：`src ↔ dist 内联 sourcesContent 逐字节一致`整包报不一致、
+  **多行锚点的反证用例静默空转**（`src.includes('…{\n\t\tsetAction(…')` 恒 false，`replace` 什么都没换；
+  带 `assert.ok(锚点在位)` 的当场判红，不带的就把「未变异的成功渲染」当成反证结果判绿——
+  **用例红都不等于判据在跑**）。2026-10-18 起用仓库根 `.gitattributes`（`* text=auto eol=lf`
+  + `*.tgz`/图像/原生件 `-text`，防 vendor 344 个内核 tgz 被规整化）钉死，本机与 CI 从此同一字节；
+  再遇到「这条用例只在 CI 红」先查行尾，别改测试逻辑。
 - **冒烟测试绝不跑真安装器**：NSIS 的 PREINSTALL 会静默卸载本机真实版本。
   冒烟用手拼安装布局 + `DSH_HOME`/`DSH_TAURI_USERDATA` 隔离。
 - **NSIS 钩子（installerHooks.nsh）改动必须过 `makensis` 编译验证**——宏展开、栈平衡、
   `/SD` 参数位置都曾导致安装器卡死或编译阻断。
+- **打包器有两条独立的路径墙，构建期那条本机永远量不到（2026-10-17 v1.0.4 发布实错）**：
+  ① **安装态**墙——`stage-plugin-gate.mjs` 按 `C:\Program Files\DSH Desktop\resources\dsh-desktop\`
+  前缀 + 240 上限量 `assets/plugins`；② **构建期**墙——`makensis` 拿到的是 `tauri.conf.json`
+  `bundle.resources` 的 from 串**未归一化**的字面量（`D:\a\dsh_desktop\dsh_desktop\dsh-tauri\src-tauri\src\app\..\..\..\package-payload\dsh-desktop\`
+  = 94 字符），Windows MAX_PATH 260 直接生效，而**本机前缀只有 55 字符**（`D:\workspace\dsh\…`），
+  短 39 个字符——同一条 payload 本机 `tauri build` 出包全绿、CI 的 Windows x64 与 ARM64 两个 job
+  同点炸在 `installer.nsi:33251` `File: failed opening file`（实测 258 字符的邻居进得去、260 的进不去），
+  而 `Publish Release` 不看构建结论照样成功 → **发出去的版本只有 Linux/macOS 资产**。
+  越线的 5 个文件全在内核 0.2.1-rc.1 新增的 `@deepseek-ai/dsh-experimental-inspector/lib/devtools/
+  models/issues_manager/descriptions/*.md`（rc.2 的该包 0 命中，236 条新增里最长名 268 字符）。
+  修法与位置：新增 `dsh-tauri/scripts/stage-nsis-path-gate.mjs`（判据 + 有名有姓的剪除清单在
+  `dsh-desktop/scripts/lib/payload-plugin-deps.js` 的 `NSIS_SOURCE_*`），**必须在 `node_modules` 镜像
+  与 compat 注入之后**跑——原先那道门禁跑在 assets 镜像之后，那时 payload 里还没有内核树，等于没量；
+  接线位置由 `unit-payload-plugin-deps` 的接线用例 + 三种漏接变异咬死（stage-payload.sh 1 处 +
+  CI 五处，改一处必须五处同改）。再遇到「内核换代后 Windows 包出不来」，先跑这条门禁，
+  别拿本机打包结果当发包结论；清单外新越线的文件它 FATAL 并列出三条出路（加清单 / 缩短 staging
+  路径腾前缀 / 上游压短文件名），绝不放行「跑到一半炸」的发包。
 - **关窗 ≠ 退出**：`closeToTray` 缺省 true（`src/app/src/windows.rs` 的 `CloseRequested`），
   点 × 只是隐藏到托盘、**内核 node 继续跑**。于是覆盖安装写 `@img/sharp-win32-x64/lib/
   libvips-42.dll` 会被 Windows 拒绝（不允许覆盖已被加载的映像），用户看到
@@ -223,19 +248,42 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   返 500 时，资产名按 `tauri-release.yml` 头部命名表逐个拼 URL，用 `curl -sIL -r 0-0` 读
   `Content-Range: bytes 0-0/<size>` 核在位与体积，条目名用 Range 取末尾 64B 解 EOCD 得 `cd_off/cd_size`
   再取中央目录解析（几 MB，无需拖整包）；`.sha256` 边车直接 GET 即可读内容。
+- **插件「替用户提交」必须先过草稿与空闲两道闸门——`setDraft` 是整篇替换且没有恢复通道（2026-10-18 用户报障）**：
+  内置件 `dsh-auto-compact` / `dsh-change-review` 都用 `inputActions.setDraft(text) + submit()` 以用户身份发命令，
+  而内核这条 API 的契约是 **Replace the whole draft**（`@deepseek-ai/dsh-client-ui-conversation/lib/client.js:15023`），
+  `publish()` 会立刻把它写进该会话的**持久化**草稿（`:15708-15716` + `:17965` `bindDraftPersistence`），
+  成功提交后 `commit-draft` 还砍掉 undo 栈（`lib/types/client/contract/input.d.ts:380-388`）——
+  用户写了一半的引导词不是被遮挡，是不可恢复地被覆盖。旧判据只有 `enabled / 阈值 / 冷却`，
+  没判草稿非空、没判轮次在跑；而 `/compact` 要求 agent 空闲，于是「草稿已丢 + 命令被拒」双重坏，
+  设置页那句「仅在对话空闲时进行」是不成立的文案。修法：纯函数 `composerGate(input, session)`
+  照内核 InputBar 同源口径（`:18803-18806` `empty = draft.trim()==="" && attachments.length===0`；
+  `machineBusy = phase==="adjudicating"||"submitting"`）加 `useSession(running/pendingSubmissions)`，
+  只有 `ready` 才提交，自动那一路被挡**不记冷却**（等输入框空了补做）、不弹误导提示。
+  读快照的 sanctioned 来源是 dock occupant 的注入面 `hooks.input = shell.state`（`:19738-19753`）——
+  **`inputActions` 只有 8 个方法**（`:14932-14958`），没有 `state`/`getDraft`/`draft`/`busy`/`canSubmit`，
+  按那些字段读恒 `undefined`、守卫静默死（本仓第三次踩幽灵字段）。回归锁
+  `unit-auto-compact-gate.test.js` 17 例含反证四条。
+  同批再记一条行尾教训：写这批反证时发现两份插件 `lib/client.js` 本机工作树是 **CRLF**
+  （index 为 LF，`git ls-files --eol` 实测 `i/lf w/crlf`），多行锚点的 `src.replace` 静默空转、
+  变异体等于原件而用例报绿——夹具进门必须 `.replace(/\r\n/g,'\n')`，仓库级修法是新加的
+  `.gitattributes`（见「CI 全量单测有三类本机假绿环境差」第 ③ 条）。
 - **稳定性三原则（评审默认立场）**：① 客户端必须能打开，装配失败终态恢复页而非退出；
   ② 兼容性不报错，意外以日志收场（`panics.log`）不以崩溃收场；③ 用户数据不动。
-- 文档里的测试基线数字常滞后。**现值（2026-10-18 实测，内核换代 0.2.1-rc.1 + 与 GitHub 侧 v1.0.3
-  合流之后；补丁层净数 62 = 换代退役一条后的 61 ＋ 吸收 `appboot-bootstrap-singleton`）**：
-  `scripts/test/` 205 个测试文件（`*.test.js` 203 + `*.test.mjs` 2；`unit-patch-pi-ai-opencode-go-models`
+- 文档里的测试基线数字常滞后。**现值（2026-10-18 二次实测，内核换代 0.2.1-rc.1 + 与 GitHub 侧
+  v1.0.3 合流 + Windows 路径门禁 + 两件插件提交闸门之后；补丁层净数 62 = 换代退役一条后的 61
+  ＋ 吸收 `appboot-bootstrap-singleton`）**：
+  `scripts/test/` 206 个测试文件（`*.test.js` 204 + `*.test.mjs` 2；`unit-patch-pi-ai-opencode-go-models`
   随该补丁退役一并 `git rm`，新增 `unit-patch-output-parsable`、`unit-workspace-anchor-cwd`、
-  `unit-plugin-inject-services` 与 mac 设置写入根治的 `unit-appboot-singleton-patch`），
-  `npm test` = 2251 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
-  与网络浮动（本次全量实测 pass 2242 / skip 9），
+  `unit-plugin-inject-services`、mac 设置写入根治的 `unit-appboot-singleton-patch`
+  与「弹窗清草稿」根治的 `unit-auto-compact-gate`），
+  `npm test` = 2275 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
+  与网络浮动（本次全量实测 pass 2266 / skip 9），
   skip 逐条都是环境缺料而非缺陷（pristine 夹具缺 `@openai/codex` / `@earendil-works/pi-ai`、
   openclaw 双轨的兄弟目录 `../openclaw-dsh-bridge/` 不在盘、本机无 `D:\workspace\dsh-pack` 克隆、
   真实网络、`.tmp-kernel` 构建产物不可用、无特权创建文件级符号链接）——一律以现跑输出为准，**pass 与 fail 才是判据**。
-  Rust 侧现值 **693 passed / 0 failed / 4 ignored**（36 个 target）——本机只能走 gnu 链，
+  Rust 侧现值 **709 passed / 0 failed / 4 ignored**（8 个 crate / 36 个 target；2026-10-18 按
+  v1.0.5 版本号实跑。`crates/session-watcher` 因 `Cargo.toml` 成员行被 GBK 注释行粘连而不在
+  workspace 内，是零消费者储备件，不计入）——本机只能走 gnu 链，
   **`cargo test` 必须带 `--target x86_64-pc-windows-gnu`**（与 `RUSTUP_TOOLCHAIN` 配对）：漏了它会去写
   `<CARGO_TARGET_DIR>/debug/`（host 目录，复用不到三元组目录里的增量），链接期炸成
   `final link failed: memory exhausted` + 「crate … required in rlib format」+ 上百条 ICE 级联，
