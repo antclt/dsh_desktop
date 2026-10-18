@@ -131,11 +131,15 @@ v1.0.5 是 v1.0.4 的补发版：v1.0.4 因 makensis 构建期路径墙缺了 Wi
   加入后 `git status` 仍只有本次改动 6 项，无大规模重标。
 - **裁定与补发**：不重做 v1.0.4，以 **v1.0.5** 补发（本版即该裁定的产物）。
   Windows 资产的补齐只能在 CI 上验证——本机的路径短，构不出这条墙。
-- **v1.0.5 首跑补正（run 39103817256）**：`stage-nsis-path-gate.mjs` 的前缀对账原先用
-  `path.sep` 拼串，Linux/macOS runner 上拼出正斜杠，与写死反斜杠的常量做字面比较 →
-  两个非 Windows job 在 staging 末尾误判「前缀对不上」（两边都是 94 字符）。
-  修法：前缀拼接收敛成纯函数 `nsisSourcePrefixFrom`（固定 Windows 反斜杠，与宿主无关），
-  门禁只调它；`unit-payload-plugin-deps` 补「函数结果全反斜杠且等于常量」的断言。
+- **v1.0.5 首跑补正（run 39103817256 / 39104685021）**：`stage-nsis-path-gate.mjs` 有两处
+  只在跨平台 CI 才显形的问题。① 前缀对账用 `path.sep` 拼串，Linux/macOS runner 上拼出正斜杠，
+  与写死反斜杠的常量做字面比较 → 两个非 Windows job 在 staging 末尾误判「前缀对不上」
+  （两边都是 94 字符）。② 长度判据本身只适用于 makensis——macOS 本机装的
+  `libreoffice-kit-darwin-arm64` 带 `LibreOffice.app` 的长配置名，按 Windows 前缀量就是假阳性
+  （12 个文件 259–265 字符），且那棵树永远不会进 NSIS。修法：前缀拼接收敛成纯函数
+  `nsisSourcePrefixFrom`（固定 Windows 反斜杠，与宿主无关）；新增 `nsisGateApplies`，
+  非 Windows 宿主在完成前缀配置对账后跳过剪除与长度检查。`unit-payload-plugin-deps`
+  补「函数结果全反斜杠且等于常量」与平台门控的反证断言。
 - **同批（CI 时序抖动）**：主分支 ci run 39103806498 另有一条与本次改动无关的唯一红——
   `unit-plugin-core-fs-atomic-deep` 的心跳用例用 `staleMs=500`，Windows runner 一次秒级调度延迟
   就让心跳迟到、B 把 A 的锁误判成陈旧锁。测试阈值提到 2000（心跳随之 ~666ms、持有窗口 6.5s），

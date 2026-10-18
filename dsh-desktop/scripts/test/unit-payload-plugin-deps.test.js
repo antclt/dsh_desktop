@@ -31,6 +31,7 @@ const {
   NSIS_SOURCE_PRUNE_DIR,
   NSIS_SOURCE_PRUNES,
   nsisSourcePrefixFrom,
+  nsisGateApplies,
   overlongSourceFiles,
   sourcePathLength,
 } = require('../lib/payload-plugin-deps');
@@ -134,6 +135,13 @@ test('CI 源路径前缀与 tauri.conf.json 现场对账：挪 staging 名/位�
   assert.ok(!nsisSourcePrefixFrom(fromKey).includes('/'), 'makensis 口径全反斜杠');
   assert.equal(NSIS_SOURCE_WORKSPACE + '\\' + NSIS_SOURCE_CONFIG_DIR,
     'D:\\a\\dsh_desktop\\dsh_desktop\\dsh-tauri\\src-tauri\\src\\app', '前缀两段常量被改动');
+});
+
+test('平台门控：makensis 只在 Windows 构建上存在，非 Windows 宿主跳过剪除与长度判定', () => {
+  assert.equal(nsisGateApplies('win32'), true);
+  assert.equal(nsisGateApplies('darwin'), false,
+    'macOS 本机装的 libreoffice-kit-darwin-arm64 带 LibreOffice.app 长配置名——按 Windows 前缀量就是假阳性');
+  assert.equal(nsisGateApplies('linux'), false);
 });
 
 test('剪除清单：每条都真的越线，且都只在 DevTools 议题文本那一个目录', () => {

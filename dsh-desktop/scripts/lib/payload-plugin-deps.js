@@ -67,6 +67,15 @@ function nsisSourcePrefixFrom(fromKey) {
     + fromKey.split('/').filter((s) => s.length).join('\\') + '\\';
 }
 
+/**
+ * makensis 只存在于 Windows 构建。Linux/macOS 的 staging 也调同一道门禁（五处同改），
+ * 但那里的树永远不会进 NSIS——macOS 本机装的 libreoffice-kit-darwin-arm64 带
+ * LibreOffice.app 的长配置名，按 Windows 前缀量就是假阳性（2026-10-18 实测）。
+ */
+function nsisGateApplies(platform = process.platform) {
+  return platform === 'win32';
+}
+
 /** makensis 源路径上限：258 实测通过 / 260 实测中断，259 无实证故按越线处理。 */
 const NSIS_SOURCE_LIMIT = 258;
 
@@ -152,6 +161,7 @@ module.exports = {
   NSIS_SOURCE_PRUNE_DIR,
   NSIS_SOURCE_PRUNES,
   nsisSourcePrefixFrom,
+  nsisGateApplies,
   residueNodeModules,
   overlongFiles,
   overlongSourceFiles,

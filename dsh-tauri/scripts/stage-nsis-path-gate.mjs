@@ -31,6 +31,7 @@ const {
   INSTALL_PREFIX_DEFAULT,
   PATH_LIMIT_DEFAULT,
   nsisSourcePrefixFrom,
+  nsisGateApplies,
   overlongSourceFiles,
   overlongFiles,
   longestInstallPath,
@@ -78,6 +79,13 @@ if (expectedPrefix !== NSIS_SOURCE_PREFIX_DEFAULT) {
 // ---- ② 命名清单剪除（越线才剪，清单外越线一律 FATAL）----
 if (!fs.existsSync(payloadRoot) || !fs.statSync(payloadRoot).isDirectory()) {
   die(`payload 目录不存在：${payloadRoot}`, 'staging 没跑？本门禁必须在 node_modules 镜像之后调用');
+}
+// 非 Windows 宿主不做剪除与长度判定：这台机器的 payload 永远不会进 makensis，
+// 按 Windows 前缀量本地平台专属依赖（如 mac 的 LibreOffice.app）只会误报。
+if (!nsisGateApplies(process.platform)) {
+  console.log(`[nsis-gate] 非 Windows 宿主（${process.platform}）：makensis 源路径墙不适用，`
+    + '已完成前缀配置对账，跳过剪除与长度检查');
+  process.exit(0);
 }
 let pruned = 0;
 const absent = [];
