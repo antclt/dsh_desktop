@@ -1,6 +1,6 @@
 # Changelog — DSH Desktop（Tauri 版，主线架构 v0.5.0 起）
 
-# DSH Desktop v1.0.5 — 开发中
+# DSH Desktop v1.0.5 — 已发布（2026-10-18 正式版；补发 v1.0.4 的 Windows 资产）
 
 ## 🩺 壳进程闪退根治：事件循环 panic 的退出闸门、孤儿内核收割与会话退出标记
 
