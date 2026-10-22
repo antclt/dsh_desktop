@@ -20,9 +20,12 @@ const {
   PATCH_HEADER,
   ACP_DISABLE_BLOCK,
   ACP_SELF_DISABLE_BLOCK,
+  SYNAPSE_SELF_DISABLE_BLOCK,
+  SYNAPSE_DEFAULT_DISABLED_MARKER,
   removedPluginIdsFromPatch,
   removeLegacyMarketplacePatchLines,
   ensureDisabledPatchEntry,
+  ensureDefaultDisabledOnce,
   removeAcpBasicDisableBlock,
   removeDisabledRowsByIds,
   registerCompanionPatchEntries,
@@ -49,7 +52,7 @@ const PLUGIN_FILES = [
 // node_modules 解析，避免 @img 平台二进制的多平台同步问题。
 const VENDOR_DEPS = [
   'schemastery', 'cosmokit', '@standard-schema/spec',
-  'yaml',
+  'yaml', 'zod', 'smol-toml', 'js-yaml', 'semver', 'undici',
   '@deepseek-ai/schemastery', '@deepseek-ai/dsh-settings',
 ];
 
@@ -886,6 +889,8 @@ module.exports = {
   PATCH_HEADER,
   ACP_DISABLE_BLOCK,
   ACP_SELF_DISABLE_BLOCK,
+  SYNAPSE_SELF_DISABLE_BLOCK,
+  SYNAPSE_DEFAULT_DISABLED_MARKER,
   KNOWN_COMPANION_DIR_NAMES,
   removeStaleCompanionPlugins,
   removeLegacyMarketplaceDir,
@@ -904,6 +909,7 @@ module.exports = {
   removeLegacyMarketplacePatchLines,
   removedPluginIdsFromPatch,
   ensureDisabledPatchEntry,
+  ensureDefaultDisabledOnce,
   removeAcpBasicDisableBlock,
   registerCompanionPatchEntries,
   syncCompanionFiles,

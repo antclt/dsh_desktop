@@ -1,0 +1,13 @@
+# DS Bot（Fei2411/DeepSeek-Bot，Apache-2.0）随包内置的 bundle patch。
+#
+# 只注册 Bot 团队本体（loader id `bot`）。上游 patch 还会插入
+# `web-search-auto` 并把 web 行整行覆盖成 searchProvider: auto；本客户端已内置
+# dsh-free-search，由它在运行时接管 web provider（只在用户未显式选择时），
+# 两条静默互相覆盖会让 web_search 落到未注册的 provider。故 vendored patch
+# 不复制那两段，Bot 的 web_search 工具继续走宿主 ctx.web 的当前 provider。
+#
+# 升级 ds-bot 时同步 assets/plugins/ds-bot 整包并保留本文件（不要用上游 patch
+# 覆盖），unit-vendored-upstream-plugins 有断言钉住「不得覆盖 web.searchProvider」。
+- insert:
+    - id: bot
+      name: ds-bot

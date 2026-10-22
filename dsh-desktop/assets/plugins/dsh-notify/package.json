@@ -1,0 +1,126 @@
+{
+  "name": "@bittersmilezzz/dsh-notify",
+  "private": true,
+  "version": "0.4.5",
+  "description": "DeepSeek Harness 的桌面通知：审批/提问/轮次完成/会话结束/出错时弹系统原生通知，点击回到对应会话。走渲染进程 Web Notification 通道——桌面 App 里即原生通知（发送方是 App 本身），免授权、免外部二进制、免签名。",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json && tsdown",
+    "bundle": "tsdown",
+    "watch": "tsdown --watch",
+    "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "validate:registry": "node scripts/validate-registry.mjs"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "notify",
+    "notification",
+    "desktop",
+    "desktop-notifications"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bitterSmilezzz/dsh-notify.git"
+  },
+  "homepage": "https://github.com/bitterSmilezzz/dsh-notify#readme",
+  "bugs": {
+    "url": "https://github.com/bitterSmilezzz/dsh-notify/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": "^0.2.1-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "searchTerms": [
+      "桌面通知",
+      "通知",
+      "审批提醒",
+      "轮次完成",
+      "notify"
+    ],
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-api-session-controller": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-session": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-api-session-controller": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-session": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.3",
+    "@types/node": "^26.2.0",
+    "@types/react": "~18.3.31",
+    "@types/react-dom": "~18.3.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tsdown": "^0.22.14",
+    "typescript": "^6.0.3"
+  }
+}

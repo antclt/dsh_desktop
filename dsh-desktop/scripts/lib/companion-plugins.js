@@ -16,7 +16,7 @@
 //                     （dev 树上一次 pnpm install 就能产出 1.3 万文件的残留树）。
 //
 // v1.0.0 内置线（2026-10-08 裁定，反转此前的「官方形状 / 插件不进包」口径）：这份清单
-// 里的 29 条插件**随安装包分发**——`dsh-desktop/assets/plugins` 整树由 stage-payload.sh
+// 里的 34 条插件**随安装包分发**——`dsh-desktop/assets/plugins` 整树由 stage-payload.sh
 // 与 tauri-release.yml 的五个架构 staging 镜像进 payload，装机后首次开机由 boot 的 sync 步
 // 镜像进 profile，开箱可用。
 //
@@ -59,7 +59,12 @@ const COMPANION_PLUGINS = [
   { id: 'prompt-custom', name: '@deepseek-ai/dsh-prompt-custom' },
   { id: 'workspace-anchor', name: '@deepseek-ai/dsh-workspace-anchor' },
   { id: 'wsl-settings', name: '@deepseek-ai/dsh-wsl-settings' },
-  { id: 'side-session', name: '@dsh-external/dsh-side-session' },
+  // Bot 团队（Fei2411/DeepSeek-Bot，Apache-2.0）：把 DSH 变成主 Bot + 长期 Bot +
+  // 群聊的协作客户端；loader id 是 bundle 层 cordis.patch.yml 的 `bot`。
+  // 上游 patch 还会注册 web-search-auto 并把 web.searchProvider 改成 auto；作为
+  // 随包内置件与 dsh-free-search 的运行时接管冲突，故 vendored patch 只保留 bot
+  // 本体（见 assets/plugins/ds-bot/cordis.patch.yml 顶部注释）。
+  { id: 'bot', name: 'ds-bot' },
   // 0.2.26 起上游 tsup 把 acp-kernel 内联进 dist/index.js（不再有 `from "acp-kernel"`），
   // 内层 node_modules 与 shipsNodeModules 标记同批下线；它改用宿主闭包的 dsh-session/
   // dsh-settings/dsh-llm/dsh-tools/dsh-compaction/schemastery，具名导入由
@@ -142,6 +147,27 @@ const COMPANION_PLUGINS = [
   // dsh-client-ui-plan 的形），写状态走内核 CAS，插件自己不落任何文件。
   // 追加在清单末尾：前 18 条的顺序被 unit-patch-engine 的漂移防线钉住。
   { id: 'goal-completion', name: '@deepseek-ai/dsh-goal-completion' },
+  // —— 2026-10-22 用户点名的五个上游插件（随安装包内置） ——
+  // 免费多引擎搜索（DDDMUC/dsh-free-search，MIT，0.9.11）：注册 ctx.web 搜索
+  // provider，内置 web_search 自动选用；loader id 是 `web-search-free`（不是包名）。
+  { id: 'web-search-free', name: 'dsh-free-search' },
+  // 插件商店（LivXue/dsh-plugin-shop，Apache-2.0，0.9.0）：浏览/安装/启停/更新
+  // dsh 插件；loader id 是 `shop`，客户端 bundle id 才是包名。随包条目本身不
+  // 参与「内置件更新」的 better-sidebar 排除策略（见 sidecar UPDATE_SOURCES）。
+  { id: 'shop', name: 'dsh-plugin-shop' },
+  // 运行时代理（baizhizzl/dsh-network-proxy，MIT，1.0.0）：设置-通用里的
+  // HTTP 代理行，读系统代理并热切换 fetch dispatcher。包名保留上游的
+  // `@local/dsh-network-proxy`——改名会让 GitHub 更新回来的包名/loader 行对不上。
+  { id: 'network-proxy', name: '@local/dsh-network-proxy' },
+  // MCP / 技能工具箱（Imzl-zl/dsh-toolbox-ui，MIT，1.8.2）：右下悬浮面板，
+  // MCP 市场与技能管理；loader id 是 `mcp-manager-ui`。它静态导入 smol-toml
+  // （BSD-3-Clause）——该包不在内核闭包内，改由 dsh-desktop/package.json 显式
+  // 依赖 + VENDOR_DEPS 同步，避免用 shipsNodeModules 再开一条依赖分发面。
+  { id: 'mcp-manager-ui', name: 'dsh-toolbox-ui' },
+  // 桌面通知（bitterSmilezzz/dsh-notify，MIT，0.4.5）：渲染进程 Web Notification
+  // 六类事件 + 点击回会话；v1.0.6 起取代壳层「回合完成」通知（壳只保留 watcher
+  // 的 active_turns 与 ACP/崩溃通知）。
+  { id: 'dsh-notify', name: '@bittersmilezzz/dsh-notify' },
 ];
 
 /** 包名 → assets/plugins 下的目录名（去 scope 前缀）。 */
@@ -218,6 +244,13 @@ const RETIRED_COMPANIONS = [
   // 不随退役下线的是 F4 后端补丁 patch-pi-ai-reasoning-defaults（默认强度字典在服务端半边，
   // 与这份 UI 件无关）。要复活：git 历史取回本清单条目 + assets/plugins/dsh-reasoning-effort。
   { id: 'reasoning-effort', name: 'dsh-reasoning-effort' },
+  // 2026-10-22 按用户要求移除「临时对话」（侧边临时会话悬浮窗，
+  // @dsh-external/dsh-side-session 0.3.1）。源目录从 assets/plugins 删除；
+  // 存量机器的 patch 行与 profile 镜像目录由两个同步入口共用的
+  // removeRetiredCompanionPatchRows / syncCompanionFiles 回收。
+  // 上游本身没有 LICENSE 文件（见 docs/builtin-plugins-inventory.md §三 3.5），
+  // 移除后也不再承担该再分发风险。
+  { id: 'side-session', name: '@dsh-external/dsh-side-session' },
 ];
 
 /** 退役登记表 → assets/plugins 目录名（去 scope 前缀），供过期清理认领。 */

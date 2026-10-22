@@ -176,6 +176,8 @@
         return info;
       });
     },
+    // 壳层 2026-10-22 起不再发射 notification-jump（通知改由 dsh-notify 插件在
+    // 渲染进程发送）；方法位保留以兼容旧页面调用（订阅前补发仅对垫片缓存生效）。
     onNotificationJump: function (cb) {
       if (typeof cb !== 'function') return function () {};
       var wrapped = function (jump) { if (jump) { try { cb(jump); } catch (e) {} } };
@@ -377,7 +379,7 @@
   // Escape 关闭。
   var menuPanel = null; // 当前菜单面板（控制条子元素，自愈重注后回到关闭态）
   var menuOpen = false;
-  var menuState = { appVersion: '', agentVersion: '', agentSource: '', notifyOnTurnEnd: true, closeToTray: true, autoInstallUpdates: false, clientUpdate: null, repoUrls: null };
+  var menuState = { appVersion: '', agentVersion: '', agentSource: '', closeToTray: true, autoInstallUpdates: false, clientUpdate: null, repoUrls: null };
   function escHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -596,7 +598,6 @@
         '<div class="dch-repo-row"><span class="dch-repo-url" title="' + escHtml(repos.github || '') + '">' + escHtml(repos.github || '') + '</span><button class="dch-copy" data-copy="github" title="复制地址">复制</button></div>' +
         '<div class="dch-repo-row"><span class="dch-repo-url" title="' + escHtml(repos.gitee || '') + '">' + escHtml(repos.gitee || '') + '</span><button class="dch-copy" data-copy="gitee" title="复制地址">复制</button></div>' +
       '</div>' +
-      menuItemHtml('toggle-notify', '会话完成通知', s.notifyOnTurnEnd ? check : '') +
       menuItemHtml('toggle-close-to-tray', '关闭时最小化到托盘', s.closeToTray ? check : '') +
       menuItemHtml('toggle-auto-update', '自动安装客户端更新', s.autoInstallUpdates ? check : '') +
       '<div class="dch-sep"></div>' +
@@ -619,7 +620,7 @@
       (function (el) {
         el.onclick = function () {
           var act = el.getAttribute('data-act');
-          if (act === 'toggle-notify' || act === 'toggle-close-to-tray' || act === 'toggle-auto-update') {
+          if (act === 'toggle-close-to-tray' || act === 'toggle-auto-update') {
             // 开关类：menu_action 读改写 settings.json 返回新值（单键），merge 后重渲染。
             dshDesktop.menu.action(act).then(function (next) {
               if (next && typeof next === 'object') { for (var k in next) menuState[k] = next[k]; }

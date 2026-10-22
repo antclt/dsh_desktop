@@ -272,7 +272,7 @@ function guarded(text, alias, member) {
 /**
  * 遍历参与判定的文件。`keep` 是「manifest 入口及其 chunk 闭包」的绝对路径集合：
  * SKIP_DIR 里的 `dist/` 名义上是构建输出，但在册插件里确有把**运行入口**放在 dist 的
- * （dsh-prompt-optimizer 的 ./client → dist/client.js），整目录跳过会让这类产物对判据
+ * （billion-context-dsh 的 main → dist/index.js），整目录跳过会让这类产物对判据
  * 完全隐形。凡被 manifest 指向的文件一律穿过目录白名单纳入扫描。
  */
 function walkPluginFiles(dir, out = [], keep = null) {

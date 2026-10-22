@@ -1,0 +1,11 @@
+# dsh-notify — 桌面通知（独立插件包）
+#
+# host 半区只持有一份 volatile Config schema（entry id `dsh-notify`，DSH 0.1.7
+# 起 profile-backed forms），没有任何副作用；通知的订阅与投递全在 client 半区，
+# 走渲染进程的 Web Notification API（桌面 App 里即系统原生通知）。
+#
+# Install:   dsh plugin --profile <profile> add <path-or-github>
+
+- insert:
+    - id: dsh-notify
+      name: '@bittersmilezzz/dsh-notify'

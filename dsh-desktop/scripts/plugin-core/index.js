@@ -23,6 +23,9 @@ const { parseMarkers, createMarkerAccumulator } = require('./lib/markers');
 const { PluginError, PLUGIN_ERROR_CODES } = require('./lib/errors');
 const { scanDir } = require('./lib/scan');
 const { removedPluginIdsFromPatch } = require('./lib/patch-surgery');
+const {
+  UPDATE_SOURCES, isUpdateExcluded, updateExclusionReason,
+} = require('../lib/plugin-update-sources');
 
 /**
  * @param {Object} ctx
@@ -90,12 +93,14 @@ function createPluginCenter(ctx) {
     log: logTopic('quarantine'),
   });
 
-  // ── 更新源（与历史 PLUGIN_UPDATE_SOURCES 一致） ─────────────────────────
-  const updateSources = {
-    'compaction-acp': { kind: 'npm', pkg: 'billion-context-dsh' },
-    'better-sidebar': { kind: 'npm', pkg: 'dsh-better-sidebar' },
-    'side-session': { kind: 'github', repo: 'hzhz314159/dsh-side-session' },
-  };
+  // ── 更新源（唯一表：scripts/lib/plugin-update-sources.js） ──────────────
+  // 不再维护副本；Tauri sidecar 与本装配根读同一份数据。被排除的条目
+  // （如 better-sidebar 本地重建件）仍留在表里供 UI/文档解释，但不参与
+  // 检查更新、update 直连也会被拒绝。
+  const updateSources = UPDATE_SOURCES;
+  const activeUpdateSources = Object.fromEntries(
+    Object.entries(updateSources).filter(([id]) => !isUpdateExcluded(id)),
+  );
 
   const installedVersion = (name) => {
     try {
@@ -122,8 +127,12 @@ function createPluginCenter(ctx) {
 
   const updates = {
     sources: updateSources,
-    checkUpdates: () => checkUpdatesAvailable(inventoryRows, updateSources, installedVersion),
+    checkUpdates: () => checkUpdatesAvailable(inventoryRows, activeUpdateSources, installedVersion),
     update: async (id, { confirm } = {}) => {
+      if (isUpdateExcluded(id)) {
+        throw new PluginError(PLUGIN_ERROR_CODES.PLUGIN_NOT_FOUND,
+          '该插件不纳入独立更新管理: ' + (updateExclusionReason(id) || id));
+      }
       const row = inventoryRows().find((r) => r.id === id);
       const src = row && updateSources[id];
       if (!row || !src) throw new PluginError(PLUGIN_ERROR_CODES.PLUGIN_NOT_FOUND, '该插件没有可用更新源: ' + id);

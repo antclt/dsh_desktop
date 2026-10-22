@@ -93,6 +93,9 @@ export declare const zh: {
     openInAppEmpty: string;
     openInAppFailed: string;
     revealInFileManager: string;
+    openLocally: string;
+    openLocallyMore: string;
+    openLocallyFailed: string;
     filesSelected: string;
     clearSelection: string;
     copyPaths: string;

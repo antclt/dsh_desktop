@@ -37,9 +37,10 @@ function read(p) { return fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n'); }
   check('崩溃退避封顶 60s（无重启风暴）', src.includes('BACKOFF_CAP_MS: u64 = 60_000'));
   check('健康周期归零（立刻退形态不 1s 风暴）', src.includes('WATCHER_HEALTHY_ALIVE'));
   check('stderr 转发线程（防管道写满阻塞子进程）', src.includes('fn forward_stderr'));
-  check('通知限流 30s/会话 + 15s 全局', src.includes('SESSION_THROTTLE_MS: u128 = 30_000') && src.includes('GLOBAL_THROTTLE_MS: u128 = 15_000'));
-  check('跳转事件定向主窗（不广播浮窗）', src.includes('emit_to') && src.includes('EventTarget::labeled("main")'));
-  check('PENDING_JUMP 取出即清（take）', src.includes('PENDING_JUMP.lock().unwrap_or_else(|p| p.into_inner()).take()'));
+  const code = src.replace(/^\s*\/\/!.*$/gm, '').replace(/^\s*\/\/.*$/gm, '');
+  check('回合完成通知已下线（无 fire_notification / notify_gates）', !code.includes('fire_notification') && !code.includes('notify_gates'));
+  check('active_turns 保留（supervisor 假死判定输入）', /fn active_turns/.test(src) && /ACTIVE_TURNS/.test(src));
+  check('PENDING_JUMP / jump 事件已随通知链移除', !code.includes('PENDING_JUMP') && !code.includes('JUMP_EVENT'));
 }
 
 // ---- 2. balance：壳侧轮询环已随 Electron 余额遗留线整体退役（反向守卫）----

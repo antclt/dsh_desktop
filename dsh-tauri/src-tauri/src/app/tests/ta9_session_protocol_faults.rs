@@ -13,7 +13,7 @@
 #[path = "../src/session_notify.rs"]
 mod session_notify_live;
 
-use session_notify_live::{parse_watcher_line, read_capped_line, LineOutcome};
+use session_notify_live::{parse_turn_activity, read_capped_line, LineOutcome};
 // CAP 是实现文件私有 const（8*1024，行协议上限），此处用同值
 // 字面量驱动（read_capped_line 的 cap 是参数，行为断言不受影响）。
 const CAP: usize = 8 * 1024;
@@ -78,16 +78,16 @@ fn binary_garbage_line_is_lossy_decoded_then_rejected_by_parser() {
         }
         other => panic!("垃圾行应按 Line 返回（交解析层拒收），得 {other:?}"),
     }
-    // 解析层拒收（lossy 后必然不是合法 turn-end JSON）。
+    // 解析层拒收（lossy 后必然不是合法 turn 活动 JSON）。
     let mut r2 = garbage;
     if let LineOutcome::Line(s) = read_capped_line(&mut r2, CAP).unwrap() {
-        assert!(parse_watcher_line(&s).is_none(), "垃圾行不得被采纳");
+        assert!(parse_turn_activity(&s).is_none(), "垃圾行不得被采纳");
     }
 }
 
 #[test]
 fn garbage_lines_do_not_poison_following_valid_line() {
-    let valid = br#"{"type":"turn-end","sessionId":"sess-ok","title":"T","body":"B"}"#;
+    let valid = br#"{"type":"turn-start","sessionId":"sess-ok","count":1}"#;
     let mut stream: Vec<u8> = Vec::new();
     stream.extend_from_slice(&[0xFF, 0x00, 0x80, b'\n']); // 垃圾行 1
     stream.extend_from_slice(b"not json at all\n"); // 垃圾行 2（合法 UTF-8 非 JSON）
@@ -98,8 +98,7 @@ fn garbage_lines_do_not_poison_following_valid_line() {
     loop {
         match read_capped_line(&mut r, CAP).unwrap() {
             LineOutcome::Line(s) => {
-                if let Some(ev) = parse_watcher_line(&s) {
-                    assert_eq!(ev.event.session_id, "sess-ok");
+                if parse_turn_activity(&s).is_some() {
                     parsed += 1;
                 }
             }
@@ -119,13 +118,13 @@ fn oversized_line_without_newline_is_dropped_and_stream_survives() {
     let mut stream: Vec<u8> = Vec::new();
     stream.extend(std::iter::repeat(b'A').take(CAP * 4)); // 巨串无换行
     stream.push(b'\n');
-    stream.extend_from_slice(br#"{"type":"turn-end","sessionId":"after-big","title":null,"body":null}"#);
+    stream.extend_from_slice(br#"{"type":"turn-end","sessionId":"after-big","count":1}"#);
     stream.push(b'\n');
     let mut r: &[u8] = &stream;
     assert!(matches!(read_capped_line(&mut r, CAP).unwrap(), LineOutcome::Oversized), "巨串整行丢弃");
     // 流继续可用：下一行（合法协议行）正常返回并被解析。
     match read_capped_line(&mut r, CAP).unwrap() {
-        LineOutcome::Line(s) => assert!(parse_watcher_line(&s).is_some(), "巨串后的合法行照常解析"),
+        LineOutcome::Line(s) => assert!(parse_turn_activity(&s).is_some(), "巨串后的合法行照常解析"),
         other => panic!("巨串后流应继续：{other:?}"),
     }
     assert!(matches!(read_capped_line(&mut r, CAP).unwrap(), LineOutcome::Eof));
@@ -151,7 +150,7 @@ fn eof_half_line_returned_then_rejected_by_parser() {
     let mut r: &[u8] = half;
     match read_capped_line(&mut r, CAP).unwrap() {
         LineOutcome::Line(s) => {
-            assert!(parse_watcher_line(&s).is_none(), "半行 JSON 必须拒收（不得部分采纳）");
+            assert!(parse_turn_activity(&s).is_none(), "半行 JSON 必须拒收（不得部分采纳）");
         }
         other => panic!("EOF 半行应按 Line 返回交解析层裁决，得 {other:?}"),
     }
@@ -170,25 +169,21 @@ fn empty_stream_immediate_eof() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn parse_watcher_line_adversarial_matrix() {
-    assert!(parse_watcher_line("").is_none(), "空行");
-    assert!(parse_watcher_line("   ").is_none(), "空白行");
-    assert!(parse_watcher_line("\u{0}\u{1}\u{2}").is_none(), "控制字符");
-    assert!(parse_watcher_line("null").is_none(), "JSON null");
-    assert!(parse_watcher_line("123").is_none(), "数字");
-    assert!(parse_watcher_line(r#""string""#).is_none(), "字符串");
-    assert!(parse_watcher_line("[]").is_none(), "数组");
-    assert!(parse_watcher_line(r#"{"type":"turn-start"}"#).is_none(), "非 turn-end");
-    assert!(parse_watcher_line(r#"{"type":"turn-end"}"#).is_none(), "缺 sessionId");
-    assert!(parse_watcher_line(r#"{"type":"turn-end","sessionId":123}"#).is_none(), "sessionId 非字符串");
-    assert!(parse_watcher_line(r#"{"type":"turn-end","sessionId":""}"#).is_none(), "sessionId 空");
-    assert!(parse_watcher_line(&format!(r#"{{"type":"turn-end","sessionId":"{}"}}"#, "x".repeat(257))).is_none(), "sessionId 超长");
-    // title/body 非字符串按缺省处理（不炸、不误采纳）。
-    let ok = parse_watcher_line(r#"{"type":"turn-end","sessionId":"s","title":42,"body":[1]}"#).unwrap();
-    assert_eq!(ok.event.title, None);
-    assert_eq!(ok.body, None);
-    // CRLF 容错。
-    assert!(parse_watcher_line("{\"type\":\"turn-end\",\"sessionId\":\"crlf\"}\r\n").is_some());
-    // 合法行仍通过（对照组）。
-    assert!(parse_watcher_line(r#"{"type":"turn-end","sessionId":"good","title":"t","body":"b"}"#).is_some());
+fn parse_turn_activity_adversarial_matrix() {
+    assert!(parse_turn_activity("").is_none(), "空行");
+    assert!(parse_turn_activity("   ").is_none(), "空白行");
+    assert!(parse_turn_activity("\u{0}\u{1}\u{2}").is_none(), "控制字符");
+    assert!(parse_turn_activity("null").is_none(), "JSON null");
+    assert!(parse_turn_activity("123").is_none(), "数字");
+    assert!(parse_turn_activity(r#""string""#).is_none(), "字符串");
+    assert!(parse_turn_activity("[]").is_none(), "数组");
+    assert!(parse_turn_activity(r#"{"type":"ready"}"#).is_none(), "非 turn-start/turn-end");
+    assert!(parse_turn_activity(r#"{"type":"log","msg":"x"}"#).is_none(), "日志行");
+    // count 语义：turn-start 缺省按 1；turn-end 缺省按 0（兜底通知不减）。
+    assert_eq!(parse_turn_activity(r#"{"type":"turn-start","sessionId":"s"}"#), Some(session_notify_live::TurnActivity::Start(1)));
+    assert_eq!(parse_turn_activity(r#"{"type":"turn-start","sessionId":"s","count":3}"#), Some(session_notify_live::TurnActivity::Start(3)));
+    assert_eq!(parse_turn_activity(r#"{"type":"turn-end","sessionId":"s"}"#), Some(session_notify_live::TurnActivity::End(0)));
+    assert_eq!(parse_turn_activity(r#"{"type":"turn-end","sessionId":"s","count":2}"#), Some(session_notify_live::TurnActivity::End(2)));
+    // CRLF 容错（read_capped_line 已剥 \r，此处验证解析层自身 trim）。
+    assert!(parse_turn_activity("{\"type\":\"turn-end\",\"sessionId\":\"crlf\",\"count\":1}\r\n").is_some());
 }

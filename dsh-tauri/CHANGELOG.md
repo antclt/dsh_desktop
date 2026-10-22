@@ -1,5 +1,33 @@
 # Changelog — DSH Desktop（Tauri 版，主线架构 v0.5.0 起）
 
+## [Unreleased]
+
+## [1.0.7] — 2026-10-22
+
+### fix(notify)：壳层「回合完成」通知下线，改由随包 `dsh-notify` 插件接管
+
+- **下线面**：`session_notify.rs` 删除 `NotifyThrottle` / `should_notify` / `notification_text` /
+  `fire_notification` / `request_main_window_attention` / `PENDING_JUMP` / `on_main_window_focused` /
+  `JUMP_*` / `notify_gates` / `handle_turn_end` 与 `TurnEndLine`/`TurnEndEvent` 解析；
+  `lib.rs` 删除主窗 Focused(true) 补发钩子；`menu.rs` / `lifecycle.rs` 删除 `toggle-notify` 动作与
+  `notifyOnTurnEnd` 返回键；`shim.rs` / `dist/bridge-shim.js` 删除「会话完成通知」菜单行与 toggle 分支。
+  `onNotificationJump` 方法位保留（页面侧兼容，注明壳层不再发射）。
+- **保留面**：session watcher 的 spawn / 行协议 / 退避 / 收割与 `active_turns`（supervisor 假死判定，
+  issue #159 的输入）；`tauri-plugin-notification` 初始化与 ACP / CrashLoop 两条独立通知（更新提示、
+  连接反馈也仍走垫片 `shellNotify`）。
+- **契约与测试**：`bridge-api.md` / `ipc-commands.md` / `wsl-backend.md` 同步「无生产者/已下线」语义；
+  删除 3 个通知专属 Rust 套件（`ta1-notify-throttle-property` / `ta3-notify-pipeline` /
+  `ta15-notify-race-matrix`），改写 `session_notify_boundary` / `ta10` / `ta9` / `time_logic_audit` /
+  `rv7`；Node 侧 `ta7-contract-audit`（act 14→13）、`ta5-dom-behavior`（菜单点击改
+  `toggle-close-to-tray`）、`unit-balance-config-entry` 键表与 TA16 金样（`shim-menu-text` /
+  `error-messages` / `notifications`）随迁。
+- **验证**：`cargo test -p dsh-tauri-app --target x86_64-pc-windows-gnu` → 431 passed / 0 failed /
+  3 ignored；`cargo test -p bridge` → 30 passed；`cargo test --workspace` → 607 passed / 0 failed /
+  4 ignored；`node --test sidecar/cli.test.js` → 21/21；
+  `node --test ta7-contract-audit / ta5-dom-behavior / unit-balance-config-entry` 全绿。
+- **已知限制**：`dsh-notify` 走渲染进程 Web Notification；Windows/WebView2 的系统通知 UI 与点击
+  聚焦语义待真机复核，macOS/WKWebView 预计无 Notification API（设置卡会显示 unsupported）。
+
 # DSH Desktop v1.0.6 — 已发布（2026-10-18 正式版；随包内核换代 0.2.1-rc.2，壳侧零改动）
 
 ## 🔁 只换内核与适配层：Rust / 契约 / sidecar 一处未动

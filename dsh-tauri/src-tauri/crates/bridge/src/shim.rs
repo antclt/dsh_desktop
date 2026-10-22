@@ -21,6 +21,8 @@ const REQUIRED_SURFACES: &[&str] = &[
     "windowControls.onMaximizeChange",
     "menu.action",
     "getInfo",
+    // 壳层 2026-10-22 起不再发射 notification-jump（通知改由内置插件
+    // dsh-notify 在渲染进程发送）；方法位保留以兼容旧页面调用。
     "onNotificationJump",
     "wsl.getConfig",
     "wsl.saveConfig",
@@ -356,7 +358,6 @@ mod window_chrome_tests {
             "检查客户端更新",
             "下载并安装",                                // 可更新态的安装按钮
             "更新源（点行内「复制」拷贝地址）",
-            "menuItemHtml('toggle-notify'",
             "menuItemHtml('toggle-close-to-tray'",
             "menuItemHtml('toggle-auto-update'",       // 自动安装客户端更新开关
             "自动安装客户端更新",
@@ -424,7 +425,7 @@ mod window_chrome_tests {
         }
         // 开关类点击不得关菜单（Electron 同语义：toggle 后留在菜单里看新状态）。
         let toggle_seg = BRIDGE_SHIM_JS
-            .split("if (act === 'toggle-notify'")
+            .split("if (act === 'toggle-close-to-tray'")
             .nth(1)
             .and_then(|s| s.split("if (act === 'check-client-update'").next())
             .expect("toggle 分支");

@@ -13,6 +13,13 @@
 // sidecar 写。所有文件写入都在壳侧（单一写者），所以这里不碰 cordis.patch.yml，
 // 也不假装能即时生效——停用是**下次启动生效**（patch 层在内核装配期读取）。
 //
+// 本次加「版本 / 检查更新 / 单个更新」——仍然只做界面：下载、校验、备份、替换全在
+// sidecar（dsh:plugin-check-updates / dsh:plugin-update），页面只读结果。
+//   - 行数据可能带 version（旧 sidecar 不带）——缺省就整段不渲染，不显示 "vundefined"。
+//   - 检查结果按行 id 合并；检查失败落页内错误行，列表照常可用（不整页炸）。
+//   - better-sidebar 由 sidecar 从检查里排除，这里再按 id 兜一层：绝不画一个后端
+//     必然拒绝的更新按钮（它的更新走随包整包换代，不是单插件下载）。
+//
 // 组件刻意保持单层（不拆子组件）：本仓库的 client 回归夹具是「真实 React +
 // 手驱钩子」的迷你挂载器，只能展开一层函数组件；拆出去就不是难测，而是测不到。
 // note()/normalize() 是纯函数，不进组件树，随便放。
@@ -42,6 +49,21 @@ window.__ModuleLoader__.load({
       saved: "已保存「{name}」为{state}。",
       saving: "正在保存…",
       retry: "重新读取",
+      checkUpdates: "检查更新",
+      checking: "正在检查…",
+      checkFailed: "检查更新失败：",
+      checkUnsupported: "当前桌面客户端不支持检查更新（桥里没有 checkUpdates）。",
+      checkItemFailed: "检查失败：",
+      latestIs: "已是最新：{version}",
+      latestIsBare: "已是最新",
+      latestOf: "最新 {version}",
+      updateTag: "可更新",
+      update: "更新",
+      updating: "正在更新…",
+      updated: "已更新到 {version} · 下次启动生效",
+      updatedBare: "已更新 · 下次启动生效",
+      updateFailed: "更新失败：",
+      updateUnsupported: "当前桌面客户端不支持更新（桥里没有 update）。",
       searchAria: "搜索内置插件",
       searchPlaceholder: "搜索名称、标识或描述",
       filterLabel: "按状态筛选",
@@ -75,6 +97,21 @@ window.__ModuleLoader__.load({
       saved: "Saved “{name}” as {state}.",
       saving: "Saving…",
       retry: "Reload",
+      checkUpdates: "Check for updates",
+      checking: "Checking…",
+      checkFailed: "Update check failed: ",
+      checkUnsupported: "This desktop build cannot check for updates (no checkUpdates on the bridge).",
+      checkItemFailed: "Check failed: ",
+      latestIs: "Up to date: {version}",
+      latestIsBare: "Up to date",
+      latestOf: "Latest {version}",
+      updateTag: "Update available",
+      update: "Update",
+      updating: "Updating…",
+      updated: "Updated to {version} · takes effect on next launch",
+      updatedBare: "Updated · takes effect on next launch",
+      updateFailed: "Update failed: ",
+      updateUnsupported: "This desktop build cannot update plugins (no update on the bridge).",
       searchAria: "Search built-in plugins",
       searchPlaceholder: "Search name, id or description",
       filterLabel: "Filter by state",
@@ -106,6 +143,10 @@ window.__ModuleLoader__.load({
     // 与本包 cordis.patch.yml 的 loader id、sidecar 行 id 同值（回归测试咬三方一致）。
     const SELF = "dsh-builtin-manager";
 
+    // 不参与「单个更新」的件：better-sidebar 随包整包换代（sidecar 的 checkUpdates 也
+    // 把它排除了）。按 id 兜底，避免后端契约变化时界面画出必然失败的按钮。
+    const UPDATE_EXCLUDED_ID = "better-sidebar";
+
     // 颜色与圆角全走内核设计系统变量（--dsw-*）。
     const S = {
       root: { display: "flex", flexDirection: "column", gap: 12, minWidth: 0 },
@@ -125,11 +166,18 @@ window.__ModuleLoader__.load({
       body: { flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: 4 },
       nameRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
       name: { fontWeight: 600, fontSize: 13, lineHeight: "20px", color: "var(--dsw-alias-label-primary)", wordBreak: "break-all" },
+      // 版本号 / 「最新 x」共用：muted 小字，等宽数字（同一列比较版本时不会跳）。
+      version: {
+        fontSize: 12, lineHeight: "18px", color: "var(--dsw-alias-label-tertiary)",
+        fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap"
+      },
       desc: {
         fontSize: 12, lineHeight: "18px", color: "var(--dsw-alias-label-secondary)",
         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden"
       },
       note: { fontSize: 12, lineHeight: "18px", whiteSpace: "pre-wrap", wordBreak: "break-word" },
+      // 行尾动作列：更新按钮在上、开关在下，右对齐；宽度不参与行主体压缩。
+      actions: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flex: "0 0 auto" },
       switchWrap: { paddingTop: 2, flex: "0 0 auto" }
     };
 
@@ -154,6 +202,14 @@ window.__ModuleLoader__.load({
         .filter((r) => r.group === "companion");
     }
 
+    // 版本号显示：行数据可能没有 version（旧 sidecar），也可能已经带 v（上游 tag 风格）。
+    // 空值返回空串，调用点据此整段不渲染——不显示 "vundefined" 这种假版本。
+    function displayVersion(v) {
+      const s = String(v === null || v === undefined ? "" : v).trim();
+      if (s === "") return "";
+      return /^v/i.test(s) ? s : "v" + s;
+    }
+
     function PanelSection() {
       const L = dict();
       const bridge = (typeof window !== "undefined" && window.dshDesktop && window.dshDesktop.pluginManager) || null;
@@ -166,6 +222,11 @@ window.__ModuleLoader__.load({
       const [changed, setChanged] = react.useState({});
       const [query, setQuery] = react.useState("");
       const [filter, setFilter] = react.useState("all");
+      // 更新链的状态：检查结果（按行 id 索引）、检查在途、检查失败原文、逐行更新在途。
+      const [updates, setUpdates] = react.useState({});
+      const [checking, setChecking] = react.useState(false);
+      const [checkError, setCheckError] = react.useState("");
+      const [updating, setUpdating] = react.useState({});
 
       const load = react.useCallback(async () => {
         if (!bridge) { setState("no-bridge"); return; }
@@ -181,6 +242,30 @@ window.__ModuleLoader__.load({
       }, [bridge]);
 
       react.useEffect(() => { load(); }, [load]);
+
+      // 「检查更新」：sidecar 回 {ok:true, items:[...]}（也容忍裸数组）。items 每项至少
+      // {id, latest, hasUpdate}（部分实现另带 current/source/error）。按行 id 建表；
+      // 检查失败只写错误行，不动 rows/state——列表照常可读可开关。
+      const check = react.useCallback(async () => {
+        if (!bridge) return;
+        if (typeof bridge.checkUpdates !== "function") { setCheckError(L.checkUnsupported); return; }
+        setChecking(true); setCheckError("");
+        try {
+          const r = await bridge.checkUpdates();
+          if (r && r.ok === false) {
+            setCheckError(String(r.error || r.message || ""));
+            return;
+          }
+          const items = Array.isArray(r) ? r : (r && Array.isArray(r.items) ? r.items : []);
+          const next = {};
+          items.forEach((it) => { if (it && typeof it.id === "string") next[it.id] = it; });
+          setUpdates(next);
+        } catch (e) {
+          setCheckError(String((e && e.message) || e));
+        } finally {
+          setChecking(false);
+        }
+      }, [bridge, L]);
 
       const toggle = react.useCallback(async (row, next) => {
         if (!bridge) return;
@@ -206,6 +291,41 @@ window.__ModuleLoader__.load({
         }
       }, [bridge, L]);
 
+      // 「更新」：sidecar 回 {ok:true, version, restartRequired} 或 {ok:false, error}。
+      // 失败保留更新按钮（可重试）、原文上屏；成功后摘掉该行的更新态并重新 load()，
+      // 让版本号回到 sidecar 的新事实——反馈文案里另给目标版本，不靠列表自证。
+      const runUpdate = react.useCallback(async (row) => {
+        if (!bridge) return;
+        if (typeof bridge.update !== "function") {
+          setNotes((prev) => ({ ...prev, [row.id]: { text: L.updateUnsupported, tone: "error" } }));
+          return;
+        }
+        setUpdating((prev) => ({ ...prev, [row.id]: true }));
+        setNotes((prev) => ({ ...prev, [row.id]: { text: L.updating, tone: "muted" } }));
+        try {
+          const r = await bridge.update(row.id);
+          if (!r || r.ok === false) {
+            setNotes((prev) => ({ ...prev, [row.id]: {
+              text: L.updateFailed + String((r && (r.error || r.message)) || ""),
+              tone: "error"
+            } }));
+            return;
+          }
+          const next = (r && r.version) || (updates[row.id] && updates[row.id].latest) || "";
+          setNotes((prev) => ({ ...prev, [row.id]: {
+            text: next ? L.updated.replace("{version}", displayVersion(next)) : L.updatedBare,
+            tone: "ok"
+          } }));
+          setUpdates((prev) => { const n = { ...prev }; delete n[row.id]; return n; });
+          setChanged((prev) => ({ ...prev, [row.id]: true }));
+          await load();
+        } catch (e) {
+          setNotes((prev) => ({ ...prev, [row.id]: { text: L.updateFailed + String((e && e.message) || e), tone: "error" } }));
+        } finally {
+          setUpdating((prev) => { const n = { ...prev }; delete n[row.id]; return n; });
+        }
+      }, [bridge, load, updates, L]);
+
       if (state === "no-bridge") {
         return jsx("section", {
           children: jsx("p", { style: { fontSize: 12, opacity: .75 }, children: L.noBridge }, "msg")
@@ -221,7 +341,7 @@ window.__ModuleLoader__.load({
         return [row.name, row.id, row.description].some((v) => String(v || "").toLowerCase().indexOf(q) !== -1);
       });
       const enabledCount = rows.filter((r) => r.enabled === true).length;
-      const anyBusy = Object.keys(busy).length > 0;
+      const anyBusy = Object.keys(busy).length > 0 || Object.keys(updating).length > 0;
       const filterOptions = [
         { value: "all", label: L.filterAll.replace("{n}", String(rows.length)) },
         { value: "on", label: L.filterOn.replace("{n}", String(enabledCount)) },
@@ -253,6 +373,15 @@ window.__ModuleLoader__.load({
                 variant: "ghost",
                 size: "sm",
                 icon: jsx(IconRefreshOutlineRegular, {}),
+                disabled: state !== "ready" || checking || anyBusy,
+                title: L.checkUpdates,
+                onClick: check,
+                children: checking ? L.checking : L.checkUpdates
+              }, "check-updates"),
+              jsx(Button, {
+                variant: "ghost",
+                size: "sm",
+                icon: jsx(IconRefreshOutlineRegular, {}),
                 disabled: anyBusy,
                 title: L.retry,
                 onClick: load,
@@ -261,6 +390,7 @@ window.__ModuleLoader__.load({
             ]
           }, "toolbar"),
           state === "failed" ? note(L.loadFailed + loadError, "error") : null,
+          state === "ready" && checkError !== "" ? note(L.checkFailed + checkError, "error") : null,
           state === "empty" ? note(L.empty, "muted") : null,
           state === "ready" ? jsxs("div", {
             style: S.filterRow,
@@ -287,7 +417,15 @@ window.__ModuleLoader__.load({
                 : (row.removed === true ? L.removed
                   : (row.hasConfig === true && row.enabled === false ? L.configLock : L.locked));
               const rowBusy = busy[row.id] === true;
+              const rowUpdating = updating[row.id] === true;
               const rowNote = notes[row.id];
+              // 更新链只对「有检查结果且判定可更新」的行开控件；removed 行与
+              // better-sidebar（随包整包换代）不画按钮。检查失败/已是最新另走行内说明。
+              const upd = updates[row.id];
+              const excluded = row.id === UPDATE_EXCLUDED_ID;
+              const updateOffered = !!upd && upd.hasUpdate === true && !upd.error
+                && row.removed !== true && !excluded;
+              const latestText = upd && upd.latest ? displayVersion(upd.latest) : "";
               return jsxs("div", {
                 "data-plugin-id": row.id,
                 style: S.card,
@@ -299,28 +437,52 @@ window.__ModuleLoader__.load({
                         style: S.nameRow,
                         children: [
                           jsx("span", { style: S.name, children: row.name || row.id }, "name"),
+                          row.version ? jsx("span", { style: S.version, children: displayVersion(row.version) }, "version") : null,
                           jsx(Tag, {
                             tone: row.enabled === true ? "success" : "neutral",
                             children: row.enabled === true ? L.stateOn : L.stateOff
                           }, "state"),
-                          changed[row.id] ? jsx(Tag, { tone: "warning", children: L.changed }, "changed") : null
+                          changed[row.id] ? jsx(Tag, { tone: "warning", children: L.changed }, "changed") : null,
+                          updateOffered ? jsx(Tag, { tone: "warning", children: L.updateTag }, "update-tag") : null,
+                          updateOffered && latestText
+                            ? jsx("span", { style: S.version, children: L.latestOf.replace("{version}", latestText) }, "latest")
+                            : null
                         ]
                       }, "head"),
                       row.description ? jsx("div", { style: S.desc, title: row.description, children: row.description }, "desc") : null,
                       locked ? note(why, "muted") : null,
+                      upd && !excluded && upd.error
+                        ? note(L.checkItemFailed + String(upd.error), "error")
+                        : null,
+                      upd && !excluded && !upd.error && upd.hasUpdate === false
+                        ? note(latestText ? L.latestIs.replace("{version}", latestText) : L.latestIsBare, "muted")
+                        : null,
                       rowNote ? note(rowNote.text, rowNote.tone) : null
                     ]
                   }, "body"),
-                  jsx("div", {
-                    style: S.switchWrap,
-                    children: jsx(Switch, {
-                      checked: row.enabled === true,
-                      disabled: locked || rowBusy,
-                      label: L.switchLabel.replace("{name}", row.name || row.id),
-                      title: locked ? why : undefined,
-                      onChange: (next) => toggle(row, next)
-                    }, "switch")
-                  }, "switch")
+                  jsxs("div", {
+                    style: S.actions,
+                    children: [
+                      updateOffered ? jsx(Button, {
+                        variant: "secondary",
+                        size: "sm",
+                        disabled: rowUpdating || rowBusy,
+                        title: L.update,
+                        onClick: () => runUpdate(row),
+                        children: rowUpdating ? L.updating : L.update
+                      }, "update") : null,
+                      jsx("div", {
+                        style: S.switchWrap,
+                        children: jsx(Switch, {
+                          checked: row.enabled === true,
+                          disabled: locked || rowBusy,
+                          label: L.switchLabel.replace("{name}", row.name || row.id),
+                          title: locked ? why : undefined,
+                          onChange: (next) => toggle(row, next)
+                        }, "switch")
+                      }, "switch")
+                    ]
+                  }, "actions")
                 ]
               }, row.id);
             })

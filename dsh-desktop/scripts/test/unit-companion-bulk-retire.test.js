@@ -65,6 +65,8 @@ function patchFixture() {
     '        scale: 1',
     '    - id: dsh-vision',
     "      name: '@dsh-external/dsh-vision'",
+    '    - id: side-session',
+    "      name: '@dsh-external/dsh-side-session'",
     '- id: graph-memory',
     '  name: graph-memory',
     '- id: cardian',
@@ -120,7 +122,7 @@ test('retiredCompanionPatchIds：含历史别名，排除 dirsOnly 官方同名�
 test('removeRetiredCompanionPatchRows：三种形状全部撤回，合法覆盖与官方同名行保留', () => {
   const r = removeRetiredCompanionPatchRows(patchFixture());
   assert.strictEqual(r.changed, true);
-  for (const id of ['harness-pet', 'dsh-vision', 'graph-memory', 'cardian']) {
+  for (const id of ['harness-pet', 'dsh-vision', 'side-session', 'graph-memory', 'cardian']) {
     assert.ok(!r.patch.includes('id: ' + id), '退役登记应被撤回: ' + id);
   }
   // legacyIds：老装机机器写的是 dsh-terminal（\b 边界事故的当事对，见 RETIRED_COMPANIONS 注释）。
@@ -315,11 +317,26 @@ test('清单：批量退役 11 条已摘出、进名单，且活动清单与退�
     'community-market', 'market-desktop-bridge', 'dsh-hub', 'file-drop', 'image-paste', 'cardian'];
   const retiredIds = new Set(RETIRED_COMPANIONS.map((p) => p.id));
   for (const id of bulk) assert.ok(retiredIds.has(id), '应进 RETIRED_COMPANIONS: ' + id);
-  assert.strictEqual(RETIRED_COMPANIONS.length, 13, '11 条批量退役 + 1 条 plugin-manager（dirsOnly）+ 1 条随内核 0.2.1 退役的 reasoning-effort');
+  assert.strictEqual(RETIRED_COMPANIONS.length, 14, '11 条批量退役 + plugin-manager（dirsOnly）+ reasoning-effort + 2026-10-22 移除的 side-session');
   const listed = new Set(COMPANION_PLUGINS.map((p) => p.id));
   for (const id of retiredIds) assert.ok(!listed.has(id), '退役条目不得留在清单: ' + id);
   const dirs = new Set(COMPANION_PLUGINS.map(companionDirName));
   for (const d of RETIRED_COMPANION_DIRS) assert.ok(!dirs.has(d), '退役目录不得同时出现在清单里: ' + d);
   // 名字是回收面的唯一来源：把手工删掉的目录名留在名单里才有意义。
   assert.strictEqual(RETIRED_COMPANION_DIRS.length, RETIRED_COMPANIONS.length);
+});
+
+test('2026-10-22 移除「临时对话」：清单、源目录、更新源与双入口接线', () => {
+  const { UPDATE_SOURCES } = require('../lib/plugin-update-sources');
+  assert.ok(!COMPANION_PLUGINS.some((p) => p.id === 'side-session'), '不得留在 COMPANION_PLUGINS');
+  assert.ok(RETIRED_COMPANIONS.some((p) => p.id === 'side-session'), '必须进 RETIRED_COMPANIONS 才能回收存量机器');
+  assert.ok(!UPDATE_SOURCES['side-session'], '退役后不得留在更新源表');
+  assert.ok(!fs.existsSync(path.join(__dirname, '..', '..', 'assets', 'plugins', 'dsh-side-session')),
+    '源目录必须删除，否则打包仍会带上');
+
+  // 双入口的通用接线已由上一用例咬住；这里再锁「两边都没有把 side-session 写回」。
+  for (const rel of [['..', 'integration', 'plugin-sync.js'], ['..', 'sync-companion-plugins.js']]) {
+    const src = fs.readFileSync(path.join(__dirname, ...rel), 'utf8');
+    assert.ok(!/insert:[^;]*side-session/.test(src), rel.join('/') + ' 不得重新登记 side-session');
+  }
 });

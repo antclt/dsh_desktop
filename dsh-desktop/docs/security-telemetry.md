@@ -28,11 +28,11 @@ client-updater / plugin-manager）、内核（@deepseek-ai/dsh 0.1.1-rc.1 全家
 - 更新链（GitHub api / gitee api / registry.npmjs.org / registry.npmmirror.com /
   codeload.github.com 及 gh 镜像）— **请求不带任何凭据**，只有 User-Agent。
 - 用户显式配置的第三方端点（自担风险，见下）：
-  - openclaw-bridge 的 customBaseURL（如 siliconflow，独立 key）；
-  - side-session 摘要模型的自配端点。
+  - openclaw-bridge 的 customBaseURL（如 siliconflow，独立 key）。
 
-  > 2026-08 审计时该清单还有一条「识图插件 `dsh-vision` 的 VLM baseURL（默认 open.bigmodel.cn，
-  > 独立 apiKey）」；该插件已于 2026-10-07 退役、不再随包，故从现行清单移出（出网点历史记录保留在此）。
+  > 2026-08 审计时该清单还有两条：识图插件 `dsh-vision` 的 VLM baseURL（默认 open.bigmodel.cn，
+  > 独立 apiKey）与 side-session 摘要模型的自配端点。前者 2026-10-07 退役，后者 2026-10-22
+  > 按用户要求从内置清单移除；两者均不再随包，故从现行清单移出（出网点历史记录保留在此）。
 
 **结论：没有任何代码路径把 DEEPSEEK_API_KEY 发往 deepseek 官方域与用户自配端点之外。**
 

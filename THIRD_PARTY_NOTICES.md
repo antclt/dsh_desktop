@@ -5,7 +5,7 @@
 
 **口径（v1.0.0 内置线）**：本清单按**实际进安装包的载荷**现场重算——
 `dsh-tauri/package-payload/dsh-desktop` 的 `node_modules` 全树（768 个唯一 `包名@版本`，其中 DeepSeek 官方 330 个）、
-随包内置插件树（`assets/plugins`，29 个插件 + 其自带依赖树，见第 4 节）、
+随包内置插件树（`assets/plugins`，34 个插件 + 其自带依赖树，见第 4 节）、
 内置运行时（Node v24.15.0 + npm 11.12.1）与 Tauri/Rust 壳层（`src-tauri/Cargo.lock`，531 个 crate）。
 
 与旧版清单的两点实质差异：① **不再有 Electron**——壳层是 Tauri 2，渲染后端为系统 WebView（Windows 的 WebView2 / macOS 的 WKWebView / Linux 的 WebKitGTK），
@@ -21,6 +21,7 @@ electron / electron-builder / electron-winstaller 已从载荷中排除；② **
 | 组件 | 版本 | 许可证 | 来源 |
 |---|---|---|---|
 | schemastery | 3.18.0 | MIT | https://github.com/shigma/schemastery |
+| smol-toml | 1.9.1 | BSD-3-Clause | https://github.com/squirrelchat/smol-toml |
 | ws | 8.22.0 | MIT | https://github.com/websockets/ws |
 | yaml | 2.9.1 | ISC | https://eemeli.org/yaml/ |
 | zod | 4.4.3 | MIT | https://zod.dev |
@@ -737,7 +738,7 @@ CI 五个架构的 staging 同口径），装机后首次开机由 boot 的插�
 > 许可原文实测见 `dsh-desktop/docs/builtin-plugins-inventory.md` §三 #13），许可原文见该目录内的
 > `LICENSE`（标准 GPL-2.0 文本）。
 
-### 4.1 `dsh-desktop/assets/plugins`（29 个配套插件）
+### 4.1 `dsh-desktop/assets/plugins`（34 个配套插件）
 
 > **v1.0.0 精简（2026-10-07）**：内置伴随插件由 39 个减为 28 个——用户点名移除 11 个，其源目录已从
 > `dsh-desktop/assets/plugins/` 整树删除，仓库不再携带，故其许可义务不再适用、本表相应撤除其行：
@@ -750,6 +751,12 @@ CI 五个架构的 staging 同口径），装机后首次开机由 boot 的插�
 > `@deepseek-ai/dsh-client-ui-settings-models` 已能在设置里直接声明自定义模型的推理强度档，
 > 该插件剩下的独立面被官方接走；源目录同样整树删除，本表相应撤行。
 > 回收机器：摘 `COMPANION_PLUGINS` 条目 + 进 `RETIRED_COMPANIONS` 名单 + 删源目录（三件事一起做）。
+>
+> **2026-10-19 替换 1 个实现（仍在册）**：`dsh-prompt-optimizer` 由本仓 2.4.0 自研升级线
+> 整体换为上游 [`Y1X1n/dsh-prompt-optimizer`](https://github.com/Y1X1n/dsh-prompt-optimizer)
+> `0.6.1` 的 vendored 版本（本地版本线 `3.0.0`，MIT，Copyright (c) 2026 Y1X1n）。
+> 包名与 loader id 沿用 `dsh-prompt-optimizer` / `prompt-optimizer` 以便老 profile 原地覆盖；
+> 许可原文见该目录内 `LICENSE`。
 
 | 插件 | 版本 | 许可证 |
 |---|---|---|
@@ -762,11 +769,11 @@ CI 五个架构的 staging 同口径），装机后首次开机由 boot 的插�
 | @deepseek-ai/dsh-quest-ui | 0.6.1 | MIT |
 | @deepseek-ai/dsh-workspace-anchor | 0.1.1 | MIT |
 | @deepseek-ai/dsh-wsl-settings | 0.1.0 | MIT |
-| @dsh-external/dsh-side-session | 0.3.1 | MIT |
 | @dsh-external/dsh-subagent-lens | 0.1.1 | MIT |
 | @dsh-external/dsh-super-injector | 0.3.1 | BSD-3-Clause |
 | billion-context-dsh | 0.2.26 | MIT |
 | dsh-auto-compact | 0.1.2 | MIT |
+| ds-bot | 0.2.0 | Apache-2.0 |
 | dsh-basics-panel | 0.4.2 | MIT |
 | dsh-better-sidebar | 0.24.2 | MIT |
 | dsh-builtin-manager | 0.2.0 | MIT |
@@ -776,16 +783,29 @@ CI 五个架构的 staging 同口径），装机后首次开机由 boot 的插�
 | dsh-input-history | 0.1.1 | MIT |
 | dsh-offpeak | 1.0.1 | MIT |
 | dsh-pocket | 2.10.7 | GPL-2.0 |
-| dsh-prompt-optimizer | 2.4.0 | MIT |
+| dsh-prompt-optimizer | 3.0.0 | MIT |
 | dsh-session-manager | 0.1.0 | MIT |
 | dsh-settings-groups | 0.1.1 | MIT |
 | dsh-settings-nav-custom | 0.1.1 | MIT |
-| dsh-synapse | 0.3.0 | MIT |
+| dsh-synapse | 0.3.1 | MIT |
 | dsh-zcode-migrate | 0.1.2 | MIT |
+| dsh-free-search | 0.9.11 | MIT |
+| dsh-plugin-shop | 0.9.0 | Apache-2.0 |
+| @local/dsh-network-proxy | 1.0.0 | MIT |
+| dsh-toolbox-ui | 1.8.2 | MIT |
+| @bittersmilezzz/dsh-notify | 0.4.5 | MIT |
+
+> **2026-10-22 新增 5 个上游插件（29→34）**：`dsh-free-search`（[DDDMUC/dsh-free-search](https://github.com/DDDMUC/dsh-free-search)，MIT）、
+> `dsh-plugin-shop`（[LivXue/dsh-plugin-shop](https://github.com/LivXue/dsh-plugin-shop)，Apache-2.0）、
+> `@local/dsh-network-proxy`（[baizhizzl/dsh-network-proxy](https://github.com/baizhizzl/dsh-network-proxy)，MIT）、
+> `dsh-toolbox-ui`（[Imzl-zl/dsh-toolbox-ui](https://github.com/Imzl-zl/dsh-toolbox-ui)，MIT）、
+> `@bittersmilezzz/dsh-notify`（[bitterSmilezzz/dsh-notify](https://github.com/bitterSmilezzz/dsh-notify)，MIT）。
+> 许可原文均在各插件目录内 `LICENSE`；`dsh-toolbox-ui` 的宿主半边静态导入 `smol-toml`（BSD-3-Clause，
+> 见 §1.1）——该包不在内核闭包内，由 `dsh-desktop/package.json` 显式声明并进 `VENDOR_DEPS`。
 
 ### 4.2 插件自带依赖树（随包进入安装包，此前不在 768 计数内）
 
-29 条插件里只有 `dsh-pocket` 声明 `shipsNodeModules: true`（`scripts/lib/companion-plugins.js`），
+34 条插件里只有 `dsh-pocket` 声明 `shipsNodeModules: true`（`scripts/lib/companion-plugins.js`），
 其内层 `node_modules` 是 git 跟踪的正件依赖树，随内置线一并进安装包。
 下表按包目录现场读取 `package.json` 重算（26 个唯一 `包名@版本`；`qrcode-terminal` 无 `license` 字段，
 按其包内 `LICENSE` 文本记为 Apache-2.0）：

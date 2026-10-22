@@ -133,6 +133,22 @@ test('plugin-list：boot 后可列出 companion 插件', { skip: !HAVE_DEPS }, (
       assert.ok(key in row, `插件行缺字段 ${key}: ${JSON.stringify(row)}`);
     }
   }
+
+  // 更新链补充字段（contracts/bridge-api.md §2.6，可选字段向后兼容）：
+  // companion 行必须带非空 version（页面展示已装版本），并带两个布尔判定。
+  const companions = r.json.filter((x) => x.group === 'companion');
+  assert.ok(companions.length >= 20, `companion 行数异常: ${companions.length}`);
+  for (const row of companions) {
+    assert.strictEqual(typeof row.version, 'string', `companion 行缺 version: ${JSON.stringify(row)}`);
+    assert.ok(row.version.length > 0, `companion 行 ${row.id} 的 version 应为非空`);
+    assert.strictEqual(typeof row.updateSource, 'boolean', `companion 行 ${row.id} 的 updateSource 应为 boolean`);
+    assert.strictEqual(typeof row.updateExcluded, 'boolean', `companion 行 ${row.id} 的 updateExcluded 应为 boolean`);
+  }
+  // better-sidebar 是本地重建件：在列表里可解释地被排除出更新管理。
+  const betterSidebar = r.json.find((x) => x.id === 'better-sidebar');
+  assert.ok(betterSidebar, '应存在 better-sidebar 行');
+  assert.strictEqual(betterSidebar.updateSource, true, 'better-sidebar 应在更新源表内');
+  assert.strictEqual(betterSidebar.updateExcluded, true, 'better-sidebar 应被排除自动更新');
 });
 
 test('plugin-set-enabled：可逆往返（关闭→列表确认→启用→还原）', { skip: !HAVE_DEPS }, (t) => {

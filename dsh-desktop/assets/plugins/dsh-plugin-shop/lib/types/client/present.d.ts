@@ -1,0 +1,555 @@
+/** Pure presentation core for the shop tab (§5.1 Client half). No React, no
+ * timers, no I/O: every function here maps a value to a value, so fixtures
+ * drive all of it. */
+export { isShopLike } from '../shared/shop-like.ts';
+export { identityKey, type EntryIdentity } from '../shared/identity.ts';
+import { type EntryIdentity } from '../shared/identity.ts';
+import type { ShopLocaleKey } from './locales.ts';
+import type { CatalogEntry, HarnessVerdict, HotRestartReason, InstallRejectionCode, RestartBlockedReason, ShopVersionResult } from '../host/index.ts';
+import type { Activation } from '../host/activation.ts';
+import { type InstallState } from '../shared/install-state.ts';
+export type { Activation };
+/** The done notice for one activation, as a locale key.
+ *
+ * A hot-mount reason code names WHY a restart is needed and is meaningful
+ * only under `restart`; `live` and `reload` ignore any reason riding along,
+ * because rendering one there would tell a reader their reload had failed.
+ * An absent or unrecognized reason keeps the generic restart line rather
+ * than showing a bare code. */
+export declare function activationNoticeKey(activation: Activation, restartReason: HotRestartReason | undefined): ShopLocaleKey;
+/** The same mapping for an UNINSTALL's done notice.
+ *
+ * A sibling rather than a `prefix` parameter on `activationNoticeKey`: the
+ * two key sets are not parallel — `installedNoRestartNotice` against
+ * `uninstalledLiveNotice` — so no prefix derives one from the other. It takes
+ * no reason code, because a hot-mount reason explains why a MOUNT could not
+ * happen and an uninstall mounts nothing.
+ *
+ * Here rather than in JSX because this is a pure Activation -> copy decision,
+ * and in a component no fixture can reach it: the install side was covered
+ * and this one was not, for the whole time both existed. */
+export declare function uninstallActivationNoticeKey(activation: Activation): ShopLocaleKey;
+/** The copy key for one install phase. A function rather than an inline
+ * ternary in the JSX so it is unit-testable: the tab's only test seam is a
+ * whole-tab render driven by injected RPCs, which cannot be handed one view. */
+export declare function installPhaseKey(phase: 'downloading' | 'installing'): ShopLocaleKey;
+/** Why the shop cannot restart dsh, as a locale key.
+ *
+ * A sibling of `activationNoticeKey` and exhaustive for the same reason: the
+ * switch has no default, so a reason added to `RestartBlockedReason` is a type
+ * error here rather than a card that silently keeps a neighbour's copy. That
+ * is the whole point of the type — the single boolean this replaced
+ * had ONE string for three causes, and it named systemd, so a Windows reader
+ * was told to restart a service they do not run and to set an override that
+ * could not have helped. */
+export declare function restartBlockedNoticeKey(reason: RestartBlockedReason): ShopLocaleKey;
+/** Tier → locale key, for the entry-card tier badge (§6.2). */
+export declare function tierKey(tier: CatalogEntry['tier']): ShopLocaleKey;
+/** The peers the Host said this installation does not provide, or none when it
+ * said nothing — a plugin that runs here and one the Host could not judge are
+ * both rendered as no warning at all. The map is keyed by install identity,
+ * never by name, because two entries can share a name. */
+export declare function missingPeersOf(incompatible: Record<string, string[]>, key: string): string[];
+/** The author's own `dsh.compatibility` that this installation does not meet
+ * (design 2026-09-01 §8.2), or undefined when the host gave no verdict. Keyed
+ * by install identity, never by name, for the reason `missingPeersOf` is.
+ *
+ * The map itself may be absent, whatever the result type says: a tab can
+ * outlive a shop self-update by one reload and then be talking to the OLD
+ * in-process host until dsh restarts, which answers the shape from before the
+ * key existed. That is "no verdict", never a crash. */
+export declare function harnessVerdictOf(verdicts: Readonly<Record<string, HarnessVerdict>> | undefined, key: string): HarnessVerdict | undefined;
+/**
+ * One thing standing between an entry and a working install, carrying the
+ * facts its copy names — never the copy, which the tab localizes (§4: no copy
+ * crosses the RPC).
+ *
+ * Refusals and warnings, each with its own remedy. Two are refusals, and put
+ * a label in the button's place (`refusesInstall`): a taken name, which the
+ * host WILL refuse and the reader fixes by uninstalling a plugin; and harness
+ * peers the running dsh WILL refuse (0.1.7 on), fixed by dsh's exact-version
+ * exemption, whose command the host sends when dsh would accept one.
+ * Everything else is about this harness and is advisory — the host installs
+ * anyway: components node resolution and the page's module table both lack,
+ * and an author's declared range or profile list this dsh falls outside of.
+ */
+export type Blocker = {
+    kind: 'name-taken';
+    holder: string;
+} | {
+    kind: 'harness-peers';
+    refused: Readonly<Record<string, string>>;
+    running: string;
+    allowCommand: string | null;
+} | {
+    kind: 'missing-peers';
+    modules: readonly string[];
+} | {
+    kind: 'harness-range';
+    range: string;
+    running: string;
+} | {
+    kind: 'harness-profile';
+    declared: readonly string[];
+    running: string;
+};
+export type BlockerKind = Blocker['kind'];
+/**
+ * Everything standing in one entry's way, in the order every surface renders
+ * it — the card's detail lines, the badge's accessible name, the outdated
+ * row's refusal — and the one list the incompatible filter reads, through
+ * `readsIncompatible`, and the install button, through `refusesInstall`.
+ *
+ * The refusals read first. The name conflict leads: it is about a plugin the
+ * reader chose and would lose. Then dsh's own refusal, then what this machine
+ * is measured to lack, then what the author declared, range before profiles —
+ * the order the host's verdict carries its halves.
+ */
+export declare function blockersOf(missing: readonly string[], harness: HarnessVerdict | undefined, nameTakenBy: string | undefined): Blocker[];
+/**
+ * The badge's visible word for these blockers, or null when there are none.
+ *
+ * "Incompatible" for anything about this harness, whichever reason put it
+ * there. A taken name is the more serious condition and names a different
+ * remedy, so it decides the word whenever it holds — the card is perfectly
+ * compatible, and a different plugin is in the way.
+ */
+export declare function blockerBadgeKey(blockers: readonly {
+    kind: BlockerKind;
+}[]): ShopLocaleKey | null;
+/** Whether the badge reads "Incompatible" — exactly the set the incompatible
+ * filter counts and takes away. Derived from the badge's own rule, never
+ * restated beside it: the filter used to test the peer list by hand, which
+ * held only while missing peers were the one reason for the word — a card
+ * badged for its declared range would have read "Incompatible" and survived
+ * the filter that names it. */
+export declare function readsIncompatible(blockers: readonly {
+    kind: BlockerKind;
+}[]): boolean;
+/**
+ * Whether this install is refused before it starts, so the card shows the
+ * refused label where its button would be, rather than a button for an
+ * install that cannot proceed: refused by the host, for a taken name, or by
+ * the running dsh, for its harness peers.
+ *
+ * The second is the one harness reason that blocks (design
+ * 2026-09-26-dsh-017-readiness, B1, amending "warn, never block"): dsh 0.1.7
+ * refuses the install itself, an npm entry before pnpm runs and a github
+ * entry after it, rolling the profile back, and the shop cannot install past
+ * it. The verdict is dsh's own rule on the profile's own exemptions, whichever
+ * channel the entry comes from (design
+ * 2026-09-28-bundle-components-and-github-peers, section 7.3), so the label
+ * is dsh's answer given early, never the shop's opinion — and recording the
+ * exemption the card shows is what brings the button back.
+ */
+export declare function refusesInstall(blockers: readonly {
+    kind: BlockerKind;
+}[]): boolean;
+/**
+ * The refused requirements as the refusal's copy names them: each one and the
+ * range the package declared, in the order dsh reported them. A peer is named
+ * by its package. `engines.dsh` is a manifest path, not a name anyone asked
+ * for, so it reads as `dsh` and its range, the way the sentence says "it
+ * requires dsh >=0.3.0". A blank range — which dsh refuses — is quoted, or the
+ * sentence would name the requirement and nothing it asked for.
+ */
+export declare function refusedPeersText(refused: Readonly<Record<string, string>>): string;
+/**
+ * The plugin already holding this entry's bundle name, if a DIFFERENT one is,
+ * named the way the host's refusal names it.
+ *
+ * `specs` is the profile manifest's dependencies exactly as the install gate
+ * reads them (`installedSpecs`), and the verdict is the gate's own function.
+ * One rule on one input, so the badge and the refusal cannot disagree. The
+ * first version of this derived the answer from `installed()`, which drops
+ * every dependency no catalog entry matches — so a fork, a hand install or a
+ * delisted holder was invisible here while the host still refused, and the
+ * card showed a plain Install button for an install that could not proceed.
+ *
+ * `undefined` specs means the host could not read the manifest. The answer is
+ * undefined there too: the card makes no claim rather than promising a clean
+ * install it cannot vouch for.
+ */
+export declare function heldBy(entry: EntryIdentity, specs: Readonly<Record<string, string>> | undefined): string | undefined;
+/** Install rejection code → locale key, for the rejected-state code label
+ * (§7.2): every rejection the host can return has a human label here. */
+export declare function rejectionCodeKey(code: InstallRejectionCode): ShopLocaleKey;
+/** What a shelf version string is (market borrowings §11): a version npm
+ * serves, or the spec a profile manifest holds for one; the commit a github
+ * entry is pinned to; or the tag of the release a rescued github entry
+ * installs from. */
+export type VersionKind = 'npm' | 'commit' | 'release';
+export interface VersionLabel {
+    kind: VersionKind;
+    /** What the shelf prints: `v1.2.3`, `4da5ae8`, `v0.29.10`. */
+    text: string;
+    /** What the accessible name and the tooltip print after the kind's word:
+     * the same string without the `v` the shelf adds to an npm version. */
+    value: string;
+}
+/**
+ * How a version string reads on the shelf, decided by its source and its
+ * shape alone (market borrowings §11).
+ *
+ * Shape, never the entry's `tarball`, because an installed row carries only
+ * the pin the shop recorded at install — the catalog `version` of that moment
+ * — and no `tarball`. The registry pins a commit as forty lowercase hex and a
+ * release by its tag, so the two shapes do not cross; `present.test.ts`
+ * checks that against the committed live catalog.
+ *
+ * - An npm version takes the `v` the shelf has always shown, and only before
+ *   a digit: an installed row reports the manifest's spec, and a range there
+ *   (`^1.2.3`) is not a version to prefix.
+ * - A commit is cut to the seven characters git abbreviates to, with no `v`:
+ *   it is not a version number.
+ * - A release tag prints exactly as tagged, never cut and never prefixed:
+ *   cutting `v0.29.10` to seven characters printed `v0.29.1`, another
+ *   version, and the `v` this function no longer adds doubled the tag's own.
+ */
+export declare function versionLabel(source: 'npm' | 'github', version: string): VersionLabel;
+/** The copy that names a version's kind, for the accessible name and the
+ * tooltip; its `{version}` takes {@link VersionLabel.value}. */
+export declare function versionLabelKey(kind: VersionKind): ShopLocaleKey;
+/** The hash pin a stale line names for a repo or release-rescued entry — the
+ * reviewed commit, or the reviewed release tarball sha256 (market borrowings
+ * §3.1). Shortened to 7 chars like a commit on the card; '' only for a
+ * hand-built fixture carrying no pin. The npm form is a version, which
+ * {@link versionLabel} prints instead. */
+export declare function reviewHashPin(review: NonNullable<CatalogEntry['review']>): string;
+/**
+ * Whether the license value is the npm idiom `SEE LICENSE IN <file>` — a
+ * valid SPDX form meaning "custom license, text ships in that file". The
+ * catalog keeps the author's verbatim value; the shelf renders it as a
+ * localized "Custom license" label. Everything else renders verbatim.
+ */
+export declare function isCustomLicense(license: string | null): boolean;
+/** One polled install status (§7.3 wire data), structural. */
+export interface InstallStatusShape {
+    found: boolean;
+    state: InstallState;
+    log: string[];
+    activation?: Activation;
+    restartReason?: HotRestartReason;
+    detail?: string;
+}
+/** The install view state machine (§7.2). `phase` distinguishes the download
+ * that runs ahead of the per-profile mutex from the install that holds it.
+ * It rides the `running` kind rather than adding a kind of its own: every
+ * `view.kind === 'running'` site — the flow registry's poll collection
+ * (flow-registry.ts) among them — must keep treating a downloading install
+ * as live. */
+export type InstallView = {
+    kind: 'idle';
+} | {
+    kind: 'rejected';
+    code: InstallRejectionCode;
+    detail: string;
+} | {
+    kind: 'running';
+    installId: string;
+    log: string[];
+    phase: 'downloading' | 'installing';
+} | {
+    kind: 'done';
+    activation: Activation;
+    log: string[];
+    restartReason?: HotRestartReason;
+    detail?: string;
+} | {
+    kind: 'failed';
+    detail: string;
+    log: string[];
+};
+/** One event the install view reacts to. */
+export type InstallEvent = {
+    type: 'rejected';
+    code: InstallRejectionCode;
+    detail: string;
+} | {
+    type: 'started';
+    installId: string;
+    state: InstallState;
+} | {
+    type: 'status';
+    status: InstallStatusShape;
+};
+/** The phase a non-terminal state renders as: the WIRE state the host
+ * reported (`InstallState`) mapped onto the phase the view carries. Exported
+ * because every hook that turns a start or a poll result into a view spells
+ * this same mapping, and three hand-copied ternaries are three chances for
+ * one of them to drift.
+ *
+ * Not to be confused with `installPhaseKey`, which is the OTHER direction and
+ * a different pair of values: view phase → the locale key to render. They
+ * happen to share two spellings today and that is a coincidence of naming,
+ * not a reason to fuse them — the wire union and the locale key set are free
+ * to diverge. */
+export declare function phaseOf(state: InstallState): 'downloading' | 'installing';
+/** §7.2 once-per-second poll cadence, as a named constant. */
+export declare const INSTALL_POLL_MS = 1000;
+/** §8 restart handoff: the client polls the origin only after this grace
+ * period (the host's exit delay plus margin), so an origin that answers is
+ * the NEW server, never the dying old one. */
+export declare const RESTART_GRACE_MS = 3000;
+/** §8 restart handoff: how long the client waits for the new server to
+ * START answering before reporting the manual restart command. A run of good
+ * answers that began inside it may finish after it (see
+ * `restartMonitorVerdict`). */
+export declare const RESTART_WAIT_MS = 30000;
+/** §8 restart handoff: how long the new server must keep answering before the
+ * page reloads into it (design 2026-09-26-market-borrowings §3). The Loader
+ * mounts entries concurrently, so a boot that is about to fail can bind the
+ * port and answer before the settled tree is audited and the process exits;
+ * dsh-market measured that window inside 8 s. */
+export declare const RESTART_STABLE_MS = 8000;
+/**
+ * The restart monitor's decision after a probe of the origin.
+ *
+ * `stableSinceMs` is when the current unbroken run of good answers began —
+ * null when the last probe failed, or none has succeeded yet — and both times
+ * count from the moment the restart was committed. One answer is not enough:
+ * reloading on it is what landed a reader on a boot that died a moment later,
+ * a blank page in place of the notice naming the log. So the page reloads
+ * only once the run has lasted `RESTART_STABLE_MS`, and the monitor gives up
+ * only when no run is under way past `RESTART_WAIT_MS` — which bounds the
+ * whole wait at the sum of the two, since a run that began in time either
+ * completes or breaks after the deadline.
+ */
+export declare function restartMonitorVerdict(input: {
+    elapsedMs: number;
+    stableSinceMs: number | null;
+}): 'wait' | 'reload' | 'failed';
+/**
+ * Whether two `version()` answers came from different dsh processes — dsh
+ * restarted under the page between them (design §8, 2026-10-06 amendment).
+ *
+ * A process names itself by `bootId` for as long as it lives, so where either
+ * answer carries one, a difference decides: a host older than the field never
+ * starts naming itself, and a newer one never stops. Where neither does, only
+ * the code they run can differ — one process runs one version, read once at
+ * its boot — which still catches the first restart after a self-update from
+ * a host older than the field, the one that matters most.
+ */
+export declare function answeredByAnotherProcess(previous: ShopVersionResult, next: ShopVersionResult): boolean;
+/**
+ * Whether an update of the shop has landed and waits for a restart: the
+ * profile holds a version other than the one running. A host older than the
+ * field sends none, and that reads as waiting: a client newer than its host
+ * exists only because the disk holds a newer shop than the process running
+ * (design §7.3, 2026-09-27 amendment). The tab's restart offer and the
+ * hand-over after a hot swap (design 2026-10-16-shop-sidebar-page §6) read
+ * it alike.
+ */
+export declare function updateAwaitsRestart(version: ShopVersionResult): boolean;
+/**
+ * Whether dsh restarting under the page settles this receipt: a change that
+ * landed and was waiting for exactly that. The page store clears these
+ * (page-store.ts, `noteRestarted`) once the answers come from another
+ * process, and nothing else — a reload is still owed by a page nobody
+ * reloaded, a failure still happened, and a flow still running settles by
+ * its own poll.
+ */
+export declare function settledByRestart(view: InstallView): boolean;
+/** How long the check-update button reports "up to date" after a re-check
+ * finds no newer release, before reverting to its idle label. */
+export declare const CHECK_UP_TO_DATE_MS = 3000;
+/** How many shelf cards mount at a time. The shelf holds ~1900 entries; one
+ * commit of the whole grid is ~28k DOM nodes, so the list renders in batches
+ * behind a sentinel (§A1) and grows on scroll. 48 is ~3-4 rows. */
+export declare const SHOP_VISIBLE_BATCH = 48;
+/** The next number of cards to show: the current window plus one batch,
+ * clamped so the window never claims more cards than the list holds. */
+export declare function nextVisibleCount(visible: number, total: number, batch: number): number;
+/** Pure install view reducer. A `status` event only applies to the install the
+ * view is tracking — a status for an install it never started (idle) is an
+ * unrelated event and a no-op, like any other event it does not recognize. */
+export declare function reduceInstall(state: InstallView, event: InstallEvent): InstallView;
+/**
+ * Which order the shelf is in (design 2026-10-12-shelf-orders). `stars` is
+ * the default AND the tie-break of both date orders, so the two date orders
+ * are stable re-sorts of it rather than orders with comparators of their own.
+ */
+declare const SHELF_ORDER_KEYS: {
+    readonly stars: "sortStars";
+    readonly added: "sortAdded";
+    readonly updated: "sortUpdated";
+};
+/** The order vocabulary as a type, derived from the map above so the client
+ * never repeats the three literals. */
+export type ShelfOrder = keyof typeof SHELF_ORDER_KEYS;
+/** The three orders in display order (map insertion order). `readonly`: this
+ * is a shared vocabulary, and an order list a caller can push to is a bug
+ * waiting for its second caller. */
+export declare const SHELF_ORDERS: readonly ShelfOrder[];
+/** The locale key naming one order (the toggle's buttons). */
+export declare function shelfOrderLocaleKey(order: ShelfOrder): ShopLocaleKey;
+declare const CATEGORY_KEYS: {
+    readonly tool: "categoryTool";
+    readonly provider: "categoryProvider";
+    readonly ui: "categoryUi";
+    readonly workflow: "categoryWorkflow";
+    readonly integration: "categoryIntegration";
+    readonly theme: "categoryTheme";
+    readonly other: "categoryOther";
+};
+/** The locale key for one entry's category — derived entries read as `other`
+ * (§6.1: a derived listing has no declared category). */
+export declare function categoryKey(entry: CatalogEntry): ShopLocaleKey;
+/** The category vocabulary as a type, derived from the map above so the
+ * client never repeats the seven literals. */
+export type Category = keyof typeof CATEGORY_KEYS;
+/** The seven categories in display order (map insertion order). */
+export declare const CATEGORY_ORDER: Category[];
+/** The locale key for one bare category value (the filter buttons). */
+export declare function categoryLocaleKey(category: Category): ShopLocaleKey;
+/**
+ * The npm package page for one entry, or null when there is none to link.
+ *
+ * The name is untrusted catalog input and this CONSTRUCTS a URL from it, so
+ * only a name inside the npm grammar gets a link — one optional `@scope/`
+ * segment, then a name, both limited to npm's own character set. Every
+ * character that survives that check is already safe in a URL path, so the
+ * value is used verbatim: percent-encoding it would only mangle the `@` and
+ * the scope separator that npm's own URLs carry literally. Anything else —
+ * a traversal, a query, a whole URL smuggled in as a name — answers null and
+ * the row renders as plain text, the same rule the repository row applies.
+ *
+ * A github entry answers null: it is installed from a repo and has no npm
+ * package page.
+ */
+/**
+ * Whether this entry has a GitHub home the reader could go and inspect.
+ *
+ * True for a github-source entry — a repository IS its identity — and for an
+ * npm entry whose `repository` points at github.com, which is 4892 of the
+ * live catalog's 4915 entries. The mark is therefore ordinary and its
+ * ABSENCE is the signal: a listed package with no public source to read.
+ *
+ * `repository` is untrusted catalog input, so the host is PARSED rather than
+ * pattern-matched — `evil-github.com` and `github.com.evil.test` both end in
+ * the string and neither is GitHub. An unparseable or empty value (two live
+ * entries carry one) is simply not a GitHub home.
+ */
+export declare function hasGithubHome(entry: CatalogEntry): boolean;
+/**
+ * Who put this entry where it is — the fact a reader wants when two listings
+ * carry the same text from different hands.
+ *
+ * The two sources answer it differently and neither is npm's `author` field:
+ * that one is free text the publisher writes, and a clone inherits it
+ * verbatim. An npm entry answers with the account npm recorded for the
+ * version (`publisher`); a github entry answers with its repository owner,
+ * which is already half of the `owner/slug` that IS its identity — so nothing
+ * new has to be harvested or emitted for it.
+ *
+ * `repo` reaches the client as an unvalidated string, so the owner is taken
+ * only from a value that really is `owner/slug` with an owner GitHub would
+ * accept (1-39 chars of alphanumerics and hyphens). Anything else yields
+ * null: a misleading fragment is worse than saying nothing, the same rule
+ * npmPageUrl applies to a package name.
+ */
+export declare function authorOf(entry: CatalogEntry): string | null;
+export declare function npmPageUrl(entry: CatalogEntry): string | null;
+/**
+ * One entry's install identity — the value the catalog guarantees unique, and
+ * therefore the only safe React key for a shelf card.
+ *
+ * `name` is NOT unique. The catalog's uniqueness invariant is the install
+ * identity (registry `emit.ts` assertCatalogInvariants): `npm:<name>` for an
+ * npm entry, `github:<repo>#<subdir>` for a repo one — so two GitHub
+ * repositories publishing the same `package.json` name are two legitimate
+ * entries under one name, as are two subpackages of one monorepo. How many
+ * such names the catalog holds is kept in ONE place — `validateInstall`'s
+ * docstring in host/install.ts, with the way to re-derive it — because the
+ * copy that stood here had drifted to less than half the real figure.
+ *
+ * Keying the shelf by name handed React duplicate keys, and React could then
+ * no longer match a card to its DOM node: changing the filter left every
+ * duplicate orphaned on the page — hundreds of stale cards from the previous
+ * category, accumulating with each switch until the tab stopped responding.
+ * This mirrors the registry's identity verbatim; the two must not drift.
+ */
+export declare function entryKey(entry: CatalogEntry): string;
+/**
+ * Whether the shelf lists `entry`: a name the catalog's `notAShop` clears,
+ * or one whose name and repository `isShopLike` leaves alone. One rule for
+ * the shelf and for the Plugins page's "View in Plugin shop" (design
+ * 2026-10-16-shop-sidebar-page §7), so that button never sends a reader to a
+ * shelf that hides the plugin.
+ */
+export declare function listedOnShelf(entry: CatalogEntry, cleared: ReadonlySet<string>): boolean;
+/**
+ * One entry's star count from the sidecar, or undefined when it has none.
+ *
+ * The sidecar keys a github entry by its repo full name and an npm entry by
+ * its package name — two disjoint keyspaces (registry `stars-assemble.ts`).
+ * Every reader must go through this one function: the card read the repo key
+ * and the shelf sort read the name, so for 2202 of the live catalog's 2210
+ * github listings the number deciding a row's position was not the number
+ * printed on it. 1590 of them sorted as unstarred — a 4014-star plugin at the
+ * bottom of the shelf — and where an unrelated npm package happened to share
+ * a listed entry's name, its stars ranked that entry instead: a 1-star
+ * plugin held the first page on 13960 stars belonging to another project's
+ * repo, one the catalog never even listed.
+ */
+export declare function starsOf(entry: CatalogEntry, stars: Record<string, number>): number | undefined;
+/** Sort the shelf: stars descending, un-starred entries last, name ascending
+ * (case-insensitive) on ties (spec 2026-08-26-github-stars-design.md D1).
+ * Display-time only — the catalog's own name sort is untouched. */
+export declare function sortByStars(entries: CatalogEntry[], stars: Record<string, number>): CatalogEntry[];
+/**
+ * The entry's sort key under a date order, or undefined when it has no usable
+ * date (design §3): absent, off-form, unparseable, or later than the catalog's
+ * own `builtAt`. Milliseconds since the epoch. `'stars'` carries no date, so
+ * this answers undefined for it.
+ */
+export declare function shelfTime(entry: CatalogEntry, order: ShelfOrder, builtAt: string): number | undefined;
+/**
+ * A UTC calendar day for display: "2026-10-12". Derived from the instant the
+ * sort ranked by, so a card's label and its position cannot disagree. UTC and
+ * never a local getter: a reader in UTC+8 must see the same days the catalog
+ * was built in, the calendar the stats row already prints.
+ */
+export declare function utcDay(ms: number): string;
+/**
+ * The shelf in `order` (design 2026-10-12-shelf-orders §2, §5). `'stars'`
+ * returns the array it was handed, so the default path allocates nothing and
+ * does not invalidate the memos downstream of it.
+ *
+ * Each key is computed ONCE per entry rather than inside the comparator, and
+ * the sort is stable (ES2019), so entries sharing a date keep the star order
+ * they arrived in — which is how the tie-break is defined without a second
+ * comparator that could drift from `sortByStars`.
+ */
+export declare function orderShelf(starOrdered: readonly CatalogEntry[], order: ShelfOrder, builtAt: string): readonly CatalogEntry[];
+/** 999 → "999"; 1000 → "1k"; 1234 → "1.2k"; 1500 → "1.5k"; 99999 → "100k". */
+export declare function formatStars(n: number): string;
+/**
+ * One entry's on-disk size as a label: 0 → "0 B", 812 → "812 B",
+ * 25283 → "25.3 kB", 847407 → "847.4 kB", 179562863 → "179.6 MB".
+ *
+ * Decimal kB/MB, not KiB/MiB, because on the npm side the number IS npm's
+ * `dist.unpackedSize` and npm's own package page shows it decimal — a reader
+ * comparing the shelf against npmjs.com must not find two different figures
+ * for one package. A github figure is a different measurement (its git tree's
+ * blobs) but not a different unit, so one rule serves both. One fractional
+ * digit at every magnitude above a kilobyte, the same rule `formatStars`
+ * follows: a column of sizes is read by comparing them down the shelf, and
+ * switching precision by magnitude makes that column ragged for no gain.
+ *
+ * Locale-free by construction (`toFixed`, not `toLocaleString`): the shelf's
+ * two languages must not disagree about what a size is, and a decimal comma
+ * in one of them would read as a thousands separator in the other.
+ *
+ * Undefined in, undefined out — an npm publish predating npm 5.6, or an entry
+ * the registry could not measure honestly (`tree-size.ts` enumerates each way
+ * that happens), and the card renders no label rather than a guess. The caller
+ * need not check first.
+ *
+ * This once read "a github entry", which was true only while the shelf read
+ * `unpackedSize` alone. It is not a source distinction any more: every live
+ * github entry carries an `installSize`, and the sizeless count the build
+ * report prints is owned by `emit.ts` — read it there rather than from a copy
+ * here, because it tracks the daily build.
+ */
+export declare function formatSize(bytes: number | undefined): string | undefined;

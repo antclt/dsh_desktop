@@ -30,6 +30,8 @@ const { PluginStateStore } = require('../plugin-core/lib/state-store');
 const { reconcileProfileBundles, resolveBundleDirLike } = require('../lib/profile-reconcile');
 const {
   ACP_SELF_DISABLE_BLOCK,
+  SYNAPSE_SELF_DISABLE_BLOCK,
+  SYNAPSE_DEFAULT_DISABLED_MARKER,
   removeAcpBasicDisableBlock,
   removeLegacyMarketplacePatchLines,
   removeRetiredDshMarketPatchRows,
@@ -39,6 +41,7 @@ const {
   removeRetiredCompanionPatchRows,
   removedPluginIdsFromPatch,
   ensureDisabledPatchEntry,
+  ensureDefaultDisabledOnce,
   registerCompanionPatchEntries,
   syncCompanionFiles,
 } = require('../lib/companion-profile');
@@ -431,6 +434,23 @@ function createPluginSync(ctx) {
           }
         } catch (err) {
           log('写入 compaction-acp 默认禁用条目失败: ' + err.message);
+        }
+      }
+
+      // dsh-synapse（synapse，会话地图）默认关闭：低频的可视化画布，随包默认
+      // 禁用可减少首屏加载与无关入口；需要时在 设置 → 插件 → 内置插件 一键开启。
+      // 与 ACP 同机制：顶层 disabled 块一票否决 bundle 自身 insert 注册。
+      if (bundleNames.has('dsh-synapse')) {
+        try {
+          let patch = '';
+          try { patch = fs.readFileSync(patchFile, 'utf8'); } catch { /* 全新 profile：patch 文件尚未创建，视为空 */ }
+          const self = ensureDefaultDisabledOnce(patch, new RegExp('(?:^|\\n)\\s*-?\\s*id\\s*:\\s*synapse\\b'), SYNAPSE_SELF_DISABLE_BLOCK, SYNAPSE_DEFAULT_DISABLED_MARKER);
+          if (self.changed) {
+            writeFileAtomic(patchFile, self.patch);
+            log('dsh-synapse 默认关闭：已写入 synapse 禁用条目');
+          }
+        } catch (err) {
+          log('写入 synapse 默认禁用条目失败: ' + err.message);
         }
       }
 

@@ -36,6 +36,8 @@
 // 不能证明选择器在真实页面上命中——那要靠 profile 热替换 + 实机探针。新增锚点时
 // 两件事一起做：改插件 + 在本文件登记/点名。G10 同理：动态 inject 的额外 props 无法
 // 静态枚举，那些注册点只会落 INCONCLUSIVE（既不判红也不算通过），不拿它当「已审」。
+// 工厂返回组件（`register(opts, makeComp(dep))`）会追进 `return function Comp(props)`
+// 再判 props；追不进去的工厂调用同样落 INCONCLUSIVE，不把工厂形参当成槽位 props。
 // 用法：node --test scripts/test/unit-plugin-dom-contract.test.js
 
 const test = require('node:test');
@@ -848,7 +850,7 @@ function injectGifts(opts) {
 	return { keys, dynamic: /\.\.\./.test(body) };               // 含展开则枚举不完整
 }
 
-/** 一个文件里的 slots.register 注册点：{ slot, opts, component|null }。 */
+/** 一个文件里的 slots.register 注册点：{ slot, opts, component|null, factoryCall }。 */
 function collectRegistrations(raw) {
 	const regs = [];
 	const re = /slots\.register\s*\(/g;
@@ -863,7 +865,10 @@ function collectRegistrations(raw) {
 		if (!nm) continue;
 		const after = raw.slice(i + opts.length, i + opts.length + 120);
 		const cm = /^\s*,\s*([A-Za-z_$][\w$]*)/.exec(after);
-		regs.push({ slot: nm[2], opts, component: cm ? cm[1] : null });
+		// `register(opts, makeComp(dep))`：组件是工厂调用，真正的组件函数通常
+		// 由工厂 return（闭包捕获依赖）。工厂形参是依赖，不是槽位 props。
+		const factoryCall = /^\s*,\s*[A-Za-z_$][\w$]*\s*\(/.test(after);
+		regs.push({ slot: nm[2], opts, component: cm ? cm[1] : null, factoryCall });
 	}
 	return regs;
 }
@@ -880,9 +885,19 @@ function findComponentDef(raw, name) {
 		const m = re.exec(raw);
 		if (!m) continue;
 		const body = sliceBalanced(raw, re.lastIndex - 1);
-		if (body) return { params: m[1].trim(), body: body.slice(1, -1) };
+		if (body) return { name, params: m[1].trim(), body: body.slice(1, -1) };
 	}
 	return null;
+}
+
+/** 工厂形态：`function makeComp(dep) { return function Comp(props) { … } }`。 */
+function returnedComponentDef(def) {
+	const re = /\breturn\s+function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{/g;
+	const m = re.exec(def.body);
+	if (!m) return null;
+	const body = sliceBalanced(def.body, re.lastIndex - 1);
+	if (!body) return null;
+	return { name: m[1], params: m[2].trim(), body: body.slice(1, -1) };
 }
 
 /** 组件对 props 的读取名，以及它调用的 hook 名（用于识别已迁移的镜像读）。 */
@@ -936,24 +951,34 @@ function scanPropContracts(entries) {
 				continue;
 			}
 			if (r.component === null) { blind += 1; continue; }    // 内联组件，无命名可查
-			const def = findComponentDef(en.raw, r.component);
+			let def = findComponentDef(en.raw, r.component);
 			if (!def) { blind += 1; continue; }                    // 定义在别的文件
+			if (r.factoryCall) {
+				const inner = returnedComponentDef(def);
+				if (!inner) {
+					// 工厂返回的不是可识别的命名函数（箭头/条件返回等）：证明不了，
+					// 既不判红也不静默放过（同动态 inject 的口径）。
+					inconclusive.push(`${en.label} :: ${r.slot} 的 ${r.component} 是工厂调用，返回组件不可静态定位`);
+					continue;
+				}
+				def = inner;
+			}
 			const set = new Set(give);
 			for (const [re, gives] of OPTION_GIFTS) if (re.test(r.opts)) for (const g of gives) set.add(g);
 			const inj = injectGifts(r.opts);
 			for (const k of inj.keys) set.add(k);
 			const { reads, hooks } = propReadsOf(def.params, def.body);
 			if (inj.dynamic) {
-				inconclusive.push(`${en.label} :: ${r.slot} 的 ${r.component} 带动态 inject，额外 props 不可静态枚举`);
+				inconclusive.push(`${en.label} :: ${r.slot} 的 ${def.name} 带动态 inject，额外 props 不可静态枚举`);
 				continue;
 			}
 			for (const x of reads) {
-				seenReads.add(`${plugin}/${r.component}::${x}`);
+				seenReads.add(`${plugin}/${def.name}::${x}`);
 				if (set.has(x)) continue;
 				// 旧快照名且同组件在调对应 hook（useInput / useSession …）= 已迁移的两代镜像。
 				if (hooks.has(x.charAt(0).toUpperCase() + x.slice(1))) continue;
-				if (OPTIONAL_PROP_READS.has(`${plugin}/${r.component}::${x}`)) continue;
-				bad.push(`${en.label} 的 ${r.component} 读 props.${x}，但槽 ${r.slot} 不下发它（调用即 TypeError）`);
+				if (OPTIONAL_PROP_READS.has(`${plugin}/${def.name}::${x}`)) continue;
+				bad.push(`${en.label} 的 ${def.name} 读 props.${x}，但槽 ${r.slot} 不下发它（调用即 TypeError）`);
 			}
 		}
 	}
@@ -1007,6 +1032,14 @@ test('G10 组件只能读所在槽确实下发的 props（权威 = CLIENT_SLOT_A
 		ghost: 'ctx.slots.inject("conversation.input.legacy", () => ctx.slots.register('
 			+ '{ name: "conversation.input.legacy", id: "x" }, GhostComp));\n'
 			+ 'function GhostComp({ useInput }) { return null; }',
+		// ⑥ 工厂返回组件（dsh-prompt-optimizer 的真实形态）：必须追进返回的
+		//    内层函数看 props，而不是把工厂形参（闭包依赖）当成槽位 props。
+		factory: 'ctx.slots.inject("conversation.input.right", () => ctx.slots.register('
+			+ '{ name: "conversation.input.right", id: "x", inject: () => ({}) }, makeBadDock(ctrl)));\n'
+			+ 'function makeBadDock(ctrl) { return function BadDock(props) { return props.bogus; }; }',
+		factoryOk: 'ctx.slots.inject("conversation.input.right", () => ctx.slots.register('
+			+ '{ name: "conversation.input.right", id: "x", inject: () => ({}) }, makeOkDock(ctrl)));\n'
+			+ 'function makeOkDock(ctrl) { return function OkDock({ useInput, sessionId }) { return useInput(sessionId); }; }',
 	};
 	const fr = scanPropContracts(Object.entries(FIX).map(([k, raw]) => ({ label: k + '/client.js', raw })));
 	const hitBad = (p) => fr.bad.some((b) => b.startsWith(p));
@@ -1017,6 +1050,9 @@ test('G10 组件只能读所在槽确实下发的 props（权威 = CLIENT_SLOT_A
 		'捕获力失败：动态 inject 未落 INCONCLUSIVE（既不判红也不静默丢）');
 	assert.equal(hitBad('mirror/'), false, '捕获力失败：已迁移的镜像读被误报');
 	assert.equal(hitBad('ghost/'), true, '捕获力失败：注册进未声明的槽未被报红');
+	assert.equal(fr.bad.some((b) => b.includes('BadDock 读 props.bogus')), true,
+		'捕获力失败：工厂返回组件的越界 props 未被追进去（工厂形参不是槽位 props）');
+	assert.equal(hitBad('factoryOk/'), false, '捕获力失败：工厂返回组件的合法 props 被误报');
 });
 
 // ---------------------------------------------------------------------------

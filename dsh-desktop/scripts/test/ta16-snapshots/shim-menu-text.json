@@ -8,10 +8,6 @@
   },
   "menuItems": [
     {
-      "act": "toggle-notify",
-      "label": "会话完成通知"
-    },
-    {
       "act": "toggle-close-to-tray",
       "label": "关闭时最小化到托盘"
     },
@@ -107,7 +103,6 @@
     "<div class=\"dch-repos-title\">更新源（点行内「复制」拷贝地址）</div>",
     "</span><button class=\"dch-copy\" data-copy=\"github\" title=\"复制地址\">复制</button></div>",
     "</span><button class=\"dch-copy\" data-copy=\"gitee\" title=\"复制地址\">复制</button></div>",
-    "会话完成通知",
     "关闭时最小化到托盘",
     "自动安装客户端更新",
     "自定义图标…",

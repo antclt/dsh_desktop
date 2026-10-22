@@ -198,7 +198,7 @@ test('真数据：§4.2 身份列与本地 package.json 的 repository 自述面
     'dsh-better-sidebar': 'omdsh-dev/dsh-better-sidebar',
     'dsh-easyrewrite': 'renzic-stone/dsh-easyrewrite',
     'dsh-pocket': 'shaobeichen/dsh-pocket',
-    'dsh-prompt-optimizer': 'winditer/dsh-prompt-optimizer',
+    'dsh-prompt-optimizer': 'y1x1n/dsh-prompt-optimizer',
   };
   const silent = ['billion-context-dsh', 'dsh-session-manager', 'dsh-input-history', 'dsh-synapse'];
   const read = (dir) => JSON.parse(fs.readFileSync(path.join(PLUGINS, dir, 'package.json'), 'utf8'));
@@ -218,12 +218,12 @@ test('真数据：§4.2 身份列与本地 package.json 的 repository 自述面
   assert.notEqual(idOf('git+https://github.com/us/dsh-session-manager.git'), 'same');
 });
 
-test('真数据：在册 29 条的本地裸名目录都实存且 package.json 可解析', () => {
+test('真数据：在册 34 条的本地裸名目录都实存且 package.json 可解析', () => {
   // channelRow 的 dir 就是磁盘目录名的判据源；这条保证「按裸名匹配」在本地半边不塌。
   const rows = COMPANION_PLUGINS.map((e) => ch.channelRow({
     entry: e, localVersion: '0.0.0', dpack: { present: false }, npm: null,
   }));
-  assert.equal(rows.length, 29, '在册条数变了，§4/§5 的分布数要重算');
+  assert.equal(rows.length, 34, '在册条数变了，§4/§5 的分布数要重算');
   for (const row of rows) {
     const pkg = path.join(PLUGINS, row.dir, 'package.json');
     assert.ok(fs.existsSync(pkg), row.id + ' 的目录 ' + row.dir + ' 不在 assets/plugins 下');

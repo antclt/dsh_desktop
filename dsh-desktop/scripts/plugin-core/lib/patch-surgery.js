@@ -32,6 +32,16 @@ const ACP_DISABLE_BLOCK = '\n# billion-context-dsh：禁用 preset realm 的 com
 // 的 insert 注册（loader disabled 覆盖语义），内核默认 compaction-basic 随即接管。
 const ACP_SELF_DISABLE_BLOCK = '\n# billion-context-dsh（compaction-acp）：模型驱动压缩默认关闭（频繁自动压缩反馈；设置 → 插件 → 管理 可一键开启）\n- id: compaction-acp\n  disabled: true\n';
 
+// dsh-synapse（synapse，会话地图）自身默认关闭的禁用块。
+// 会话地图是低频的可视化画布，默认关闭可减少首屏加载与无关入口；需要时在
+// 设置 → 插件 → 内置插件 一键开启。与 ACP 同机制：顶层 disabled 条目一票否决
+// bundle 自身 cordis.patch.yml 的 insert 注册。
+const SYNAPSE_SELF_DISABLE_BLOCK = '\n# dsh-synapse（synapse，会话地图）：默认关闭（低频画布功能；设置 → 插件 → 内置插件 可一键开启）\n- id: synapse\n  disabled: true\n';
+// 「默认禁用只应用一次」标记：用户在内置插件页开启后，toggle 会删掉上面的 disabled
+// 块与「关闭 synapse」注释，但不会删本标记（不含 `关闭 <id>` 形状）；下次启动
+// sync 看到它就不再回写 disabled，用户的选择得以持久。重置默认删掉本行即可。
+const SYNAPSE_DEFAULT_DISABLED_MARKER = '# DSH Desktop：dsh-synapse 默认禁用已应用（用户开启后不再回写）';
+
 // v1.0.0 起 harness-pet / cardian / graph-memory 三条「随包默认禁用」块随插件一并
 // 退役（旧常量全文见 git 历史）。旧装机机器上已经写进 cordis.patch.yml 的禁用块由
 // 下面的 removeDisabledRowsByIds 回收——它按形状判定而非按常量字符串判定，所以
@@ -722,6 +732,25 @@ function ensureDisabledPatchEntry(patch, idPattern, block) {
 }
 
 /**
+ * 默认禁用只应用一次（与 ensureDisabledPatchEntry 的区别只在 marker）：
+ * marker 已在 patch 中 → 直接返回 unchanged，即使用户已经把 disabled 块删掉。
+ * 用于「默认关闭、但允许用户持久开启」的随包插件。
+ * @param {string} patch
+ * @param {RegExp} idPattern
+ * @param {string} block 禁用条目块（ensureDisabledPatchEntry 同款）
+ * @param {string} marker 一次性标记注释（不得含 `关闭 <id>` 形状，否则会被 toggle 删掉）
+ */
+function ensureDefaultDisabledOnce(patch, idPattern, block, marker) {
+  if (typeof marker === 'string' && marker && patch.includes(marker)) return { patch, changed: false };
+  const res = ensureDisabledPatchEntry(patch, idPattern, block);
+  if (!marker) return res;
+  let next = res.patch;
+  if (!next.endsWith('\n')) next += '\n';
+  next += marker + '\n';
+  return { patch: next, changed: true };
+}
+
+/**
  * 判定 patch 标量值是否需要 YAML 引号包裹（#155 根因二 / #153 第 2 条同源）：
  * `@deepseek-ai/...` 裸包名是 YAML 的 indicator 起始（`@`），js-yaml 对
  * `- id: @deepseek-ai/x` 直接报「bad indentation of a mapping entry」，
@@ -1008,6 +1037,8 @@ module.exports = {
   PATCH_HEADER,
   ACP_DISABLE_BLOCK,
   ACP_SELF_DISABLE_BLOCK,
+  SYNAPSE_SELF_DISABLE_BLOCK,
+  SYNAPSE_DEFAULT_DISABLED_MARKER,
   LOADER_ID_RE,
   parsePatchRows,
   patchRowIds,
@@ -1029,6 +1060,7 @@ module.exports = {
   removedPluginIdsFromPatch,
   removeLegacyMarketplacePatchLines,
   ensureDisabledPatchEntry,
+  ensureDefaultDisabledOnce,
   removeAcpBasicDisableBlock,
   needsYamlScalarQuote,
   quotePatchScalarValues,

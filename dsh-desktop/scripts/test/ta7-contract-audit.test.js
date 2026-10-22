@@ -89,9 +89,9 @@ function parseRustActs() {
   return acts;
 }
 
-test('TA7-1a bridge-api.md §2.3 act 表 → menu.rs：单向差集为空（含 toggle 展开共 14 项）', () => {
+test('TA7-1a bridge-api.md §2.3 act 表 → menu.rs：单向差集为空（含 toggle 展开共 13 项）', () => {
   const md = parseMdActs();
-  assert.strictEqual(md.size, 14, `契约 act 计数（toggle 展开）: ${[...md]}`);
+  assert.strictEqual(md.size, 13, `契约 act 计数（toggle 展开）: ${[...md]}`);
   const missing = diff(md, parseRustActs());
   assert.deepStrictEqual(missing, [], '契约有而实装缺的 act');
 });
@@ -137,7 +137,7 @@ test('TA7-1c act 返回 payload 字段：md「返回」列字面量 ↔ menu.rs 
       }
     }
     // toggle 合并行：返回列是 {<settings键>: <新值>}，无字面量 —— 语义键
-    // （notifyOnTurnEnd 等）映射在 toggle_key()，单独核对（见 TA7-1d）。
+    // （closeToTray 等）映射在 toggle_key()，单独核对（见 TA7-1d）。
     for (const act of actNames) {
       const b = branch(act);
       for (const tok of tokens) {
@@ -155,10 +155,14 @@ test('TA7-1c act 返回 payload 字段：md「返回」列字面量 ↔ menu.rs 
   assert.deepStrictEqual(driftSeen.sort(), expectedDrift.sort(), '已知返回字段漂移集变化（消账或新增漂移）');
 });
 
-test('TA7-1d toggle 合并行语义键：三个 settings 键在 menu.rs 有映射与返回', () => {
-  for (const key of ['notifyOnTurnEnd', 'closeToTray', 'autoInstallUpdates']) {
+test('TA7-1d toggle 合并行语义键：settings 键在 menu.rs 有映射与返回', () => {
+  for (const key of ['closeToTray', 'autoInstallUpdates']) {
     assert.ok(menuRs.includes(`"${key}"`), `settings 键 ${key} 缺失（toggle_key 映射或返回）`);
   }
+  // toggle-notify / notifyOnTurnEnd 2026-10-22 随壳层回合完成通知下线：act 摘出
+  // arm、键摘出 toggle_key（通知改由内置插件 dsh-notify 发送）。
+  assert.ok(!/"toggle-notify"\s*(?:\||=>)/.test(menuRs), 'toggle-notify act 已退役（不得再登记 match 臂）');
+  assert.ok(!menuRs.includes('notifyOnTurnEnd'), 'notifyOnTurnEnd 键已退役（menu.rs 不得残留）');
   // toggle-balance / showBalanceDock 2026-10-16 退役：act 摘出 arm、键摘出
   // toggle_key；switch 唯一落点是 dsh-balance 插件的 Config 设置条目。
   // 按「登记形态」判：menu.rs 自身的退役说明与 None 断言是散文，不算登记。
@@ -298,11 +302,11 @@ test('TA7-4 根 README 与 dsh-tauri/README：版本号一致 + 双源/sha256 �
     assert.ok(!md.includes('check-agent-update'), `${name} 不得再出现 check-agent-update（npm 内核链已退役）`);
     assert.ok(!/agent 更新链|检查 dsh 更新/.test(md), `${name} 不得残留 agent 更新链旧词`);
   }
-  // 最新版本号两库一致（取各自最高 v0.5.x）。
+  // 最新版本号两库一致（取各自最高 v1.0.x）。
   const latest = (md) => {
-    const vs = [...md.matchAll(/v?0\.5\.(\d+)/g)].map((m) => Number(m[1]));
-    assert.ok(vs.length, '无 0.5.x 版本号');
-    return `v0.5.${Math.max(...vs)}`;
+    const vs = [...md.matchAll(/v1\.0\.(\d+)/g)].map((m) => Number(m[1]));
+    assert.ok(vs.length, '无 1.0.x 版本号');
+    return `v1.0.${Math.max(...vs)}`;
   };
   assert.strictEqual(latest(rootReadme), latest(tauriReadme), '双 README 最新版本号不一致');
 });

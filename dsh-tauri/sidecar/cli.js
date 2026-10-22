@@ -116,6 +116,7 @@ function loadModules(appDir) {
     integration: req('scripts/integration'),
     pluginManagerPatch: req('scripts/plugin-manager-patch'),
     pluginManagerUpdate: req('scripts/plugin-manager-update'),
+    pluginUpdateSources: req('scripts/lib/plugin-update-sources'),
     companionPlugins: req('scripts/lib/companion-plugins'),
     profileReconcile: req('scripts/lib/profile-reconcile'),
     profilePatchHeal: req('profile-patch-heal'),
@@ -267,7 +268,15 @@ function createPluginManager(mods, { appDir, home }) {
   // 无效条目体检 + 一键清理（补丁层唯一实现在 patch-surgery，经 plugin-manager-patch 再导出）。
   const { listDeadEntries: pmListDeadEntries, removeDeadEntriesById: pmRemoveDeadEntriesById } = mods.pluginManagerPatch;
   const { writeFileAtomic } = mods.patchIo;
-  const { selectReleaseAsset, npmLatestUrl, githubReleaseApiUrl, githubAssetDownloadUrl, verifyIntegrity, compareVersions, findPackageRoot } = mods.pluginManagerUpdate;
+  const {
+    npmLatestUrl, githubReleaseApiUrl, resolveGithubRelease,
+    verifyIntegrity, compareVersions, findPackageRoot,
+  } = mods.pluginManagerUpdate;
+  // 更新源唯一表（scripts/lib/plugin-update-sources.js）：sidecar 与
+  // plugin-core 共用同一份数据，禁止在侧车再复制副本。
+  const {
+    UPDATE_SOURCES, isUpdateExcluded, updateExclusionReason, getUpdateSource, selectUpdateCandidates,
+  } = mods.pluginUpdateSources;
   const https = require('node:https');
 
   const profileDir = () => path.join(home, 'profiles', 'web');
@@ -350,7 +359,24 @@ function createPluginManager(mods, { appDir, home }) {
       const hasConfig = !!(user && user.hasConfig);
       const removed = !!(user && user.removed === true);
       const toggleable = group !== 'core' && !removed && !(hasConfig && !userDisabled);
-      rows.push({ id, name: name || id, description: packageDescription(name || id), enabled: !userDisabled, toggleable, group, removed, hasConfig });
+      // version 供页面展示；name 可能为空（insert 条目未写 name），回退 id。
+      // 更新链三字段为契约里的可选字段（contracts/bridge-api.md §2.6）：
+      //   updateSource  = 该 id 是否在更新源表里；
+      //   updateExcluded= 是否被排除（如 better-sidebar 本地重建件）。
+      const rowName = name || id;
+      rows.push({
+        id,
+        name: rowName,
+        description: packageDescription(rowName),
+        enabled: !userDisabled,
+        toggleable,
+        group,
+        removed,
+        hasConfig,
+        version: installedVersion(rowName),
+        updateSource: !!getUpdateSource(id),
+        updateExcluded: isUpdateExcluded(id),
+      });
     };
     for (const p of COMPANION_PLUGINS) {
       const u = userById.get(p.id);
@@ -463,11 +489,8 @@ function createPluginManager(mods, { appDir, home }) {
   }
 
   // ---- 更新链（npm 双源 + GitHub digest 锚点，语义对齐 main.js #80/#90 修复）----
-  const UPDATE_SOURCES = {
-    'compaction-acp': { kind: 'npm', pkg: 'billion-context-dsh' },
-    'better-sidebar': { kind: 'npm', pkg: 'dsh-better-sidebar' },
-    'side-session': { kind: 'github', repo: 'hzhz314159/dsh-side-session' },
-  };
+  // 更新源表已收敛到 scripts/lib/plugin-update-sources.js（单一数据源），
+  // 本文件不再维护副本；排除项（better-sidebar 等）由 isUpdateExcluded 判定。
 
   function httpGetJson(url, timeoutMs = 15000, headers = {}, redirects = 0) {
     return new Promise((resolve, reject) => {
@@ -537,25 +560,21 @@ function createPluginManager(mods, { appDir, home }) {
   async function fetchGithubLatest(repo) {
     try {
       const data = await httpGetJson(githubReleaseApiUrl(repo), 15000, { Accept: 'application/vnd.github+json' });
-      if (data && data.tag_name && Array.isArray(data.assets) && data.assets.length > 0) {
-        const a = selectReleaseAsset(data.assets);
-        if (!a) return null;
-        const dm = /^(?:sha256:)?([0-9a-fA-F]{64})$/.exec(String(a.digest || ''));
-        return {
-          version: String(data.tag_name).replace(/^v/, ''),
-          tag: String(data.tag_name),
-          assetName: String(a.name),
-          tarball: githubAssetDownloadUrl(repo, data.tag_name, a.name),
-          digest: dm ? dm[1].toLowerCase() : '',
-          source: 'github',
-        };
+      // 有资产 → asset 模式（digest 锚点）；无资产 → archive 模式（源码 zipball，
+      // 无官方摘要，digest 为空串）。判定收敛在纯函数里，便于单测。
+      const info = resolveGithubRelease(repo, data);
+      if (!info) return null;
+      if (info.mode === 'archive') {
+        log('Release ' + info.tag + ' 无上传资产，改用源码 zipball（archive 模式；无 digest，不进行完整性校验）');
       }
+      return info;
     } catch (err) { log('查询 ' + repo + ' Releases 失败: ' + err.message); }
     return null;
   }
 
   async function checkUpdates() {
-    const rows = collect().filter((r) => UPDATE_SOURCES[r.id] && !r.removed);
+    // selectUpdateCandidates 统一过滤：无源 / 已卸载 / 被排除（better-sidebar）。
+    const rows = selectUpdateCandidates(collect());
     const settled = await Promise.all(rows.map(async (row) => {
       const src = UPDATE_SOURCES[row.id];
       const current = installedVersion(row.name) || '0.0.0';
@@ -567,10 +586,16 @@ function createPluginManager(mods, { appDir, home }) {
   }
 
   /** 更新单插件：下载 → 完整性校验 → 备份 → 解压替换（npm tar.gz / github zip 简化为
-   *  归档解到临时目录后复制包根）。digest/integrity 校验 fail-closed。 */
+   *  归档解到临时目录后复制包根）。digest/integrity 校验 fail-closed；GitHub
+   *  archive 模式（无资产的 release，源码 zipball）本就没有摘要，明确跳过而不是
+   *  假装校验（见 resolveGithubRelease 注释）。 */
   async function update(id) {
     const row = collect().find((r) => r.id === id);
     if (!row || row.removed) return { ok: false, error: '未知或已卸载插件: ' + id };
+    // 排除项在检查更新里就不出现；这里再挡一次直连调用（页面快照可能过期）。
+    if (isUpdateExcluded(id)) {
+      return { ok: false, error: '该插件不纳入独立更新管理: ' + (updateExclusionReason(id) || id) };
+    }
     const src = UPDATE_SOURCES[id];
     if (!src) return { ok: false, error: '该插件不支持独立更新: ' + id };
     const info = src.kind === 'npm' ? await fetchNpmLatest(src.pkg) : await fetchGithubLatest(src.repo);
@@ -580,10 +605,14 @@ function createPluginManager(mods, { appDir, home }) {
     let buf;
     try { buf = await httpGetBuffer(info.tarball); }
     catch (err) { return { ok: false, error: '下载失败: ' + ((err && err.message) || err) }; }
-    // 完整性校验（npm sha512 / github sha256 digest）——fail-closed。
+    // 完整性校验（npm sha512 / github asset sha256 digest）——fail-closed。
+    // GitHub archive 模式（源码 zipball）没有官方摘要：显式跳过并留日志，
+    // 不用 tag/版本号冒充校验值。
     if (info.integrity || info.digest) {
       try { verifyIntegrity(buf, info.integrity || 'sha256:' + info.digest); }
       catch (err) { return { ok: false, error: '完整性校验失败，拒绝安装: ' + ((err && err.message) || err) }; }
+    } else if (info.mode === 'archive') {
+      log('archive 模式无摘要可校验，跳过完整性校验: ' + id + '（' + info.tag + '）');
     }
     const dest = packageDir(row.name);
     if (!dest) return { ok: false, error: '安装目录解析失败: ' + row.name };

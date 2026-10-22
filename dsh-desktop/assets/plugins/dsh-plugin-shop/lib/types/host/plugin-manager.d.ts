@@ -1,0 +1,110 @@
+/**
+ * dsh's `pluginManager` service (0.1.7 on), as far as this shop calls it:
+ * design 2026-09-26-plugin-manager-delegation. Structural throughout: the
+ * build compiles against the 0.1.1-rc.2 harness floor, where
+ * `@deepseek-ai/dsh-plugin-manager` does not exist.
+ */
+import { type Activation } from './activation.ts';
+import type { HotRestartReason } from './hot.ts';
+/** The operations the shop calls. `cancelInstall` is optional because only
+ * the install deadline uses it. Answers stay `unknown` until `readChange`
+ * reads them: a later harness may add or drop fields. */
+export interface PluginManagerLike {
+    installBundle(spec: string, options: {
+        requestId: string;
+    }): Promise<unknown>;
+    removeBundle(name: string): Promise<unknown>;
+    /** `id` is the live loader entry id `listPlugins` reports (`include:...`),
+     * not the patch row id (dsh 0.1.7-rc.2 `setPluginEnabled`). */
+    setPluginEnabled(id: string, enabled: boolean): Promise<unknown>;
+    setBundleEnabled(name: string, enabled: boolean): Promise<unknown>;
+    cancelInstall?(requestId: string): Promise<unknown>;
+}
+/** The service, when `service` offers every required operation; else null.
+ * All or nothing: half a service would take an install and fail its
+ * uninstall. */
+export declare function asPluginManager(service: unknown): PluginManagerLike | null;
+/** One entry of dsh's `incompatible` list. `peers` is what the package
+ * declared and the running dsh does not meet, read under whichever name that
+ * dsh gives it, `requirements` from 0.2.1 and `peers` before
+ * (`refusedRequirements`): a key is a dsh peer's package name or
+ * `engines.dsh`. */
+export interface ManagerIncompatible {
+    name: string;
+    version: string;
+    runtimeVersion: string;
+    peers: Record<string, string>;
+}
+/** The facts of one answer, each checked for its type. */
+export interface ManagerChange {
+    application: string | null;
+    stage: string | null;
+    errorCode: string | null;
+    diagnostic: string | null;
+    incompatible: ManagerIncompatible[];
+    kind: string | null;
+    output: string;
+    pendingBuilds: string[];
+    failedAt: string | null;
+    /** Whether the profile's files differ from before the operation (dsh's
+     * `diskState`, which covers package.json). */
+    changed: boolean | null;
+    /** dsh keeps only the last 16 KB of a pnpm run's output; true when this
+     * answer's `packageResult.output` was cut short, so an absence in it
+     * proves nothing. */
+    truncated: boolean;
+}
+/** Read one `ChangeResult`. Every field is optional: one a later harness
+ * drops reads as absent, never as a crash. */
+export declare function readChange(raw: unknown): ManagerChange;
+/** `change`, with every clause naming a `dsh plugin` command removed from
+ * `diagnostic` and `output`: dsh's CLI refuses every `plugin` subcommand for
+ * the desktop profile, so a step dsh wrote assuming that command exists must
+ * not reach a reader there. Two dsh texts this exists for: dsh-app-boot's
+ * `pluginCompatibilityWarning` ("... with `dsh plugin allow-version` or the
+ * plugin manager ..."), whose sentence goes whole, and the restoration line
+ * after a failed repair ("..., but node_modules could not be reinstalled;
+ * run 'dsh plugin install'"), which keeps what it says dsh restored. A
+ * clause is a run between `; ` separators within a sentence; a sentence left
+ * with no clause is dropped, and so is a line left with no sentence. Every
+ * other line stays untouched, and a diagnostic left empty afterward reads as
+ * absent, the same way `codeReason` already treats one. */
+export declare function forDesktopReader(change: ManagerChange): ManagerChange;
+/** The end of a detail that passes on what a service call threw: `: ` and
+ * the message, scrubbed for a desktop reader as `forDesktopReader` scrubs
+ * dsh's answer, since a thrown message is dsh's text as well. A message left
+ * with nothing to say ends the detail with a period instead. */
+export declare function thrownTail(message: string, desktop: boolean): string;
+export interface ManagerOutcome {
+    state: 'done' | 'failed';
+    activation?: Activation;
+    restartReason?: HotRestartReason;
+    detail?: string;
+}
+export interface OutcomeContext {
+    profile: string;
+    name: string;
+    operation: 'install' | 'update' | 'uninstall';
+    /** The gateway's `imported` record holds the name (market borrowings section 1). */
+    alreadyImported: boolean;
+    /** Whether the running harness replaces a running plugin whose files
+     * changed on disk at a profile reconcile — dsh-hmr 0.2.1's
+     * `reconcileProfile`. False through 0.2.0, whose hmr has only
+     * `reconcileProfilePatches`, and on 0.1.5, which has no hmr service. */
+    reconcilesRunningPlugins: boolean;
+    hasClientHalf: boolean;
+    /** The desktop profile, whose readers can run no `dsh plugin` command. */
+    desktop: boolean;
+    timeoutMs: number;
+}
+/** The sentence a management code gets, plus dsh's own diagnostic. The
+ * diagnostic is trimmed and stripped of one trailing period so one that
+ * already ends in a period is not doubled; empty after that reads as
+ * absent. Exported: Task 7 builds the same tail for a non-terminal notice. */
+export declare function codeReason(change: ManagerChange, code: string): string;
+/** A `ChangeResult` as the shop's terminal install record: design
+ * 2026-09-26-plugin-manager-delegation, section 5, read by the first rule
+ * that matches. A removal that failed after dsh changed the profile says,
+ * after whichever rule read it, that the package is still installed and
+ * switched off. */
+export declare function managerOutcome(raw: unknown, context: OutcomeContext): ManagerOutcome;

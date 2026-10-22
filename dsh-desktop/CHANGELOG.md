@@ -3,6 +3,149 @@
 DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行时与 dsh CLI，
 一键启动 Web UI。
 
+## [Unreleased]
+
+### feat(plugin)：移除「临时对话」+ 内置 DeepSeek-Bot（2026-10-22）
+
+- **移除「临时对话」**：`side-session`（`@dsh-external/dsh-side-session` 0.3.1）从
+  `COMPANION_PLUGINS` 摘出并进 `RETIRED_COMPANIONS`，源目录 `assets/plugins/dsh-side-session`
+  与更新源表条目一并删除。存量机器的 patch 登记、profile 镜像目录与 manifest 登记由
+  `sync-companion-plugins.js` / `integration/plugin-sync.js` 两个入口共用的
+  `removeRetiredCompanionPatchRows` + `syncCompanionFiles` 回收（隔离实机已实测目录/manifest 撤回）。
+- **内置 DeepSeek-Bot**：`ds-bot` 0.2.0（Apache-2.0，loader id `bot`）作为第 34 个伴随插件随包交付，
+  提供主 Bot + 长期 Bot + 群聊、@ 转交、群共享记忆、能力库与用量页。vendored `cordis.patch.yml`
+  只保留 Bot 本体，不复制上游的 `web-search-auto` / `web.searchProvider: auto` 覆盖，避免与
+  `dsh-free-search` 抢 web provider；更新源表新增 `bot`（npm `ds-bot`）。
+- **README 重写**：中英两份的门面改为「精选插件整合包」定位，补充 DS Bot / Better Sidebar /
+  Free Search / 插件商店 / 通知的统一管理与开箱即用叙事；版本、安装包命名与数据位置同步到 1.0.7。
+- **验证**：`npm test` 2222 例 / 2213 pass / 9 skip / **0 fail**；隔离 boot 的 `plugin-list`
+  中 `bot` 为 enabled、`side-session` 消失；真实 `dsh web` 页面加载出 Chief 主 Bot 界面；
+  `unit-hub-registry` / `unit-vendored-upstream-plugins` / `unit-companion-bulk-retire` 等台账锁全绿。
+
+## [1.0.7] - 2026-10-22
+
+### feat(plugin)：会话地图 dsh-synapse 随包默认关闭（2026-10-22）
+
+- 新建/升级 profile 时由 `sync-companion-plugins.js` 与 Tauri boot 的
+  `scripts/integration/plugin-sync.js` **双入口**写入顶层 `- id: synapse` + `disabled: true`，
+  与 compaction-acp 同机制（顶层 disabled 覆盖 bundle 自身 insert）。
+- 写入禁用块的同时写一次性标记 `# DSH Desktop：dsh-synapse 默认禁用已应用（用户开启后不再回写）`；
+  用户在内置插件页开启后，下次启动 sync 看到标记不再回写，选择可持久（显式关闭仍会重新禁用）。
+- 验证：全新隔离 home boot → `plugin-list` 的 `synapse.enabled=false`；开启后重启仍为 `true`；
+  `unit-companion-profile` 12/12（含「开启不回写」「显式关闭仍写入」两条反证）。
+
+### feat(plugin)：随包内置五个上游插件 + 内置件统一查看/更新（2026-10-22）
+
+- **新增五条内置件**（`COMPANION_PLUGINS` 29→34，`assets/plugins` 34 目录 1:1）：
+  `web-search-free` / `dsh-free-search` 0.9.11（MIT）、`shop` / `dsh-plugin-shop` 0.9.0（Apache-2.0）、
+  `network-proxy` / `@local/dsh-network-proxy` 1.0.0（MIT）、`mcp-manager-ui` / `dsh-toolbox-ui` 1.8.2（MIT）、
+  `dsh-notify` / `@bittersmilezzz/dsh-notify` 0.4.5（MIT）。loader id 逐条与各自 `cordis.patch.yml` 对齐。
+- **统一查看/更新（B 案）**：`dsh-tauri/sidecar/cli.js` 的 `plugin-list` 行新增 `version` / `updateSource` /
+  `updateExcluded`；更新源收敛到唯一表 `scripts/lib/plugin-update-sources.js`（8 条，含 5 条新增），
+  sidecar 与 `plugin-core` 同源；`better-sidebar` 明确排除（本地重建件，npm 更新会覆盖本地修复）。
+  GitHub 源支持「release 无资产」的 zipball archive 模式（network-proxy 只有 tag，没有 release asset）。
+  `dsh-builtin-manager` 页新增行内版本、「检查更新」、可更新行的「更新」按钮（成功提示 + 刷新列表，
+  失败落 sidecar 原文）；桥命令与契约零新增（`checkUpdates` / `update` 早已在册）。
+- **随包兼容改动（均带回归锁）**：free-search 的 research 缓存落点改为 `DSH_HOME` 优先（不再写死
+  `~/.cache`）；network-proxy 的 `network-proxy.json` 按 0600 落盘、客户端 locale 快照改读
+  `snapshot.active`；notify 补 `private: true`；toolbox 静态导入的 `smol-toml` 进
+  `dsh-desktop/package.json` 与 `VENDOR_DEPS`（新 `unit-vendored-upstream-plugins` 9 例咬住，
+  含三处反证）。
+- **壳层通知下线**：`dsh-notify` 接管回合完成通知；详见 `dsh-tauri/CHANGELOG.md` 同批条目。
+- **台账**：`THIRD_PARTY_NOTICES.md`（§4.1 34 件 + `smol-toml` 1.9.1 BSD-3-Clause）、
+  `docs/builtin-plugins-inventory.md`（§一 34 行、§5.2 34 行七数本地重放）、`README.md` / `README.en.md`
+  两表、`AGENTS.md` 计数已同步；`plugin-contract.md` 的 33→34 漂移一并修正。
+- **门禁**：`check-syntax` / `validate-pin` / `patch-surface verify`（85 文件）全绿；
+  `unit-hub-registry` 24/24、`unit-plugin-inject-services`、`unit-plugin-channels`、`unit-plugin-peer-floor`、
+  `unit-payload-plugin-deps`、`unit-doc-command-truth`、`unit-builtin-manager-client` 21/21、
+  `unit-plugin-update-sources` 8/8、新 `unit-vendored-upstream-plugins` 9/9；
+  sidecar `cli.test.js` 21/21；全量 `npm test` 2253 例 / 0 fail / 0 cancelled（9 skip，均为环境缺料）。
+
+### fix(plugin)：dsh-better-sidebar（本机版本仍 0.24.2，未 bump）—— 右上角「文件资源管理器」两处坏根治（2026-10-21 用户报障）
+
+- **报障**：客户端右上角的「文件资源管理器」点击后无反应。宿主半边先证明无罪：隔离实机
+  `GET /open-in-app/apps` 回 `["explorer","vscode","gitbash"]`，`POST /open-in-app/open`
+  （`{app:"explorer",path:<工作区目录>}`）回 **200 `{"ok":true}`** 且资源管理器真开窗。坏在客户端侧，两条：
+- **坏 ①（能看见的那颗）**：屏幕上唯一的「资源管理器」是我们常驻左栏的栏头，而它当时是个
+  **没有 handler 的 `<span>`**（折叠只挂在旁边那颗小箭头上）。修法：栏头整行做成
+  `button`（`aria-expanded` + `title/aria-label=收起文件树`），图标/标题/箭头一体，折叠态仍由
+  `ExplorerRailCollapsed` 那颗「展开文件树」按钮负责。
+- **坏 ②（本该存在的那颗不见了）**：内核的「文件资源管理器」分体按钮画在
+  `sidebar.right.tab.files.actions`，而该槽的**唯一宿主**是 built-in `FilesBody`
+  （`@deepseek-ai/dsh-client-ui-sidebar-files/lib/client.js:699`）；本插件以同 kind 的
+  `priority: 'extension'` 接管 `files` 主体之后，那一格永不再渲染，入口在产品里彻底消失。
+  修法：`TreePanel` 工具条自建 `OpenLocallyButton`——清单直读宿主 catalog，主按钮按首个应用打开
+  工作区目录、箭头菜单列全清单（实机菜单渲染「文件资源管理器 / VS Code / Git Bash」），
+  **宿主不可用或 catalog 为空即整块不渲染**（不给死行），失败走一行自清提示。
+- **产物**：走 `.tmp-bs-build` 沙箱 `npm run build`（`tsc` 类型门禁 + `tsdown`，`Build complete in 1909ms`）
+  重建后回填 `lib/`；发行字节里 CSS 类名表逐键核对 **185 键零丢失、只新增 `openLocallyGroup`**，
+  其余大块 diff 是生成产物的键序重排。兼容实测随新增原语取用变动：`member` **413 → 419**
+  （TreePanel 三处内核原语 × 双频道产物），inventory §5.2 #3 的实测列已随迁。
+- **回归锁**：新增 `scripts/test/unit-better-sidebar-explorer-open.test.js` **17 例 / 0 fail**
+  （12 判据 + 5 反证：丢 catalog id、摘空清单守卫、摘 `aria-expanded`、`onCollapse` 换空函数、
+  强改单应用分支）。门禁：`check-syntax` 通过；better-sidebar / 右栏相邻六套 **92 例全绿**；
+  `unit-hub-registry` 台账对账 24 例全绿；全量 `npm test` **2226 例 / 2217 pass / 0 fail / 0 cancelled / 9 skip**。
+- **文档**：`docs/better-sidebar-kernel-integration.md` 新增「接管 built-in 工作区文件：被我们弄丢又找回的入口」
+  一节（槽位宿主表 + 修法 + 锁名）；AGENTS.md 记一条同型坑（接管型插件吞掉宿主专属槽，静态扫与 boot 全绿）
+  并把测试基线更新为 204 文件 / 2226 例。
+
+### fix(plugin)：dsh-synapse 0.3.0 → 0.3.1 —— 吸收 d-pack 的 snapshotEvents 兼容口（2026-10-19）
+
+- **断链**：0.3.0 的回填路径读 `session.events`，而 rc.2 / 0.2.1 的 `Session` 已无该字段
+  （`Session.prototype` 反射实测只有 `snapshotEvents` / `ownEvents`）。失败形态是静默空转：
+  投影永远应用 0 条事件、画布看起来「没有数据」，控制台干净。逐文件差量见
+  `dsh-desktop/docs/builtin-plugins-inventory.md` §5.5。
+- **修法**：采用 d-pack `0.3.1` 的 `sessionEvents(session)`（优先 `snapshotEvents()`，
+  老宿主退回 `session["events"]` 下标读取），本仓包版本与 PACK 对齐到 `0.3.1`；
+  `app.js` / `styles.css` / `client.js` 与 d-pack `0.3.1` 逐字节一致，唯一代码差量是
+  `index.js` 里的兼容口。
+- **回归锁**：`test/replay-watermark.test.js` / `test/workspace-store.test.js` 的夹具改成
+  真实宿主形状（只有 `snapshotEvents()`、没有 `events`）。反证：旧 `0.3.0` 代码在 25 例中
+  7 例红；修后 `node --test test/*.test.js` **102 例全绿**。
+- **台账**：`README.md` / `README.en.md` 插件表、`THIRD_PARTY_NOTICES.md` §4.1、
+  inventory §一/§3.1/§4.1 同批 `0.3.0` → `0.3.1`。
+
+### refactor(plugin)：dsh-prompt-optimizer 换为上游 Y1X1n 0.6.1（本地版本线 3.0.0，2026-10-19）
+
+- **整体替换**：`assets/plugins/dsh-prompt-optimizer/` 由本仓 2.4.0 自研升级线整体换成
+  上游 [`Y1X1n/dsh-prompt-optimizer`](https://github.com/Y1X1n/dsh-prompt-optimizer) `0.6.1`
+  的 vendored 版本（MIT，Copyright (c) 2026 Y1X1n），本地版本线记为 `3.0.0`。
+  产物为 `lib/{index,client,prompt,controller}.js`，`src/`、上游 `test/` 与
+  `scripts/build.mjs` 随源保留，可在本仓内重建。
+- **包名与 loader id 不变**（`dsh-prompt-optimizer` / `prompt-optimizer`）：老 profile 里的
+  同名安装会被 3.0.0 原地覆盖（`companion-profile` 的 keep-newer 判据），不会形成双挂载；
+  `COMPANION_PLUGINS` 与 `cordis.patch.yml` 无需迁移。上游 npm 真包名是
+  `@y1x1n/dsh-prompt-optimizer`；npm 裸名 `dsh-prompt-optimizer` 属另一实现（winditer），
+  本地 `repository` 指向 Y1X1n 后身份判 `foreign`，**禁止按裸名更新**。
+- **能力面**：输入框旁「优化」按钮 + `conversation.input.dock` 流式结果面板 +
+  `settings.plugins.tab` 插件设置页标签（读写走内核 `configForms`）；宿主注册
+  `POST /dsh-prompt-optimizer/optimize`（SSE）与 `POST /dsh-prompt-optimizer/test-model`，
+  宿主 `inject=['llm']`。设置页自带「优化用模型 / 回退模型」两行下拉：模型目录经
+  `session/modelCatalog` RPC 拉取，固定 `provider/model` 后所有优化与探活都走该路由，
+  留空才跟随发起请求的会话；旁附模型连通性测试。上游自带的 0.1.x 兼容面（`settingsScope` 服务与
+  `settings.plugin.item` 槽）在 pin 的 0.2.1 内核上已退役，随本次一并摘净——客户端主
+  `inject` 只保留 `['slots', 'connection', 'remote']`，`configForms` 等可选服务各自独立
+  inject，避免宿主缺任一服务时整个客户端永远等不到就绪。旧自研线的项目优化目标、
+  上一轮上下文、意图行、一键撤销等实现随目录替换一并退役。
+- **清理**：撤除 `.gitignore` 的旧 `dist/` 例外；删除旧实现专属的四个回归套件
+  （`unit-prompt-optimizer-{context-intent,lexical-write,project-goal,upgrade}`）；
+  新增 `unit-prompt-optimizer-vendored`（8 例）锁住清单/入口/宿主导出/客户端槽位/身份判定、
+  解析行为，以及「设置固定模型压过会话选择、留空跟随会话」的端到端路由。G10 槽位 props 契约扫描器同批学会下钻「工厂返回组件」——
+  `createOptimizeButton` / `createResultDock` 的外层形参是依赖注入而非槽位 props，
+  旧扫描把它们误当成 `props.*`；新增正反夹具各一条，追不到时仍落 INCONCLUSIVE。
+  四处逐名台账（`THIRD_PARTY_NOTICES` §4.1、inventory §一/§4.2/§5.2、README 中英）
+  同批随迁到 3.0.0。
+- **验证**：上游自带 `prompt.test.mjs`（24 例）/ `controller.test.mjs`（27 例）/
+  `slot-guard.test.mjs`（5 例）全绿；本仓全量 `npm test` **203 个测试文件 / 2209 例 /
+  0 fail / 0 cancelled**（pass 2200 / skip 9），`check-syntax`、`validate-pin`
+  （`dsh-v0.2.1-rc.2`）与 `patch-surface verify`（85 文件无漂移）同批通过。隔离真内核
+  （临时 `DSH_HOME` / `DSH_TAURI_USERDATA`）：boot 五步全绿（3.25s），31 条插件中
+  `prompt-optimizer` 已启用；`web` 启动后 stdout 打出
+  `[dsh-prompt-optimizer] loaded`，`POST /dsh-prompt-optimizer/test-model` 与
+  `/optimize` 分别回插件自己的「未找到可用模型」409 与参数校验 400（**不是 404/405**），
+  stderr 全程 0 字节；页面实测渲染出 `button.dsh-po-btn.dsh-po-opt`（空草稿时按设计
+  disabled + title「先在输入框输入提示词」），无 `Failed to load plugins`、console 零消息。
+
 ## [0.6.5] - 2026-09-22
 
 ### feat(release)：v0.6.5 正式版发布

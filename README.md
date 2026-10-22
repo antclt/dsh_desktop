@@ -1,14 +1,16 @@
 ![DSH Desktop](https://cdn.jsdelivr.net/gh/myYangyunfan/dsh_desktop@5c673d6/docs/banner.svg)
 
-**把 DeepSeek Harness 装进桌面（Windows / macOS）的开箱即用客户端**
+**把 DSH 里最好用的一批插件，做成一个开箱即用的桌面客户端**
 
-内置完整 dsh 运行时与全部官方插件，免装 Node.js，双击即用
+不是一个「只换皮」的 DSH 壳：我们替你挑插件、调兼容、做整合、压进一个安装包。
+装好即用——不用装 Node.js，不用逐个找插件，也不用为版本冲突折腾。
 
 > [!IMPORTANT]
-> **🎉 v0.5.0 —— 全架构迁移与重构**：桌面壳从 Electron 全面迁移至 **Tauri 2（Rust）**，更稳定、更好用——
-> 安装包更小、内存更低、启动更快；「守护瀑布」让坏插件 / 坏配置也**永不白屏打不开**。
-> 用户数据与旧版完全兼容，覆盖安装即完成无痛升级（详见 [迁移指南](dsh-tauri/docs/upgrade-guide.md) 与 [架构](#-架构)）。
-> v0.5.0 之前的 Electron 版本仍可在 [Releases](https://github.com/myYangyunfan/dsh_desktop/releases) 下载，此后仅维护 Tauri 架构。
+> **v1.0.7：精品插件整合包成形。** 官方 dsh 运行时与 34 个精选伴随插件随包交付：
+> **DeepSeek-Bot**（主 Bot + 长期 Bot + 群聊）、Better Sidebar 文件工作台、Free Search、
+> 插件商店、Prompt Optimizer、会话地图、桌面通知、MCP 工具箱……全部开箱可用，
+> 并能在「设置 → 插件 → 内置插件」里统一查看、启停和检查更新。
+> 架构仍是 Tauri 2 + 内置 Node：安装包更小、启动更快，坏插件 / 坏配置也**永不白屏打不开**。
 
 [![Release](https://img.shields.io/github/v/release/myYangyunfan/dsh_desktop?color=4D6BFE&label=Release)](https://github.com/myYangyunfan/dsh_desktop/releases) [![Stars](https://img.shields.io/github/stars/myYangyunfan/dsh_desktop?style=social)](https://github.com/myYangyunfan/dsh_desktop) [![Forks](https://img.shields.io/github/forks/myYangyunfan/dsh_desktop?style=social)](https://github.com/myYangyunfan/dsh_desktop/fork) [![Downloads](https://img.shields.io/github/downloads/myYangyunfan/dsh_desktop/total?color=4D6BFE)](https://github.com/myYangyunfan/dsh_desktop/releases) [![Issues](https://img.shields.io/github/issues/myYangyunfan/dsh_desktop?color=4D6BFE)](https://github.com/myYangyunfan/dsh_desktop/issues) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20%C2%B7%20macOS%2012%2B-4D6BFE) ![License](https://img.shields.io/badge/license-MIT-4D6BFE) [![Release CI](https://img.shields.io/github/actions/workflow/status/myYangyunfan/dsh_desktop/release.yml?color=4D6BFE&label=Release%20CI)](https://github.com/myYangyunfan/dsh_desktop/actions) [![Gitee Stars](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fgitee.com%2Fapi%2Fv5%2Frepos%2Fmy-yang-yunfan%2Fdsh_desktop&query=%24.stargazers_count&label=Gitee%20Stars&color=4D6BFE)](https://gitee.com/my-yang-yunfan/dsh_desktop)
 
@@ -19,30 +21,48 @@
 
 ---
 
-## ✨ 特性
+## ✨ 为什么是「插件整合包」
+
+DSH 的插件生态很好，但「好」和「装好就能用」之间隔着选型、兼容、版本、配置四道墙。
+DSH Desktop 把这件事做完：**精选，整合，随包交付。**
+
+### 精选，而不是堆积
+
+- **34 个伴随插件，逐个选过** — 不以数量取胜：每个内置件都经过宿主兼容验证、许可核对和真机启动检查，
+  清单、上游与判定记录在 [内置插件清单](dsh-desktop/docs/builtin-plugins-inventory.md)。
+- **一个安装包，一套完整体验** — Bot 团队与群聊（DeepSeek-Bot）、文件工作台（Better Sidebar）、
+  免费多引擎搜索（Free Search）、插件商店、提示词优化、会话地图、桌面通知、MCP / 技能工具箱、
+  余额与费用、会话归档、峰谷价格卫士……装完即齐。
+- **统一管理，不再各自为政** — 「设置 → 插件 → 内置插件」逐条查看版本、启停、检查更新；
+  更新源与排除项由一张表统一维护，避免同一插件在不同入口看到不同状态。
+- **上游可追溯** — 每个随包插件都标注来源仓库、版本与许可证；第三方许可见
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，兼容性判定与实测证据见清单 §五。
 
 ### 开箱即用
 
-- **零依赖** — 内置独立 Node 运行时与 npm CLI，目标机器无需安装任何环境
-- **完整 dsh** — 打包 `@deepseek-ai/dsh` 及全部官方插件，离线可用
-- **一键启动** — 双击即启 `dsh web`，优先复用上次端口，就绪后载入原生窗口
-- **双形态** — 便携版（免安装、可放 U 盘）+ 安装版（桌面/开始菜单快捷方式）
+- **零环境依赖** — 内置独立 Node 运行时与 npm CLI，目标机器不需要安装 Node.js / pnpm。
+- **完整 dsh，离线可用** — 打包官方 `@deepseek-ai/dsh` 与官方插件全集，断网也能启动。
+- **双击即用** — 自动复用上次端口，内核就绪后载入原生窗口；提供安装版与便携版两种形态。
+- **客户端级更新** — 右上角 ⋯ 一键检查并安装更新，双源 GitHub / Gitee 自动切换，
+  sha256 fail-closed 校验；内核随客户端整体分发，没有另一条独立更新链。
 
-### 体验增强
+### 桌面体验
 
-- **深色玻璃无边框窗口** — 自绘标题栏、Win11 圆角，关闭默认隐藏到系统托盘
-- **侧边会话浮窗** — 随时唤起独立会话窗口，与主会话互不干扰
-- **会话管理** — 归档 / 恢复 / 删除对话，历史不再堆积
-- **余额小部件** — 对话底部实时显示「本轮费用 · 余额」，支持 OpenCode Go 订阅额度，点击直达充值
-- **完成通知** — 任务跑完弹系统通知，一分钟内回到主窗口自动跳到对应会话（Windows 通知无点击回调，聚焦即跳转）
+- **Tauri 2 原生壳** — 深色玻璃无边框窗口、自绘标题栏、Win11 圆角，关闭默认驻留托盘。
+- **文件工作台** — Better Sidebar 把资源管理器、编辑器、Diff 与「在本地打开」接进右栏，
+  折叠 / 展开与快捷键都按桌面习惯重做。
+- **Bot 团队** — DeepSeek-Bot 把主 Bot、长期 Bot 和群聊装进同一个客户端：
+  @ 转交、群共享记忆、能力库与用量页，适合把 DSH 当成长期协作工作台。
+- **通知与余额** — dsh-notify 接管回合完成 / 审批 / 出错通知，点击回到对应会话；
+  对话底部实时显示「本轮费用 · 余额」。
 
 ### 工程韧性
 
-- **守护瀑布** — 内核 boot 链逐级自愈：坏插件自动修复、坏配置自动重建、内核崩溃环原地重启，任何不兼容形态都不退出（v0.5.0 Tauri 架构核心特性）
-- **崩溃自愈** — 渲染层假死心跳检测自动重载；内核由 supervisor 探活 + 指数退避拉起
-- **历史兼容** — 自动修补会话事件词汇表，第三方插件写入的事件不破坏会话历史
-- **自动更新** — 右上角 ⋯ 菜单一键检查并安装客户端更新（双源 GitHub/Gitee Releases 自动切换，sha256 校验 fail-closed，离线静默）；升级安装自动装回旧位置，零配置丢失；内核随客户端整体分发（无独立更新链）
-- **快捷方式自愈** — 桌面与开始菜单快捷方式缺失即自动补建
+- **守护瀑布** — 内核 boot 链逐级自愈：坏插件自动修复、坏配置自动重建、内核崩溃环原地重启，
+  任何不兼容形态都不退出。
+- **崩溃自愈** — 渲染层假死心跳检测自动重载；内核由 supervisor 探活 + 指数退避拉起。
+- **历史兼容** — 自动修补会话事件词汇表，第三方插件写入的事件不破坏会话历史。
+- **数据不动** — 升级覆盖安装保留 profile 与会话；插件启停只改 patch，不碰用户数据。
 
 ## 📸 界面一览
 
@@ -54,44 +74,34 @@
 | --- | --- | --- |
 | 启动 | 手动安装 Node.js、敲命令 | 双击即用，内置独立运行时 |
 | 界面 | 浏览器标签页 | 桌面原生窗口 · 深色玻璃无边框 |
-| 会话管理 | 仅归档 | 归档 / 恢复 / 删除 |
+| 插件 | 自己逐个找、装、调兼容 | **34 个精选插件随包交付**，统一查看 / 启停 / 更新 |
+| 会话管理 | 仅归档 | 归档 / 恢复 / 删除 + 会话地图 |
 | 余额 | 无 | 实时「本轮费用 · 余额」+ OpenCode Go |
-| 桌面能力 | 无 | 托盘常驻 / 完成通知 / 侧边浮窗 |
+| 桌面能力 | 无 | 托盘常驻 / 原生通知 / 文件工作台 / Bot 群聊 |
 | 更新 | 手动 | 客户端双源更新链（GitHub/Gitee + sha256 校验 fail-closed） |
 
-## 🚀 快速开始
+## 🚀 开始使用
 
-**系统要求**：Windows 10 / 11（x64），无需预装 Node.js。
+**系统要求**：Windows 10 / 11（x64）；macOS 12+（Apple Silicon / Intel）。无需预装 Node.js。
 
-### 下载（Tauri 架构）
+### 下载安装
 
-**最新版到 [GitHub Releases](https://github.com/myYangyunfan/dsh_desktop/releases) 页下载（v0.5.x 预览线）**——v0.5.2（2026-08-22）修复 v0.5.1 用户实测的「频繁重启 + 白屏」等问题。下表保留 v0.5.0（首个对外测试版，2026-08-21 发布）直链：
+到 [GitHub Releases](https://github.com/myYangyunfan/dsh_desktop/releases/latest) 下载最新版 **1.0.7**：
 
-| 平台 | 下载 |
+| 平台 | 安装包 |
 | --- | --- |
-| 💻 Windows x64 | [`DSH.Desktop_0.5.0_x64-setup.exe`](https://github.com/myYangyunfan/dsh_desktop/releases/download/v0.5.0/DSH.Desktop_0.5.0_x64-setup.exe)（NSIS 安装包，约 87 MB，`currentUser` 模式免管理员，内嵌 WebView2 引导器） |
+| 💻 Windows x64 | `DSH-Desktop-Setup-1.0.7-win-x64.exe`（NSIS 安装包，约 187 MB，`currentUser` 模式免管理员，已内置 WebView2 引导器） |
+| 🍎 macOS 12+ | `1.0.7-macos-arm64.dmg`（以 Releases 页为准） |
+| 🐧 Linux x64 | `1.0.7-linux-x64.AppImage` / `dsh-desktop_1.0.7_amd64.deb`（以 Releases 页为准） |
 
-- v0.5.0 由 [Tauri 发布流水线](https://github.com/myYangyunfan/dsh_desktop/actions/workflows/tauri-release.yml) 云端构建发布（本轮上线 Windows x64）；**v0.5.1 起三平台产物（Linux AppImage/deb、macOS dmg）与 Windows 便携版均由流水线产出**（六资产校验，见[发布](#-发布)）。
-- 从任意旧版（Electron 0.1.x–0.4.x）覆盖安装：自动定位旧目录、静默卸载保数据、**装回原位置**，用户数据零迁移（详见[迁移指南](dsh-tauri/docs/upgrade-guide.md)）。
+- **覆盖安装**：自动定位旧目录、保留数据并装回原位置；profile、会话与插件配置不迁移、不丢失。
+- **便携版**：Windows 另有 `DSH-Desktop-Portable-1.0.7-win-x64.zip`，解压即用，数据存在 exe 旁 `data\`。
+- **首次启动**：从安装包内的 `assets/plugins` 同步 34 个精选插件到 profile；之后可在
+  「设置 → 插件 → 内置插件」里查看、启停和检查更新。
+- **数据位置**：Windows 安装版在 `%APPDATA%\DSH Desktop\`，便携版在 exe 旁 `data\`；
+  macOS 在 `~/Library/Application Support/DSH Desktop/`。设置 `DSH_HOME` 可强制指定 dsh 配置目录。
 
-### 国内用户（Gitee）
-
-> [!NOTE]
-> Gitee 镜像当前最新为 **Electron 版 v0.4.1**——v0.5.0（Tauri）安装包暂未同步，请先从 [GitHub Releases](https://github.com/myYangyunfan/dsh_desktop/releases) 下载。
-
-Gitee 单文件限制 100 MB，Electron 安装包拆为分片（`.part1/.part2/...`），全部下载后双击该版本附件中的 `merge.bat` 自动合并，`SHA256SUMS` 校验。请到 [Gitee Releases](https://gitee.com/my-yang-yunfan/dsh_desktop/releases) 页选择版本下载。
-
-### 旧版下载（Electron 0.4.x 及更早）
-
-[GitHub Releases](https://github.com/myYangyunfan/dsh_desktop/releases) 保留全部历史版本。旧版命名规则：**`win-` = Windows，`macos-` = macOS**（`.exe` 一定是 Windows，`.dmg` / `.zip` 一定是 macOS）；**`x64` = Intel/AMD，`arm64` = ARM 芯片**（Windows ARM 设备如 Surface Pro X、Apple Silicon Mac 选 arm64）。形态含 `portable`（免安装便携版）与 `setup`（安装版）。
-
-macOS 版暂未签名，Apple Silicon 首次打开会提示「无法验证开发者」——请**右键点击 App → 打开**，或终端执行：
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"
-```
-
-**数据位置**：Windows 便携版在 exe 旁 `data\`；安装版在 `%APPDATA%\DSH Desktop\`。macOS 在 `~/Library/Application Support/DSH Desktop/`。设置环境变量 `DSH_HOME` 可强制指定 dsh 配置目录。
+> v1.0.0 起不再同步 Gitee 代码与 Release 资产；Gitee 上的历史版本仅作存档。
 
 ## 💬 社区交流
 
@@ -101,48 +111,50 @@ xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"
 
 ## 🛠 从源码构建
 
-v0.5.0（Tauri 架构）——前置：[Rust 工具链](https://rustup.rs/) + `dsh-desktop/` 已 `npm install`（内核 payload 源）：
+前置：[Rust 工具链](https://rustup.rs/) + dsh-desktop/ 已 npm install（内核 payload 源）。
 
 ```bash
-# 测试（Rust 全量 + sidecar + 共享脚本）
+# 测试（当前基线：Rust 607 / sidecar 21 / Node 2253）
 cd dsh-tauri
-cargo test --manifest-path src-tauri/Cargo.toml   # Rust 177 例（CI 跳集成例）
-node --test sidecar/cli.test.js                    # sidecar 16 例
-cd ../dsh-desktop && node --test scripts/test/unit-*.test.js  # 共享脚本回归
+cargo test --workspace
+node --test sidecar/cli.test.js
+cd ../dsh-desktop && npm test
 
 # 开发运行
-cd src-tauri/src/app && cargo run
+cd dsh-tauri/src-tauri/src/app && cargo run
 
 # 打包 win-x64 NSIS 安装包 + 安装态冒烟
 bash dsh-tauri/scripts/stage-payload.sh
-npx --yes @tauri-apps/cli build --config src-tauri/src/app/tauri.conf.json \
-  --target x86_64-pc-windows-msvc
+cd dsh-tauri && npx --yes @tauri-apps/cli build \
+  --config src-tauri/src/app/tauri.conf.json --target x86_64-pc-windows-msvc
 bash dsh-tauri/scripts/smoke-installed.sh
 ```
 
-完整流程（含调试开关 `DSH_TAURI_DIAG` / `DSH_TAURI_DEVTOOLS` 等）见[开发手册 §6](dsh-tauri/docs/development.md)。
+完整流程（含调试开关 `DSH_TAURI_DIAG` / `DSH_TAURI_DEVTOOLS` 等）见[开发手册](dsh-tauri/docs/development.md)。
 
 ## 🤖 发布
 
-v0.5.0 起发布走 **Tauri GitHub Actions 云端流水线**（[`tauri-release.yml`](.github/workflows/tauri-release.yml)）：推 `v*` tag → 三平台构建（统一 vendor node v24.15.0 + 完整 `stage-payload.sh` + compat 构建 fail-fast）→ 自动汇总产物发布 Release。**v0.5.0 已由此流水线发布**（2026-08-21，本轮上线 Windows x64 NSIS 安装包）；**v0.5.1 起三平台六资产（Windows 安装包/便携版、Linux AppImage/deb、macOS dmg）校验通过，0.5.x 以预览线（prerelease）标记发布**；v0.5.2（2026-08-22）为 v0.5.1 用户实测问题的修复版。Electron 时代的 `release.yml` 流水线随架构退役。CI 之外的手动本地打包路径见上方[从源码构建](#-从源码构建)（stage-payload → tauri build → 安装态冒烟三步）。
+唯一发布入口是推 `v*` tag → [`tauri-release.yml`](.github/workflows/tauri-release.yml)：
+三平台构建（Windows NSIS / 便携版、Linux AppImage / deb、macOS dmg）→ 版本 / 测试 / 路径门禁 →
+汇总并校验 7 个资产 → 发布 Release。版本号三处同步（`dsh-desktop/package.json`、
+`Cargo.toml` 的 workspace.package.version、`tauri.conf.json`），漏改直接 fail-fast。
 
-### 📦 Tauri 架构可导出的安装包形式
+预发布版**不进** GitHub `releases/latest`，而壳侧更新器轮询的正是 latest —— 因此预发布不会被自动推给
+稳定版用户，这是刻意设计。完整流程、转正与回滚见 [发布 Runbook](.github/RELEASE_RUNBOOK.md)。
 
-由 `tauri.conf.json` 的 `bundle.targets` 决定，按需增删即可扩展产物形式：
+### 📦 安装包形态
 
-| 平台 | 安装包形式 | 状态 |
+| 平台 | 产物 | 状态 |
 | --- | --- | --- |
-| Windows x64 | **NSIS 安装包**（`DSH.Desktop_<版本>_x64-setup.exe`）——LZMA 压缩实测 ~87 MB；`currentUser` 模式免管理员安装；WebView2 引导器内嵌，离线机器也能装；升级链自动装回旧目录保数据 | ✅ **v0.5.0 已发布**（CI 产出，过安装态冒烟）；另有便携版 zip（v0.5.1 起） |
-| Windows arm64 | NSIS 安装包（`--target aarch64-pc-windows-msvc` 交叉构建） | 🔜 Tauri 原生支持，待实测（v0.5.1 起流水线实验线） |
-| Windows | MSI（WiX 工具链，`targets` 加 `"msi"`） | 🔜 Tauri 原生支持，待开启 |
-| Linux x64 | `.AppImage` / `.deb` | ✅ CI 已产出（v0.5.1 起六资产校验，预览线） |
-| macOS（Apple Silicon） | `.app` / `.dmg` 磁盘映像 | ✅ CI 已产出（v0.5.1 起，ad-hoc 签名校验，预览线） |
-
-> 便携版（免安装、可放 U 盘）不是 Tauri 内置 target——Tauri 版以 NSIS `currentUser` 安装为默认形态，独立便携包规划中以后续版本提供。
+| Windows x64 | **NSIS 安装包** `DSH-Desktop-Setup-<版本>-win-x64.exe`（LZMA 压缩，1.0.7 实测约 187 MB；`currentUser` 模式免管理员；WebView2 引导器内嵌，离线机器也能装） | ✅ 主平台，1.0.7 已构建并通过安装态冒烟 |
+| Windows x64 便携版 | `DSH-Desktop-Portable-<版本>-win-x64.zip`（解压即用，数据在 exe 旁 `data\`） | ✅ CI 产出 |
+| Windows arm64 | NSIS 安装包（实验性） | 🧪 CI 实验线 |
+| Linux x64 | `.AppImage` / `.deb` | ✅ CI 产出 |
+| macOS（Apple Silicon） | `.dmg` 磁盘映像 | ✅ CI 产出（未签名，首次打开需右键 → 打开） |
 
 ## 🧩 内置插件生态
 
-内置伴随插件在册共 **29 个**（v1.0.0 内置线，2026-10-08 裁定：插件源**整树进安装包**，装机后首次开机由 boot 的同步链镜像进 profile，开箱可用；2026-10-17 随内核 0.2.1 换代退役 `dsh-reasoning-effort`，30→29；交付面门禁见 THIRD_PARTY_NOTICES 第 4 节，完整第三方组件清单同文件）。下表按 `scripts/lib/companion-plugins.js` 的在册顺序逐名列出，包名与版本取自各插件 `package.json` 实值；「上游 / 许可」一列只到「包内自己怎么说」这一层，逐条原仓库可达性与许可原文实测见 [内置插件清单](dsh-desktop/docs/builtin-plugins-inventory.md) §三，逐条对 `0.2.1-rc.2` 宿主的兼容判定见 §五：
+内置伴随插件在册共 **34 个**（v1.0.0 内置线，2026-10-08 裁定：插件源**整树进安装包**，装机后首次开机由 boot 的同步链镜像进 profile，开箱可用；2026-10-22 移除「临时对话」`side-session`、新增 DeepSeek-Bot（`bot`），在册仍为 34；交付面门禁见 THIRD_PARTY_NOTICES 第 4 节，完整第三方组件清单同文件）。下表按 `scripts/lib/companion-plugins.js` 的在册顺序逐名列出，包名与版本取自各插件 `package.json` 实值；「上游 / 许可」一列只到「包内自己怎么说」这一层，逐条原仓库可达性与许可原文实测见 [内置插件清单](dsh-desktop/docs/builtin-plugins-inventory.md) §三，逐条对 `0.2.1-rc.2` 宿主的兼容判定见 §五：
 
 > [!NOTE]
 > **v1.0.0 精简：内置插件由 39 个减为 28 个**（用户于 2026-10-07 点名移除）。不再内置的 11 个：
@@ -165,7 +177,7 @@ v0.5.0 起发布走 **Tauri GitHub Actions 云端流水线**（[`tauri-release.y
 | `@deepseek-ai/dsh-prompt-custom` | 0.5.0 | 在设置页自定义官方注入的系统提示词（整体替换 / 追加），提示词卡即切即用：点芯片切换、正文写回当前卡 | 自研 · MIT |
 | `@deepseek-ai/dsh-workspace-anchor` | 0.1.1 | 把当前工作目录写进稳定系统提示的锚点块，防 agent 工作目录漂移（0.2.1 起内核不再注册 `{{cwd}}` 变量，锚点由插件自己填实路径） | 自研 · MIT |
 | `@deepseek-ai/dsh-wsl-settings` | 0.1.0 | 设置页「WSL 后端」栏：local↔wsl 切换、发行版与安装目录、状态探活 | 自研 · MIT |
-| `@dsh-external/dsh-side-session` | 0.3.1 | 临时会话悬浮窗：自动导入主对话上下文（长度三档 120 / 600 / 5000 条），追问不污染主会话 | [hzhz314159/dsh-side-session](https://github.com/hzhz314159/dsh-side-session) · MIT（上游无 LICENSE 文件，MIT 系我方自标） |
+| `ds-bot` | 0.2.0 | Bot 团队：主 Bot + 长期 Bot + 群聊，Bot 间 @ 转交与共享记忆，开箱即用的协作工作台（loader id `bot`） | [Fei2411/DeepSeek-Bot](https://github.com/Fei2411/DeepSeek-Bot) · Apache-2.0 |
 | `billion-context-dsh` | 0.2.26 | Active Context Pruning：模型驱动上下文管理，另注册 4 个模型工具与 /acp-prune 命令 | [Tyan66666/billion-context-dsh](https://github.com/Tyan66666/billion-context-dsh) · MIT |
 | `dsh-pocket` | 2.10.7 | 手机扫码实时同屏操控桌面 web（WebSocket 透传 + 公网隧道 + 二维码配对） | [shaobeichen/dsh-pocket](https://github.com/shaobeichen/dsh-pocket) · GPL-2.0 |
 | `@deepseek-ai/dsh-openclaw-bridge` | 0.8.1 | 微信 / 飞书官方频道桥接入 DSH agent 会话（分片回写、去重限流） | [hzhz314159/openclaw-dsh-bridge](https://github.com/hzhz314159/openclaw-dsh-bridge) · MIT |
@@ -176,18 +188,23 @@ v0.5.0 起发布走 **Tauri GitHub Actions 云端流水线**（[`tauri-release.y
 | `dsh-offpeak` | 1.0.1 | 峰谷价格卫士：高峰时段拦截发送提醒，可定时到低价时段自动执行 | [christophersmith2737-commits/OffPeak](https://github.com/christophersmith2737-commits/OffPeak) · MIT |
 | `dsh-settings-nav-custom` | 0.1.1 | 设置页左侧导航项显示 / 隐藏与排序（localStorage 持久化） | EAC 移植 [DSH-EAC/EAC-Desktop](https://github.com/DSH-EAC/EAC-Desktop) · MIT |
 | `dsh-settings-groups` | 0.1.1 | 把设置「常规」页低频选项收进底部可折叠「高级选项」组 | 自研 · MIT |
-| `dsh-synapse` | 0.3.0 | 非线性对话画布：同工作区的会话 / 追问 / 分支可视化拖拽 | [liangmianya/dsh-synapse](https://github.com/liangmianya/dsh-synapse) · MIT（本地分叉线，不取上游 0.4.2） |
+| `dsh-synapse` | 0.3.1 | 非线性对话画布：同工作区的会话 / 追问 / 分支可视化拖拽 | [liangmianya/dsh-synapse](https://github.com/liangmianya/dsh-synapse) · MIT（本地分叉线，不取上游 0.4.2） |
 | `@dsh-external/dsh-subagent-lens` | 0.1.1 | Task/subagent 展开式活动视图 + 会话头部命令/文件聚合条（零额外后端请求） | 自研 · MIT（借 @dsh-external 作用域，名下无仓库） |
 | `dsh-basics-panel` | 0.4.2 | 设置页可视化并管理 MCP 服务器 / 技能 / 规则 / 归档会话 | [yxsj245/dsh-Basics-Panel](https://github.com/yxsj245/dsh-Basics-Panel) · MIT |
 | `dsh-input-fold` | 0.1.1 | 超长用户提示词默认折叠为前几行 + 「展开」遮罩 | 自研 · MIT |
-| `dsh-prompt-optimizer` | 2.4.0 | 输入框一键润色草稿（默认当前会话模型，零配置流式；支持迭代细化、结构化展开与按项目持久的目标优化；润色时读上一轮对话作上下文、结果首行回报猜到的意图、替换后可一键撤销；结果逐字保留校验 + 有界自动修复） | [winditer/dsh-prompt-optimizer](https://github.com/winditer/dsh-prompt-optimizer) · MIT |
+| `dsh-prompt-optimizer` | 3.0.0 | 输入框旁一键分析并优化草稿（SSE 流式上屏；默认实时复用当前会话模型；无上下文走结构模板、有上下文提炼目的顺势润色；保真自检、斜杠命令前缀保护；结果可替换/撤回/复制；设置页可配模型、调用参数与上下文） | [Y1X1n/dsh-prompt-optimizer](https://github.com/Y1X1n/dsh-prompt-optimizer) · MIT |
 | `dsh-zcode-migrate` | 0.1.2 | zcode CLI 历史会话 → dsh 原生会话日志（inspect / migrate / verify + /zcode） | 自研 · MIT |
 | `dsh-builtin-manager` | 0.2.0 | 「设置 → 插件」里的内置插件页：搜索 / 状态筛选 + 单列表逐条查看随包内置件并启停（行内反馈；启停下次启动生效） | 自研 · MIT |
 | `@deepseek-ai/dsh-goal-completion` | 0.1.0 | 内核右栏「目标收尾」标签页：当前会话目标的状态机 + 官方 GoalBar 没有的 complete（标记完成，两次点击确认） | 自研 · MIT |
+| `dsh-free-search` | 0.9.11 | 免费多引擎搜索：注册 `ctx.web` 搜索 provider，内置 web_search 自动选用（loader id 是 `web-search-free`，不是包名） | [DDDMUC/dsh-free-search](https://github.com/DDDMUC/dsh-free-search) · MIT |
+| `dsh-plugin-shop` | 0.9.0 | 插件商店：浏览 / 安装 / 启停 / 更新 dsh 插件（loader id 是 `shop`，客户端 bundle id 才是包名） | [LivXue/dsh-plugin-shop](https://github.com/LivXue/dsh-plugin-shop) · Apache-2.0 |
+| `@local/dsh-network-proxy` | 1.0.0 | 设置「通用」里的 HTTP 代理行：读系统代理并热切换 fetch dispatcher（包名保留上游 `@local/*`，改名会让更新回来的行对不上） | [baizhizzl/dsh-network-proxy](https://github.com/baizhizzl/dsh-network-proxy) · MIT |
+| `dsh-toolbox-ui` | 1.8.2 | MCP / 技能工具箱：右下悬浮面板，MCP 市场与技能管理（loader id 是 `mcp-manager-ui`；宿主半边静态导入 `smol-toml`） | [Imzl-zl/dsh-toolbox-ui](https://github.com/Imzl-zl/dsh-toolbox-ui) · MIT |
+| `@bittersmilezzz/dsh-notify` | 0.4.5 | 桌面通知：渲染进程 Web Notification 六类事件 + 点击回会话，v1.0.7 起取代壳层「回合完成」通知 | [bitterSmilezzz/dsh-notify](https://github.com/bitterSmilezzz/dsh-notify) · MIT |
 
 > 历史上还随包过 `dsh-navbar`（导航栏替换，v0.6.3-beta.3 已移出清单并删源 `ff421ac2`）、
 > `zat-dsh-engine`（旧内置市场，更早退役）、`dsh-reasoning-effort`（推理强度选择器，2026-10-17
-> 随内核 0.2.1 换代退役——0.2.1 的官方设置页已能直接声明自定义模型的强度档）——三者均不在上面的 29 个在册清单里。
+> 随内核 0.2.1 换代退役——0.2.1 的官方设置页已能直接声明自定义模型的强度档）——三者均不在上面的 34 个在册清单里。
 
 ## 🧠 Agent 预设
 

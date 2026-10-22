@@ -566,8 +566,10 @@ async function main() {
     check('自动安装更新开关行（缺省未开）',
       menuPanel.querySelector('[data-act="toggle-auto-update"]').textContent.includes('自动安装客户端更新')
       && !menuPanel.querySelector('[data-act="toggle-auto-update"]').textContent.includes('✓'));
-    check('会话完成通知开关 ✓（menuState merge 生效）',
-      menuPanel.querySelector('[data-act="toggle-notify"]').textContent.includes('✓'));
+    check('关闭时最小化到托盘开关 ✓（menuState merge 生效）',
+      menuPanel.querySelector('[data-act="toggle-close-to-tray"]').textContent.includes('✓'));
+    check('会话完成通知开关已下线（壳层通知改由 dsh-notify 插件发送）',
+      !menuPanel.querySelector('[data-act="toggle-notify"]'));
 
     // 复制按钮：copy_text invoke + 「已复制 ✓」+ 1.2s 还原
     copies[0].onclick();
@@ -579,16 +581,16 @@ async function main() {
     check('1.2s 后按钮文案还原', copies[0].textContent === '复制');
 
     // 开关类：menu_action 改写 settings → merge → 重渲染
-    const toggle = menuPanel.querySelector('[data-act="toggle-notify"]');
+    const toggle = menuPanel.querySelector('[data-act="toggle-close-to-tray"]');
     let toggleResolve;
-    s.itn.routes['menu_action'] = (args) => args.action === 'toggle-notify'
+    s.itn.routes['menu_action'] = (args) => args.action === 'toggle-close-to-tray'
       ? new Promise(res => { toggleResolve = res; }) : Promise.resolve({});
     toggle.onclick();
     await flush();
-    check('开关点击 → menu_action toggle-notify', s.last('menu_action').args.action === 'toggle-notify');
-    toggleResolve({ notifyOnTurnEnd: false });
+    check('开关点击 → menu_action toggle-close-to-tray', s.last('menu_action').args.action === 'toggle-close-to-tray');
+    toggleResolve({ closeToTray: false });
     await flush();
-    const after = menuPanel.querySelector('[data-act="toggle-notify"]');
+    const after = menuPanel.querySelector('[data-act="toggle-close-to-tray"]');
     check('merge 后重渲染：✓ 消失', after && !after.textContent.includes('✓'));
 
     // 点击面板外关闭（菜单当前处于打开态：先关再开验证 toggle）

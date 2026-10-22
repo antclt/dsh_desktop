@@ -399,7 +399,7 @@ test('companion-plugins: 既有前缀顺序与 workspace-anchor 位置唯一（�
     [
       'balance', 'file-changes', 'better-sidebar', 'dsh-session-manager',
       'conversation-tweaks', 'quest-ui', 'dsh-super-injector', 'prompt-custom',
-      'workspace-anchor', 'wsl-settings', 'side-session', 'compaction-acp',
+      'workspace-anchor', 'wsl-settings', 'bot', 'compaction-acp',
       'dsh-pocket', 'openclaw-bridge', 'input-history', 'dsh-easyrewrite',
       'change-review', 'auto-compact',
     ],
@@ -593,7 +593,7 @@ test('companion-profile: 真实 assets 全量同步到隔离 profile（幂等零
   // 都必须按「源缺失」处理、不注册。
   //
   // 这里曾把包名写死成 billion-context-dsh（「上游缺 dist 构建产物」），后果是判据与
-  // 被测对象脱钩：真正失败的包换成 dsh-prompt-optimizer（package.json 声明
+  // 被测对象脱钩：真正失败的包换成 dsh-prompt-optimizer（当时 package.json 声明
   // ./dist/client.js 而实际只带 lib/index.js）时，`has('billion-context-dsh')` 照旧为
   // false，测试全绿却什么都没守住。2026-10-05 实测记录。
   const declaredBundles = COMPANION_PLUGINS.filter((p) => {

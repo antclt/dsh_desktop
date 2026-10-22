@@ -76,11 +76,28 @@ ctx.slots.register({ name: 'sidebar.right.pane.tab', key: id, inject: (sessionId
   原地切换一并退役）：栏画在**每个编辑器标签体内**——内核右栏没有 pane 级插槽，栏只能住在标签主体里，
   所以非 editor 标签不显示栏；改动台账见 `builtin-plugins-inventory.md` §5.2 #3。
 
+## 接管 built-in「工作区文件」：被我们弄丢又找回的入口
+
+`src/client/native/index.ts` 用 `patterns: ['dsh-resource://file/**']` + `priority: 'extension'`
+注册编辑器类型，并以**同 kind 的 extension 注册**接管 built-in `files` 标签主体。接管之后，
+内核只在 built-in `FilesBody` 里渲染的那一格槽位就**永久没有宿主**了：
+
+| 槽 | 唯一宿主 | 接管后的下场 |
+| --- | --- | --- |
+| `sidebar.right.tab.files.actions` | `@deepseek-ai/dsh-client-ui-sidebar-files` 的 `FilesBody` | 不再渲染 → 内核的「文件资源管理器 / 在本地打开」分体按钮整个消失 |
+
+所以应用右上角只剩我们自己的栏头，而用户点了它没有反应（栏头当时是个 `<span>`），「文件资源管理器
+点击无反应」就是这么来的。两条都已收口：栏头整行改成折叠按钮（`ExplorerRail`）；被弄丢的入口由
+`TreePanel` 工具条的 `OpenLocallyButton` 自己重建——应用清单直读宿主 catalog（`GET /open-in-app/apps`），
+主按钮按首个应用打开工作区目录，箭头菜单列全清单。**宿主不可用或 catalog 为空即整块不渲染**，
+不给死行。回归锁 `unit-better-sidebar-explorer-open.test.js`。
+
 ## 验证
 
 ```bash
 cd dsh-desktop
 node --test scripts/test/unit-plugin-kernel-rightbar.test.js   # 两段注册 / 兜底 / 门控 / 偏好
+node --test scripts/test/unit-better-sidebar-explorer-open.test.js # 栏头折叠 + 在本地打开
 npm test                                                       # 全量
 ```
 

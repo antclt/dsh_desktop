@@ -104,19 +104,22 @@ export function ExplorerRail(props: {
 
   return (
     <div className={css.explorerRail} style={{ width: liveWidth }}>
-      <div className={css.explorerRailHeader}>
+      {/* The whole header row is the toggle: a title that names the panel but
+          answers to nothing reads as a broken button. One button therefore
+          carries icon, title and chevron — a nested control would be invalid
+          markup anyway. */}
+      <button
+        type="button"
+        className={css.explorerRailHeader}
+        aria-expanded
+        aria-label={t('explorerCollapse')}
+        title={t('explorerCollapse')}
+        onClick={onCollapse}
+      >
         <IconFolderOpenRegular size={14} />
         <span className={css.explorerRailTitle}>{t('explorer')}</span>
-        <button
-          type="button"
-          className={css.iconButton}
-          aria-label={t('explorerCollapse')}
-          title={t('explorerCollapse')}
-          onClick={onCollapse}
-        >
-          <IconChevronLeftOutlineRegular size={14} />
-        </button>
-      </div>
+        <IconChevronLeftOutlineRegular size={14} />
+      </button>
       <TreePanel
         full
         visible={visible}

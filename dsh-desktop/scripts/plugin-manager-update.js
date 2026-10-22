@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------------
 
 const { compareVersions } = require('./lib/versions');
+const { selectReleaseAsset } = require('./lib/github-release-assets');
 
 /**
  * npm registry 的「最新版本」端点（官方 / npmmirror 镜像）。
@@ -35,6 +36,57 @@ function githubReleaseApiUrl(repo) {
 /** GitHub Release 资产直链（官方）。 */
 function githubAssetDownloadUrl(repo, tag, assetName) {
   return 'https://github.com/' + String(repo).replace(/^\/|\/$/g, '') + '/releases/download/' + String(tag) + '/' + encodeURIComponent(String(assetName));
+}
+
+/**
+ * 从 GitHub Releases latest 响应解析更新源（纯函数，便于单测）。
+ *
+ * 两种形态：
+ *   · 有资产（assets 非空且能选出可用二进制）→ mode:'asset'，沿用资产直链；
+ *     digest 取资产的 sha256（缺失留空，由调用方 fail-closed）。
+ *   · 无资产（release 只有 tag_name / tarball_url / zipball_url，如
+ *     baizhizzl/dsh-network-proxy）→ mode:'archive'，下载源码 zipball。
+ *     **该模式没有官方摘要可校验**：digest 恒为空串，调用方必须明确
+ *     「跳过校验」而不是拿别的字段冒充校验值；版本取 tag_name 去前缀 v。
+ *
+ * 有资产但选不出可用二进制（例如只有 .sha256 校验和）时返回 null——
+ * 保持历史行为（视作查询失败），不拿源码包冒充发行包。
+ * @param {string} repo     owner/repo
+ * @param {Object} release  GitHub Releases latest API 的 JSON
+ * @returns {Object|null}   { version, tag, assetName, tarball, digest, source, mode }
+ */
+function resolveGithubRelease(repo, release) {
+  if (!release || typeof release !== 'object') return null;
+  const tag = typeof release.tag_name === 'string' ? release.tag_name : '';
+  if (!tag) return null;
+  const version = tag.replace(/^v/, '');
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  if (assets.length > 0) {
+    const asset = selectReleaseAsset(assets);
+    if (!asset) return null;
+    const dm = /^(?:sha256:)?([0-9a-fA-F]{64})$/.exec(String(asset.digest || ''));
+    return {
+      version,
+      tag,
+      assetName: String(asset.name),
+      tarball: githubAssetDownloadUrl(repo, tag, asset.name),
+      digest: dm ? dm[1].toLowerCase() : '',
+      source: 'github',
+      mode: 'asset',
+    };
+  }
+  const zipball = typeof release.zipball_url === 'string' ? release.zipball_url : '';
+  if (!zipball) return null;
+  return {
+    version,
+    tag,
+    assetName: '',
+    tarball: zipball,
+    // archive 模式无 digest：置空表示「无锚点」，绝不伪造。
+    digest: '',
+    source: 'github',
+    mode: 'archive',
+  };
 }
 
 /** GitHub 加速镜像前缀列表（国内网络友好；逐个尝试，全部失败再报错）。 */
@@ -107,6 +159,7 @@ module.exports = {
   npmLatestUrl,
   githubReleaseApiUrl,
   githubAssetDownloadUrl,
+  resolveGithubRelease,
   ghProxyUrl,
   GH_PROXY_PREFIXES,
   verifyIntegrity,

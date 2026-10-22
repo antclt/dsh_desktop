@@ -35,7 +35,7 @@
 | 9 | `getPathForFile(file: File): string` | **同步**。浏览器 File → 磁盘路径；非桌面环境/失败返回 `''`（插件自行降级） | 本地实现（Electron webUtils / Tauri 无直接等价，见 §6-R1） |
 | 10 | `sponsorQr(): Promise<{ok: boolean, alipay?: string, wechat?: string}>` | 赞助二维码（data URI）。`ok:false` = supervisor 未初始化（无图）；`ok:true` 时 `alipay`/`wechat` 为 data URI（对应图片缺失时回空串） | `dsh:sponsor-qr` → `sponsor_qr` |
 | 11 | `sponsorWindow(): Promise<any>` | 打开独立赞助小窗（主进程单例） | `chrome:sponsor-window` → `sponsor_window` |
-| 12 | `onNotificationJump(cb: (e: {sessionId: string}) => void): () => void` | 订阅通知点击跳转；**补发语义**：订阅前收到的最后一次 jump 在订阅时补发 | 事件 `dsh:notification-jump` → event `notification-jump` |
+| 12 | `onNotificationJump(cb: (e: {sessionId: string}) => void): () => void` | 订阅通知点击跳转。**2026-10-22 起壳层不再主动发射**（回合完成通知由内置插件 `dsh-notify` 在渲染进程发送）；方法位与垫片监听保留以兼容旧页面调用，订阅前补发逻辑仅对垫片缓存生效（当前无来源） | 事件 `dsh:notification-jump` → event `notification-jump`（无生产者） |
 
 ### 2.2 `windowControls`（窗口控制，5 项）
 
@@ -65,7 +65,7 @@
 | `fullscreen` | 全屏切换 | `{fullscreen}` |
 | `about` | 关于信息（应用版本/平台/内核版本） | `{appVersion, platform, kernelVersion}` |
 | `quit` | 退出应用（托盘「退出」同语义：先杀内核树再 exit） | `null` |
-| `toggle-notify` / `toggle-close-to-tray` / `toggle-auto-update` | settings 单键切换（`notifyOnTurnEnd` / `closeToTray` / `autoInstallUpdates`，垫片 merge 进菜单 state 重渲染）。历史：`toggle-balance`（`showBalanceDock`）2026-10-16 退役——它写壳侧 settings.json，与 dsh-balance 插件读的内核设置条目是两条互不相通的线；开关唯一落点已是插件导出的 Config 设置条目 | `{<settings键>: <新值>}` |
+| `toggle-close-to-tray` / `toggle-auto-update` | settings 单键切换（`closeToTray` / `autoInstallUpdates`，垫片 merge 进菜单 state 重渲染）。历史：`toggle-notify`（`notifyOnTurnEnd`）2026-10-22 随壳层回合完成通知下线移除——通知改由内置插件 `dsh-notify` 发送；`toggle-balance`（`showBalanceDock`）2026-10-16 退役——它写壳侧 settings.json，与 dsh-balance 插件读的内核设置条目是两条互不相通的线；开关唯一落点已是插件导出的 Config 设置条目 | `{<settings键>: <新值>}` |
 | `check-client-update` | **双源客户端更新检查**（GitHub + Gitee releases/latest 并发探测，资产级回落；语义化比较防降级；`updater_client::check_latest`）。历史：`check-agent-update`（npm 内核比对）已随「内核随客户端分发、无 overlay 更新链」设计退役 | `{ok, current, next, notes, asset, source}` 或 `{ok, upToDate}` |
 | `install-client-update` | 下载并安装客户端更新（`download_to_temp` 流式下载+sha256 校验【GitHub digest > .sha256 边车 > size/50MB 兜底；HashMismatch 时自动换另一源重试一次——镜像漂移救回、真篡改仍硬失败】；Windows NSIS `/S /R /UPDATE` 静默升级保数据→shutdown→exit 由安装器 `/R` 重启；macOS 开 DMG 手动引导；Linux AppImage 原子自替换） | `{ok, upToDate:true}`（已最新，不空装）／ Windows `{ok, installing}` / mac `{ok, manual:true, version}` / linux `{ok, replaced, manual, version}` |
 | `set-custom-icon` | 设置自定义桌面客户端图标（`payload.dataUrl` 为 PNG/ICO base64 data URL；壳侧魔数白名单校验+解码、落 app_data 副本、`WebviewWindow::set_icon` + `TrayIcon::set_icon` 同步主窗+托盘；重启后重放） | `{ok, format}` |
@@ -90,7 +90,7 @@
 
 | # | 签名 | 语义 | 通道 |
 |---|------|------|------|
-| 25 | `list(): Promise<PluginInfo[]>` | 列出插件（内置/第三方/禁用态） | `dsh:plugin-list` → `plugin_list` |
+| 25 | `list(): Promise<PluginInfo[]>` | 列出插件（内置/第三方/禁用态）。PluginInfo 新增**可选字段（向后兼容，旧消费方可忽略）**：`version`（已安装版本，未知为空串）、`updateSource`（是否在更新源表内，boolean）、`updateExcluded`（是否被排除自动更新，如本地重建件 better-sidebar，boolean） | `dsh:plugin-list` → `plugin_list` |
 | 26 | `setEnabled(id: string, enabled: boolean): Promise<any>` | 开关写入 web profile cordis.patch.yml 用户层 disabled 条目 | `dsh:plugin-set-enabled` → `plugin_set_enabled` |
 | 27 | `uninstall(id: string): Promise<any>` | 卸载（入隔离区可恢复） | `dsh:plugin-uninstall` → `plugin_uninstall` |
 | 28 | `restore(id: string): Promise<any>` | 从隔离区恢复 | `dsh:plugin-restore` → `plugin_restore` |
@@ -139,7 +139,7 @@
 
 | 页面侧表现 | 载荷 | 语义 | Tauri 事件名 |
 |-----------|------|------|--------------|
-| `dshDesktop.onNotificationJump` 回调 | `{sessionId: string}`（trim 后，≤256 字符，不合法丢弃） | 通知点击跳转（含订阅前补发） | `notification-jump` |
+| `dshDesktop.onNotificationJump` 回调 | `{sessionId: string}`（trim 后，≤256 字符，不合法丢弃） | 通知点击跳转（**方法位保留；壳层 2026-10-22 起不再发射**） | `notification-jump`（无生产者） |
 
 > 宠物状态事件 `dsh-pet-state`（Tauri 事件 `pet-state`）已随 harness-pet 退役移除。
 > 余额推送事件 `dsh-balance-changed`（Tauri 事件 `balance-changed`）已随 Electron 余额
@@ -152,7 +152,7 @@
 |------|-----------|------|
 | renderer 心跳 | 5s 一次 + `visibilitychange` 可见时立即补报 | 挂起兜底判定（仅可见窗口） |
 | `page-error` | `window.onerror` / `unhandledrejection` 文本 | 页面异常 → desktop.log |
-| `current-session` | 3s 轮询 `localStorage['dsh.sessions.current']`，变化才发 | 当前观看会话（通知调试日志用） |
+| `current-session` | 3s 轮询 `localStorage['dsh.sessions.current']`，变化才发 | 当前观看会话（壳侧记录；回合完成通知已下线，不再用于通知调试日志） |
 | `float:close` | — | 见 §2.5（浮窗自关闭，同步 send 语义） |
 
 ## 5. 模式全局（浮窗）

@@ -16,13 +16,18 @@
 //     逐字复刻（onClick 即 onChange(!checked)），驱动入口与真机一致。
 //   - 行内反馈按 data-plugin-id 作用域断言（成功/失败只落在对应行，不再全页咬字样）。
 //
+// 更新链（版本 / 检查更新 / 单个更新）的用例在「包面一致」之前：版本渲染、可更新行出按钮、
+// 检查失败不炸页、更新在途禁用与成功刷新、失败原文、better-sidebar 按 id 兜底。
+// 反证 5-7 分别咬「排除」「hasUpdate 判据」「更新失败分支」三条守卫。
+//
 // 挂载方式与 unit-prompt-custom-client 同族：本机没有 jsdom / react-test-renderer，用仓库里
 // 真实的 React 18 + react/jsx-runtime，通过 React 内部 dispatcher 槽位手驱
 // useState/useCallback/useEffect，把真实 client 源码里的组件跑起来。证据强度记为
 // 「真实插件源码 + 复刻渲染夹具（非浏览器语义，仅本组件用到的钩子面）」——不冒充浏览器实测。
 //
-// 反证四条在文件末尾：摘掉 group 过滤、摘掉 ok===false 分支、摘掉自锁分支、摘掉搜索过滤，
-// 判据必须按预期变形（否则前面的用例是在为不存在的守卫作证）。
+// 反证七条在文件末尾：摘掉 group 过滤、摘掉 ok===false 分支、摘掉自锁分支、摘掉搜索过滤、
+// 摘掉 better-sidebar 排除、摘掉 hasUpdate 判据、摘掉更新失败分支——判据必须按预期变形
+// （否则前面的用例是在为不存在的守卫作证）。
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -231,6 +236,17 @@ function searchInput(tree) {
 /** 模拟真实 Switch 的点击：onClick = () => onChange(!checked)。 */
 function clickSwitch(sw) { sw.props.onChange(!sw.props.checked); }
 
+/** 树上所有原语按钮（桩）；按钮文案就是本页对用户的承诺口径，按它定位最稳。 */
+function buttons(node) {
+  const out = [];
+  walk(node, (n) => { if (n.type === StubButton) out.push(n); });
+  return out;
+}
+function buttonText(btn) { return textAll(btn.props && btn.props.children); }
+function buttonsWithText(node, label) {
+  return buttons(node).filter((btn) => buttonText(btn) === label);
+}
+
 const row = (over) => ({
   id: 'better-sidebar', name: 'dsh-better-sidebar', description: '侧栏工作台',
   enabled: true, toggleable: true, group: 'companion', removed: false, hasConfig: false, ...over
@@ -438,6 +454,195 @@ test('无桥兜底：纯浏览器/WSL 直连内核时可读不可写', async () 
   assert.equal(switches(tree).length, 0, '无桥时不得渲染可写开关');
 });
 
+test('版本：行内 muted 小字显示 v 前缀，缺 version 的行不渲染任何版本字样', async () => {
+  const bridge = {
+    list: async () => ([
+      row({ id: 'easyrewrite', name: 'dsh-easyrewrite', version: '2.6.0' }),
+      row({ id: 'offpeak', name: 'dsh-offpeak', version: 'v1.0.1' }),
+      row({ id: 'no-version', name: 'dsh-no-version' })
+    ]),
+    setEnabled: async () => ({ ok: true })
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
+  const tree = await createMounter(Component, {}).settle();
+
+  assert.ok(textAll(cardOf(tree, 'easyrewrite')).includes('v2.6.0'), '版本要带 v 前缀');
+  assert.ok(textAll(cardOf(tree, 'offpeak')).includes('v1.0.1'), '上游已带 v 的版本必须原样显示');
+  assert.ok(!textAll(cardOf(tree, 'offpeak')).includes('vv1.0.1'), '不得重复加 v');
+  assert.doesNotMatch(textAll(cardOf(tree, 'no-version')), /v\d/i, '缺 version 的行不得渲染假版本');
+
+  // muted 小字：版本是独立文本节点，12px + tertiary 色（不是标题、也不是状态 Tag）。
+  let versionEl = null;
+  walk(cardOf(tree, 'easyrewrite'), (n) => {
+    if (n.props && n.props.children === 'v2.6.0' && n.props.style) versionEl = n;
+  });
+  assert.ok(versionEl, '版本必须是可单独定位的文本节点');
+  assert.equal(versionEl.props.style.fontSize, 12);
+  assert.match(versionEl.props.style.color, /label-tertiary/, '版本必须是 muted 色');
+});
+
+test('检查更新：可更新行出「更新」按钮与目标版本，已是最新给行内 muted 提示', async () => {
+  const calls = [];
+  const bridge = {
+    list: async () => ([
+      row({ id: 'better-sidebar', name: 'dsh-better-sidebar', version: '0.24.2' }),
+      row({ id: 'easyrewrite', name: 'dsh-easyrewrite', version: '2.6.0' }),
+      row({ id: 'offpeak', name: 'dsh-offpeak', version: '1.0.0' })
+    ]),
+    setEnabled: async () => ({ ok: true }),
+    checkUpdates: async () => {
+      calls.push(true);
+      return { ok: true, items: [
+        { id: 'better-sidebar', latest: '0.25.0', hasUpdate: true },
+        { id: 'easyrewrite', latest: '2.7.0', hasUpdate: true },
+        { id: 'offpeak', latest: '1.0.0', hasUpdate: false }
+      ] };
+    }
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  assert.equal(buttonsWithText(tree, '更新').length, 0, '检查之前不得凭空画更新按钮');
+  assert.equal(buttonsWithText(tree, '检查更新').length, 1, '工具栏必须有「检查更新」');
+
+  await buttonsWithText(tree, '检查更新')[0].props.onClick();
+  tree = await mounter.settle();
+  assert.equal(calls.length, 1, '点一次必须真的调一次桥');
+
+  const cEasy = cardOf(tree, 'easyrewrite');
+  assert.equal(buttonsWithText(cEasy, '更新').length, 1, '可更新行必须出「更新」按钮');
+  assert.ok(textAll(cEasy).includes('可更新'), '可更新行要有 Tag 文案: ' + textAll(cEasy));
+  assert.ok(textAll(cEasy).includes('最新 v2.7.0'), '必须给出目标版本: ' + textAll(cEasy));
+
+  const cOff = cardOf(tree, 'offpeak');
+  assert.equal(buttonsWithText(cOff, '更新').length, 0, '已是最新不得出更新按钮');
+  assert.ok(textAll(cOff).includes('已是最新'), '已是最新要有行内 muted 提示: ' + textAll(cOff));
+
+  const cBs = cardOf(tree, 'better-sidebar');
+  assert.equal(buttonsWithText(cBs, '更新').length, 0, 'better-sidebar 不参与单插件更新（按 id 兜底）');
+  assert.ok(!textAll(cBs).includes('可更新'), 'better-sidebar 连可更新 Tag 也不该有');
+});
+
+test('检查失败：错误原文落页内，列表与开关不受影响（不整页炸）', async () => {
+  const bridge = {
+    list: async () => ([row({ id: 'better-sidebar' }), row({ id: 'easyrewrite', name: 'dsh-easyrewrite' })]),
+    setEnabled: async () => ({ ok: true }),
+    checkUpdates: async () => { throw new Error('更新源不可达: ETIMEDOUT'); }
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+
+  await buttonsWithText(tree, '检查更新')[0].props.onClick();
+  tree = await mounter.settle();
+  let text = textAll(tree);
+  assert.ok(text.includes('更新源不可达: ETIMEDOUT'), '检查抛错时原文必须上屏: ' + text.slice(0, 220));
+  assert.equal(cards(tree).length, 2, '检查失败不得清空列表');
+  assert.equal(switches(tree).length, 2, '检查失败不得影响开关');
+  assert.equal(buttonsWithText(tree, '更新').length, 0, '失败时不得画更新按钮');
+
+  // 桥回 {ok:false} 的分支同样按原文上屏（不是只有 throw 才算失败）。
+  bridge.checkUpdates = async () => ({ ok: false, error: '更新源拒绝: HTTP 403' });
+  await buttonsWithText(tree, '检查更新')[0].props.onClick();
+  tree = await mounter.settle();
+  text = textAll(tree);
+  assert.ok(text.includes('更新源拒绝: HTTP 403'), 'ok:false 的 error 原文也必须上屏: ' + text.slice(0, 220));
+  assert.equal(cards(tree).length, 2, '仍不得清空列表');
+});
+
+test('更新成功：在途禁用 → 目标版本提示 + 重新 load，按钮随后消失', async () => {
+  const listCalls = [];
+  const updateCalls = [];
+  let resolveUpdate = null;
+  const bridge = {
+    list: async () => {
+      listCalls.push(true);
+      return [row({ id: 'easyrewrite', name: 'dsh-easyrewrite', version: '2.6.0' })];
+    },
+    setEnabled: async () => ({ ok: true }),
+    checkUpdates: async () => ({ ok: true, items: [{ id: 'easyrewrite', latest: '2.7.0', hasUpdate: true }] }),
+    update: (id) => {
+      updateCalls.push(id);
+      return new Promise((resolve) => { resolveUpdate = resolve; });
+    }
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  await buttonsWithText(tree, '检查更新')[0].props.onClick();
+  tree = await mounter.settle();
+  assert.equal(listCalls.length, 1, '初始只读一次清单');
+
+  const pending = buttonsWithText(cardOf(tree, 'easyrewrite'), '更新')[0].props.onClick();
+  tree = await mounter.settle(2);
+  const inFlight = buttonsWithText(cardOf(tree, 'easyrewrite'), '正在更新…');
+  assert.equal(inFlight.length, 1, '在途按钮文案要变成「正在更新…」');
+  assert.equal(inFlight[0].props.disabled, true, '在途必须禁用');
+  assert.ok(textAll(cardOf(tree, 'easyrewrite')).includes('正在更新'), '在途要有行内反馈');
+
+  resolveUpdate({ ok: true, version: '2.7.0', restartRequired: true });
+  await pending;
+  tree = await mounter.settle();
+
+  assert.deepEqual(updateCalls, ['easyrewrite'], '必须按行 id 调 update（不能传包名）');
+  assert.equal(listCalls.length, 2, '成功后必须重新 load 清单');
+  const text = textAll(cardOf(tree, 'easyrewrite'));
+  assert.ok(text.includes('已更新到 v2.7.0'), '成功提示必须带目标版本: ' + text);
+  assert.ok(text.includes('下次启动生效'), '必须写明生效时机: ' + text);
+  assert.equal(buttonsWithText(cardOf(tree, 'easyrewrite'), '更新').length, 0, '更新完不得继续挂更新按钮');
+});
+
+test('更新失败：sidecar 原文上屏、不谎报成功、按钮保留可重试', async () => {
+  const bridge = {
+    list: async () => ([row({ id: 'easyrewrite', name: 'dsh-easyrewrite', version: '2.6.0' })]),
+    setEnabled: async () => ({ ok: true }),
+    checkUpdates: async () => ({ ok: true, items: [{ id: 'easyrewrite', latest: '2.7.0', hasUpdate: true }] }),
+    update: async () => ({ ok: false, error: '下载失败: ECONNRESET' })
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  await buttonsWithText(tree, '检查更新')[0].props.onClick();
+  tree = await mounter.settle();
+
+  await buttonsWithText(cardOf(tree, 'easyrewrite'), '更新')[0].props.onClick();
+  tree = await mounter.settle();
+
+  const card = cardOf(tree, 'easyrewrite');
+  const text = textAll(card);
+  assert.ok(text.includes('下载失败: ECONNRESET'), 'sidecar 的 error 原文必须上屏: ' + text);
+  assert.ok(!text.includes('已更新到'), '失败行不得出现「已更新到」');
+  assert.ok(!text.includes('已改动'), '失败不得挂「已改动」徽标');
+  const retry = buttonsWithText(card, '更新');
+  assert.equal(retry.length, 1, '失败后按钮必须保留（可重试）');
+  assert.equal(retry[0].props.disabled, false, '失败后按钮必须恢复可点');
+});
+
+test('better-sidebar：后端即使回 hasUpdate 也不画任何更新控件（按 id 兜底）', async () => {
+  const bridge = {
+    list: async () => ([
+      row({ id: 'better-sidebar', name: 'dsh-better-sidebar', version: '0.24.2' }),
+      row({ id: 'easyrewrite', name: 'dsh-easyrewrite', version: '2.6.0' })
+    ]),
+    setEnabled: async () => ({ ok: true }),
+    checkUpdates: async () => ({ ok: true, items: [
+      { id: 'better-sidebar', latest: '0.25.0', hasUpdate: true }
+    ] }),
+    update: async () => ({ ok: false, error: '该插件不支持独立更新: better-sidebar' })
+  };
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  await buttonsWithText(tree, '检查更新')[0].props.onClick();
+  tree = await mounter.settle();
+
+  const cBs = cardOf(tree, 'better-sidebar');
+  assert.equal(buttonsWithText(cBs, '更新').length, 0, 'better-sidebar 不得出现更新按钮');
+  assert.ok(!textAll(cBs).includes('可更新'), '不得出现可更新 Tag');
+  assert.ok(!textAll(cBs).includes('最新 v0.25.0'), '不得展示不会生效的目标版本');
+  assert.ok(textAll(cBs).includes('v0.24.2'), '版本号仍要正常显示');
+});
+
 test('包面一致：bundle 层 loader id 与在册清单同 id，client 入口在 exports 里可达', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(PKG_DIR, 'package.json'), 'utf8'));
   assert.equal(pkg.dsh.bundle.patch, 'cordis.patch.yml');
@@ -487,7 +692,12 @@ test('反证 2：摘掉 ok===false 分支后，失败会被报成「已保存」
     setEnabled: async (id, enabled) => { calls.push([id, enabled]); return { ok: false, error: '被拒绝' }; }
   };
   const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } }, {
-    mutate: (src) => src.replace('if (r && r.ok === false) {', 'if (false) {')
+    mutate: (src) => {
+      // 锚点带上行内注释：check() 里也有同形守卫，单行锚点会先打中它（本套件踩过）。
+      const anchor = 'if (r && r.ok === false) {\n            // sidecar 拒了就是拒了';
+      assert.ok(src.includes(anchor), '反证锚点必须存在（client.js 形状变了要同步本套件）');
+      return src.replace(anchor, 'if (false) {\n            // sidecar 拒了就是拒了');
+    }
   });
   const mounter = createMounter(Component, {});
   let tree = await mounter.settle();
@@ -528,4 +738,70 @@ test('反证 4：摘掉搜索过滤后，查询不再缩列表（搜索那条用
   await searchInput(tree).props.onChange({ target: { value: 'zzz-不存在' } });
   tree = await mounter.settle();
   assert.equal(cards(tree).length, 2, '过滤被摘掉后，无命中的查询也缩不动列表——正是搜索用例要防的');
+});
+
+test('反证 5：摘掉 better-sidebar 排除后，界面会画出必然失败的更新按钮（兜底那条在咬真判据）', async () => {
+  const bridge = {
+    list: async () => ([row({ id: 'better-sidebar', name: 'dsh-better-sidebar' })]),
+    setEnabled: async () => ({ ok: true }),
+    checkUpdates: async () => ({ ok: true, items: [{ id: 'better-sidebar', latest: '0.25.0', hasUpdate: true }] })
+  };
+  const anchor = 'const excluded = row.id === UPDATE_EXCLUDED_ID;';
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } }, {
+    mutate: (src) => {
+      assert.ok(src.includes(anchor), '反证锚点必须存在（client.js 形状变了要同步本套件）');
+      return src.replace(anchor, 'const excluded = false;');
+    }
+  });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  await buttonsWithText(tree, '检查更新')[0].props.onClick();
+  tree = await mounter.settle();
+  assert.equal(buttonsWithText(cardOf(tree, 'better-sidebar'), '更新').length, 1,
+    '守卫摘掉后按钮就会画出来——这正是按 id 兜底要防的');
+});
+
+test('反证 6：摘掉 hasUpdate 判据后，已是最新的行也会长出更新按钮', async () => {
+  const bridge = {
+    list: async () => ([row({ id: 'offpeak', name: 'dsh-offpeak', version: '1.0.1' })]),
+    setEnabled: async () => ({ ok: true }),
+    checkUpdates: async () => ({ ok: true, items: [{ id: 'offpeak', latest: '1.0.1', hasUpdate: false }] })
+  };
+  const anchor = 'const updateOffered = !!upd && upd.hasUpdate === true';
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } }, {
+    mutate: (src) => {
+      assert.ok(src.includes(anchor), '反证锚点必须存在');
+      return src.replace(anchor, 'const updateOffered = !!upd');
+    }
+  });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  await buttonsWithText(tree, '检查更新')[0].props.onClick();
+  tree = await mounter.settle();
+  assert.equal(buttonsWithText(cardOf(tree, 'offpeak'), '更新').length, 1,
+    '判据摘掉后「已是最新」也会出更新按钮——正是检查用例要防的');
+});
+
+test('反证 7：摘掉更新失败分支后，失败会被报成「已更新到」（失败原文用例因此不能少）', async () => {
+  const bridge = {
+    list: async () => ([row({ id: 'easyrewrite', name: 'dsh-easyrewrite', version: '2.6.0' })]),
+    setEnabled: async () => ({ ok: true }),
+    checkUpdates: async () => ({ ok: true, items: [{ id: 'easyrewrite', latest: '2.7.0', hasUpdate: true }] }),
+    update: async () => ({ ok: false, error: '下载失败: ECONNRESET' })
+  };
+  const anchor = 'if (!r || r.ok === false) {';
+  const { Component } = loadPanel({ dshDesktop: { pluginManager: bridge } }, {
+    mutate: (src) => {
+      assert.ok(src.includes(anchor), '反证锚点必须存在');
+      return src.replace(anchor, 'if (false) {');
+    }
+  });
+  const mounter = createMounter(Component, {});
+  let tree = await mounter.settle();
+  await buttonsWithText(tree, '检查更新')[0].props.onClick();
+  tree = await mounter.settle();
+  await buttonsWithText(cardOf(tree, 'easyrewrite'), '更新')[0].props.onClick();
+  tree = await mounter.settle();
+  assert.ok(textAll(cardOf(tree, 'easyrewrite')).includes('已更新到'),
+    '守卫摘掉后失败会被谎报成成功——这正是失败原文那条断言要防的');
 });

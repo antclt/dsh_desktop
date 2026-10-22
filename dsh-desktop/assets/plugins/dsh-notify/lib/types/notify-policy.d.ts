@@ -1,0 +1,205 @@
+/**
+ * dsh-notify — 通知门控纯函数（host/client 共享，零 I/O、零平台依赖）。
+ *
+ * 这些判定被 node --test 直接覆盖：正文单行化与截断、去重指纹、审批取词、
+ * 免打扰时段判定、跨平台 tag 策略。它们不含 DOM/node API，所以 client 半区
+ * 可以原样 import，测试也能在纯 Node 里跑。
+ */
+/** 单行化 + 限长（≤max 码点，尾部 …）。按码点截断而非 UTF-16 code unit：
+ *  slice 可能切在代理对中间产生孤立代理（半个 emoji 渲染成 �），
+ *  用 Array.from 按码点展开后再截，代理对不会被劈开。但码点不等于字素簇：
+ *  基字符+变音符组合（如 á = a + U+0301）与 ZWJ emoji 序列仍可能恰在边界被
+ *  劈开——截断语义按码点计，仅影响尾部展示，不影响可读性判定。
+ *  `text == null`（宽松判等）同时覆盖 undefined 与运行时传入的 null——
+ *  Remote 事件字段在旧版协议/畸形数据下可能为 null，绝不能抛错
+ *  （通知是增益不是依赖）。
+ * @param text - 原始文本（可为空/缺失）。
+ * @param max - 最大码点数，默认 120。
+ * @returns 单行化并截断后的文本；空输入返回空串。
+ */
+export declare function summaryOf(text: string | undefined | null, max?: number): string;
+/**
+ * 清理去重 Map 的过期条目。每次事件都先清一遍（不只等 size 到上限）：
+ * Map 只保留窗口内的活跃记录，长期运行后不会堆积过期条目；Map 大小
+ * 等于窗口内活跃会话数（通常个位数），逐条遍历开销可忽略。
+ * @param map - 去重表（时间戳）。
+ * @param now - 当前时间戳（毫秒）。
+ * @param windowMs - 去重窗口。
+ */
+export declare function pruneExpired(map: Map<string, number>, now: number, windowMs: number): void;
+/**
+ * error 去重指纹：会话 id + 消息文本（截断拼接，确定性、无散列依赖）。
+ * 同一会话的同一错误在去重窗口内只通知一次；不同错误（消息不同）在同一
+ * 窗口内各自通知——用户修复后窗口内出现的新错误不再被旧去重键吞掉。
+ * @param sessionId - 会话身份。
+ * @param message - 错误文本。
+ * @returns 去重键。
+ */
+export declare function errorDedupKey(sessionId: string, message: string): string;
+/**
+ * 本地化字典取词：`LocalizedText`（`{ en, [locale] }`），解析顺序
+ * 精确 locale 键 → 主子标签键 → `en` → 字典首个非空值。
+ *
+ * 与官方 `locale.resolveText` 同向，但有两处刻意差异（client 半区拿不到
+ * 官方 resolveText 的完整 fallback 链，只能自实现，先记录差异免得日后误以为
+ * 完全等价）：
+ * 1. 官方链是「当前 locale（含其声明 fallback，如 zh→en）逐级 `??` 回落」，
+ *    且**空串是合法翻译**（`??` 不跳过空串）；这里把空串视作缺失继续回落——
+ *    通知正文出现空白条目等于没通知，落到 en 比展示空文本好。
+ * 2. 官方链按 LocaleDefinition 的 fallback 声明走；这里简化为「主子标签 → en」，
+ *    因为 displayReason 的键由各 asker 自填，不受声明链约束。
+ * 两者共同点是绝不抛错：畸形字典（null / 空值 / 非字符串值）一律继续回落。
+ * @param dict - displayReason 字典（运行时可能缺失或畸形）。
+ * @param preference - locale settings 的 preference 字段（如 `zh-CN`）。
+ * @returns 取到的非空文本；全都不可用时 undefined。
+ */
+export declare function localizedTextOf(dict: unknown, preference: unknown): string | undefined;
+/**
+ * 审批通知正文取词：优先 `displayReason`（本地化提示，DSH rc.2 新增），缺失时
+ * 回落 `reason`（审计用原始文本，旧版协议与只填 reason 的 asker 都走这条）。
+ * @param req - 审批请求（client 侧投影字段）。
+ * @param preference - 当前语言偏好。
+ * @returns 正文可用的提示文本；两者都不可用时 undefined（调用方只展示工具名）。
+ */
+export declare function approvalDetailOf(req: {
+    reason?: string;
+    displayReason?: unknown;
+} | null | undefined, preference: unknown): string | undefined;
+/**
+ * 会话身份标签：优先会话标题（用户认得），回落 undefined 由调用方用固定文案。
+ * @param title - 会话列表行的标题（`title` 或 `displayTitle`）。
+ * @returns 非空标题；缺失或空串时 undefined。
+ */
+export declare function sessionLabelOf(title: string | undefined | null): string | undefined;
+/**
+ * 把 `HH:MM` 解析成「当日第几分钟」。
+ * 接受 `9:05` / `09:05` 两种写法（用户在输入框里手打时容易漏前导零），
+ * 非法输入（越界、非数字、缺分隔符）一律返回 undefined——调用方据此把
+ * 免打扰视为未配置，绝不因为一个坏字符串就永久静音（失败方向选「宁可多提醒」）。
+ * @param value - 形如 `HH:MM` 的字符串。
+ * @returns 0..1439 的分钟数；非法时 undefined。
+ */
+export declare function parseClockMinutes(value: string | null | undefined): number | undefined;
+/**
+ * 免打扰时段是否生效。支持跨午夜（如 22:00 → 08:00）：起点大于终点时
+ * 判定区间折返。起止相同视为「未配置」（否则会变成全天静音）。
+ * @param nowMinutes - 当前本地时间「当日第几分钟」（0..1439）。
+ * @param startMinutes - 起点分钟数。
+ * @param endMinutes - 终点分钟数。
+ * @returns 处于免打扰区间时为 true。
+ */
+export declare function quietHoursActive(nowMinutes: number, startMinutes: number, endMinutes: number): boolean;
+/**
+ * 通知的优先级档位。
+ *
+ * - `blocking`：**需要用户动手处理**的通知（审批 / 提问）。它们带
+ *   `requireInteraction`，本该留在通知中心等人来点。
+ * - `info`：信息类通知（轮次完成 / 会话结束 / 出错 / 子代理完成）。
+ */
+export type NoticePriority = 'blocking' | 'info';
+/**
+ * 通知类别的优先级档位。
+ *
+ * 只有审批与提问是阻塞性的：它们卡住会话，不处理就继续不下去，通知必须
+ * 一直留在通知中心。其余事件都是「已经发生过了」的信息，被同会话的更新
+ * 顶掉是合理的。
+ * @param kind - 事件类别（`approval` / `question` / `turn` / …）。
+ * @returns 该类别的优先级档位。
+ */
+export declare function noticePriorityOf(kind: string): NoticePriority;
+/**
+ * 当前宿主是否支持用 `tag` 做系统侧的合并。
+ *
+ * 非 Windows 一直支持（macOS / Linux 的 `tag` 语义是「同 tag 的新通知替换旧
+ * 通知」）。Windows 上的旧说法是「带 `tag` 的通知不会被送达」，那条社区实测
+ * 针对的是**浏览器**（Zhiyi-Zhao/dsh-notify，单机实测），在 Electron 宿主里
+ * 不成立：Electron 44.7.0（DSH 桌面版同版）实测带 `tag` 的通知**照常送达**，
+ * 且同 `tag` 的第二条通知会**替换**第一条（Windows 通知库只留一行）。
+ *
+ * 所以判据是「Windows + 浏览器」才不发 `tag`，Electron 宿主照发。
+ * @param platform - `navigator.platform` 与 userAgent 拼成的平台串。
+ * @returns 该宿主可以依赖 `tag` 做合并时为 true。
+ */
+export declare function tagSupportedBy(platform: string): boolean;
+/**
+ * 通知的会话级 `tag`：同一会话的新通知替换旧卡，避免并行会话刷屏
+ * （ccnotify / omdsh 的通行做法）。
+ *
+ * **阻塞性与信息类用不同的 tag**。系统侧「同 tag 即替换」是无条件的，所以若
+ * 两类共用一个 tag，同会话随后的一条信息类通知（轮次完成 / 出错 / 会话结束）
+ * 会把还等着用户处理的审批卡**替换掉**——用户回到电脑只看到一条无关提示，
+ * 需要处理的那个请求凭空消失。分开 tag 后：信息卡之间互相替换（不堆叠），
+ * 阻塞卡只被新的阻塞卡替换，两者并存。
+ *
+ * 判据按整词匹配 `win`：`Win32` / `Windows NT …` 命中，而 macOS 的
+ * `Darwin` 不会（`r` 与 `w` 之间没有词边界，`\bwin` 不成立）。
+ * @param platform - `navigator.platform` 与 userAgent 拼成的平台串。
+ * @param sessionId - 会话身份。
+ * @param priority - 通知档位；阻塞性与信息类用不同的 tag。
+ * @returns tag 字符串；宿主不支持 `tag` 时返回 undefined。
+ */
+export declare function notificationTagOf(platform: string, sessionId: string, priority?: NoticePriority): string | undefined;
+/**
+ * 同一会话里，新通知是否顶掉旧通知。
+ *
+ * ⚠ 这条判定是「Windows 上审批通知会自己消失」的根因修复：
+ * 旧实现无条件 `close()` 上一张同会话的卡，于是**随后的信息类通知
+ * （轮次完成 / 出错 / 会话结束）会把还等着用户处理的审批卡关掉**。
+ * Windows 上 `close()` 会把 toast 从通知中心摘掉，审批请求就此消失，
+ * 用户回来只看到一条无关信息——恰恰是通知最该提醒的时候。
+ *
+ * 规则：**阻塞卡只被新的阻塞卡顶掉；信息卡只顶掉信息卡。** 阻塞卡与
+ * 信息卡并存（各占一条 toast），直到用户点击、会话结束或被同类请求取代。
+ * @param previous - 旧通知的档位。
+ * @param next - 新通知的档位。
+ * @returns 新通知顶掉旧通知时为 true。
+ */
+export declare function replacesPreviousNotice(previous: NoticePriority, next: NoticePriority): boolean;
+/**
+ * 「一次运行一条通知」的判定：会话从 running 变 idle 才算本轮真正结束。
+ * 中间态（running 仍为 true）不触发，避免多轮 goal / 工具连续调用时刷屏。
+ * @param previous - 上一次观测到的 running 状态（未观测过为 undefined）。
+ * @param next - 本次观测到的 running 状态。
+ * @returns 本次观测构成「一轮结束」时为 true。
+ */
+export declare function isTurnEnd(previous: boolean | undefined, next: boolean | undefined): boolean;
+/** 通知音效的事件类别（与通知条目的 kind 同一套词表）。 */
+export type NoticeKind = 'approval' | 'question' | 'turn' | 'sessionDone' | 'error' | 'subagent';
+/** 合成音的波形（`OscillatorType` 的子集；本模块 host 侧也编译，故不引用 DOM 类型）。 */
+export type ToneWave = 'sine' | 'triangle' | 'square' | 'sawtooth';
+/** 一个合成音：频率、起始偏移、时长、波形与增益。 */
+export interface Tone {
+    /** 频率（赫兹）。 */
+    readonly frequency: number;
+    /** 相对本组起点的偏移（秒）。 */
+    readonly start: number;
+    /** 持续时长（秒）。 */
+    readonly duration: number;
+    /** 波形。 */
+    readonly wave: ToneWave;
+    /** 峰值增益（0-1）。 */
+    readonly gain: number;
+}
+/**
+ * 各类事件的通知音色。
+ *
+ * 设计约束：同类事件复用一个 motif（用户记住的是「听起来像什么」，不是乐谱），
+ * 不同类别靠音高走向与节奏区分轻重：
+ *   - 需要动手的（审批/提问）上行、双音、时长偏长——最容易被注意到；
+ *   - 故障（出错）下行小三度，听感下沉；
+ *   - 高频的（轮次完成）单音轻响，避免长时间使用后烦躁；
+ *   - 收束类（会话结束）双音下行；
+ *   - 子代理与轮次完成同款但更轻（它默认关闭，开启后也不该喧宾夺主）。
+ *
+ * 全部 ≤0.6s：通知音是提示不是铃声，长音会与语音/会议冲突。
+ */
+export declare const SOUND_PATTERNS: Readonly<Record<NoticeKind, readonly Tone[]>>;
+/**
+ * 通知是否应静音系统声。
+ *
+ * 打开音效时静音系统声（只响自绘那一份，不叠成双声）；关闭音效时同样静音
+ * ——否则「关闭声音」只关掉了自绘音，系统提示音照响，开关语义就错了。
+ * @returns 恒为 true：声音完全由本插件的合成音承担。
+ */
+export declare function systemSoundSuppressed(): boolean;
+//# sourceMappingURL=notify-policy.d.ts.map

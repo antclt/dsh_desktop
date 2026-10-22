@@ -18,14 +18,17 @@
  * drop over the file window uploads here and never reaches DSH's chat
  * intake.
  */
-import { useEffect, useRef, useState, type InputHTMLAttributes } from 'react'
+import { useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { IconFolderOpenRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconChevronDownOutlineRegular, IconFolderOpenRegular, IconRefreshOutlineRegular,
+  IconRightUpOutlineRegular, Menu, type MenuEntry,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import { api } from './api.ts'
 import type { BetterSidebarService } from './service.ts'
 import { FileTree } from './FileTree.tsx'
 import { IconUploadOutline16 } from './icons.tsx'
-import type { OpenInApp } from './open-in-app.ts'
+import type { OpenInApp, OpenInAppEntry } from './open-in-app.ts'
 import type { OpenWithTarget } from './open-with.ts'
 import { t } from './locales.ts'
 import { resolveSidebarPath } from './paths.ts'
@@ -122,6 +125,17 @@ export function TreePanel(props: {
   /** Set by cancelUpload; the settle path shows 'upload cancelled' instead of
    *  summarizing the partial results. */
   const cancelledRef = useRef(false)
+  /** One-line "could not open locally" failure ('' hides it; it self-clears). */
+  const [openHint, setOpenHint] = useState('')
+  const openHintTimer = useRef<number | null>(null)
+  const reportOpenFailure = (message: string): void => {
+    setOpenHint(message)
+    if (openHintTimer.current !== null) window.clearTimeout(openHintTimer.current)
+    openHintTimer.current = window.setTimeout(() => { setOpenHint('') }, UPLOAD_HINT_MS)
+  }
+  useEffect(() => () => {
+    if (openHintTimer.current !== null) window.clearTimeout(openHintTimer.current)
+  }, [])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
 
@@ -223,6 +237,9 @@ export function TreePanel(props: {
           disabled={busy}
           onClick={() => { folderInputRef.current?.click() }}
         />
+        {cwd !== undefined && openInApp !== undefined && (
+          <OpenLocallyButton cwd={cwd} handle={openInApp} onFailure={reportOpenFailure} />
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -247,6 +264,9 @@ export function TreePanel(props: {
       </div>
       {uploadStatus !== '' && (
         <div className={clsx(css.editorSearchHint, uploadFailed && css.editorError)} title={uploadStatus}>{uploadStatus}</div>
+      )}
+      {uploadStatus === '' && openHint !== '' && (
+        <div className={clsx(css.editorSearchHint, css.editorError)} title={openHint}>{openHint}</div>
       )}
       {/* Search results: parked (not unmounted) while the query is empty. Its
           contents render only for a live query — a parked panel must not put
@@ -318,5 +338,79 @@ export function TreePanel(props: {
         />
       )}
     </div>
+  )
+}
+
+/**
+ * 「在本地打开」: hand the workspace directory to the OS file manager, or to any
+ * application the host probed for directories.
+ *
+ * DSH owns this affordance but renders it in `sidebar.right.tab.files.actions`,
+ * a slot hosted by the BUILT-IN files body — and this plugin takes that page
+ * over, so without this row the gesture stops existing in the product. The
+ * host's catalog answers for the application list, so nothing here guesses at
+ * executables. An unavailable host or an empty catalog renders nothing: the
+ * plugin never offers a dead row.
+ */
+function OpenLocallyButton(props: {
+  cwd: string
+  handle: OpenInApp
+  onFailure: (message: string) => void
+}): ReactNode {
+  const { cwd, handle, onFailure } = props
+  /** null = still probing; [] = the host offers nothing (renders no control). */
+  const [apps, setApps] = useState<readonly OpenInAppEntry[] | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void handle.directoryApps().then(entries => {
+      if (!cancelled) setApps(entries)
+    }).catch(() => {
+      if (!cancelled) setApps([])
+    })
+    return () => { cancelled = true }
+  }, [handle])
+  if (apps === null) return null
+  const primary = apps[0]
+  if (primary === undefined) return null
+  const run = (application: string): void => {
+    setMenuOpen(false)
+    void handle.open(cwd, application).then((ok) => {
+      if (!ok) onFailure(t('openLocallyFailed'))
+    }).catch(() => { onFailure(t('openLocallyFailed')) })
+  }
+  const items: MenuEntry[] = apps.map(app => ({
+    id: app.id,
+    label: app.name,
+    ... (app.icon === null ? {} : {
+      icon: <img src={app.icon} width={14} height={14} alt="" draggable={false} />,
+    }),
+  }))
+  return (
+    <Menu
+      open={menuOpen}
+      onClose={() => { setMenuOpen(false) }}
+      items={items}
+      align="end"
+      dense
+      onSelect={(id) => { run(id) }}
+      anchor={
+        <span className={css.openLocallyGroup}>
+          <IconButton
+            label={t('openLocally')}
+            icon={<IconRightUpOutlineRegular size={14} />}
+            onClick={() => { run(primary.id) }}
+          />
+          {items.length > 1 && (
+            <IconButton
+              label={t('openLocallyMore')}
+              icon={<IconChevronDownOutlineRegular size={12} />}
+              active={menuOpen}
+              onClick={() => { setMenuOpen(value => !value) }}
+            />
+          )}
+        </span>
+      }
+    />
   )
 }

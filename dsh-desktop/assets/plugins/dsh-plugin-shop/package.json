@@ -1,0 +1,139 @@
+{
+  "name": "dsh-plugin-shop",
+  "version": "0.9.0",
+  "description": "The DeepSeek Harness plugin shop: browse, install, enable, and update dsh plugins from a git-auditable catalog.",
+  "icon": "./assets/icon.png",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "deepseek",
+    "plugin-manager",
+    "plugin-marketplace",
+    "plugin-catalog",
+    "harness"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LivXue/dsh-plugin-shop.git"
+  },
+  "homepage": "https://github.com/LivXue/dsh-plugin-shop#readme",
+  "bugs": {
+    "url": "https://github.com/LivXue/dsh-plugin-shop/issues"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./typert": {
+      "types": "./lib/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./types": {
+      "types": "./lib/types/host/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "LICENSE",
+    "assets/icon.png",
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.js",
+    "lib/types/**/*.d.ts",
+    "lib/typert.host.js",
+    "lib/typert.host.d.ts",
+    "lib/typert.remote-client.js",
+    "lib/typert.remote-client.d.ts",
+    "cordis.patch.yml"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "dependencies": {
+    "js-yaml": "^4.2.0",
+    "semver": "^7.6.3",
+    "yaml": "^2.5.1",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/cordis-plugin-include": "^1.0.6",
+    "@deepseek-ai/dsh-app-boot": ">=0.1.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-home-paths": ">=0.1.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.1.1-rc.2 <0.3.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/cordis-plugin-include": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-app-boot": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-home-paths": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-typert-protocol": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-api-remotes": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-app-boot": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-home-paths": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-typert-generator": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.1-rc.2",
+    "@testing-library/react": "^16.1.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@types/semver": "^7.5.8",
+    "jsdom": "^25.0.1",
+    "playwright": "^1.49.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tsdown": "^0.22.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsdown && tsc && tsdown -c tsdown.client.config.ts",
+    "test": "tsdown && tsdown -c tsdown.client.config.ts && vitest run",
+    "typecheck": "tsdown && tsc --noEmit && tsc -p tsconfig.test.json",
+    "shoot:screenshots": "node --experimental-strip-types scripts/shoot-readme-screenshots.ts"
+  }
+}

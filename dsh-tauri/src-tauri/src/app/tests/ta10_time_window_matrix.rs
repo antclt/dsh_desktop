@@ -3,8 +3,8 @@
 //! 所有权声明：本文件是 TA10 自己的测试文件（ta10- 前缀），不修改任何业务文件。
 //!
 //! 手法：
-//! · 能只读编入的真实实现（session_notify：NotifyThrottle / restart_backoff_ms /
-//!   JUMP_FRESHNESS_MS）用 `#[path]` 编入直喂合成时间轴（u128 毫秒）；
+//! · 能只读编入的真实实现（session_notify：restart_backoff_ms / 健康线）用
+//!   `#[path]` 编入直喂合成时间轴（u128 毫秒）；
 //! · kernel-process 的 CrashLoopDetector 是 app 直连依赖，record_crash 本就
 //!   接受注入的 now_ms —— 二维表（间隔 × 次数）直接打；
 //! · 嵌在闭包 / 线程里的判定（90s 导航抑制 / updater TTL /
@@ -15,7 +15,7 @@
 //! 全部测试纯函数运行，无任何真实 sleep / 真等。
 
 // ---------------------------------------------------------------------------
-// 只读编入：session_notify.rs（真实 NotifyThrottle / restart_backoff_ms）
+// 只读编入：session_notify.rs（真实 restart_backoff_ms / 健康线）
 // 与 time_logic_audit.rs 同款最小垫片（仅满足 crate:: 引用编译）。
 // ---------------------------------------------------------------------------
 #![allow(dead_code)]
@@ -82,64 +82,7 @@ const UPDATER_SRC: &str = include_str!("../src/commands/updater_client.rs");
 const MENU_SRC: &str = include_str!("../src/commands/menu.rs");
 
 // ===========================================================================
-// 1) NotifyThrottle：30s 会话窗 29999/30000/30001 + 15s 全局窗 14999/15000/15001
-//    + JUMP 新鲜度 59999/60000/60001（真实实现，注入合成时轴）
-// ===========================================================================
-
-/// 会话窗三边界（真实 NotifyThrottle：`now - last < 30000` 拦截）。
-#[test]
-fn ta10_notify_session_window_boundaries() {
-    use session_notify_live::{NotifyThrottle, SESSION_THROTTLE_MS};
-    assert_eq!(SESSION_THROTTLE_MS, 30_000, "30s 窗常量锚点");
-    let mut t = NotifyThrottle::new();
-    assert!(t.decide("s", 1_000), "首条放行");
-    assert!(!t.decide("s", 1_000 + 29_999), "29999ms：窗内拦截（<30000）");
-    // 恰 30000：不 < 30000 → 放行（同时落笔新时间戳）。
-    assert!(t.decide("s", 1_000 + 30_000), "恰 30000ms：放行且时间戳前进");
-    // 30001 相对新时间戳（31_001）：窗内再拦（验证时间戳确实前进到 31_000）。
-    assert!(t.decide("s", 31_000 + 30_001), "30001ms（相对新戳 31_000）：差 30_001 ≥ 30s → 放行");
-    assert!(!t.decide("s", 31_000 + 29_999), "29999ms（相对新戳）：窗内拦截——新戳已前进的交叉验证");
-}
-
-/// 全局窗三边界 + 拦截不消耗会话额度（Electron：return 在两个 set 之前）。
-#[test]
-fn ta10_notify_global_window_boundaries() {
-    use session_notify_live::{GLOBAL_THROTTLE_MS, NotifyThrottle};
-    assert_eq!(GLOBAL_THROTTLE_MS, 15_000, "15s 窗常量锚点");
-    let mut t = NotifyThrottle::new();
-    assert!(t.decide("a", 0));
-    assert!(!t.decide("b", 14_999), "跨会话 14999ms：全局窗拦截");
-    assert!(t.decide("b", 15_000), "跨会话恰 15000ms：放行");
-    // 15001 边界：放行后新会话 c 在 +1ms 处仍被拦（全局窗以最近一次落笔计）。
-    assert!(!t.decide("c", 15_001), "15001ms：相对 b@15000 差 1ms < 15s → 拦截");
-    assert!(t.decide("c", 15_000 + 15_001), "相对 b@15000 差 15001ms → 放行");
-    // 被全局窗拦截不写该会话时间戳：b 的首条额度未消耗。
-    let mut t2 = NotifyThrottle::new();
-    assert!(t2.decide("a", 0));
-    assert!(!t2.decide("b", 5_000), "b 被全局窗拦截");
-    assert!(t2.decide("b", 15_000), "全局窗一过 b 首条立即放行（额度未被消耗）");
-}
-
-/// JUMP_FRESHNESS_MS 60s 新鲜度三边界（session_notify.rs:617 `> JUMP_FRESHNESS_MS`
-/// 同式重放：stale = focus_at - at > 60_000）。
-#[test]
-fn ta10_jump_freshness_boundaries() {
-    use session_notify_live::JUMP_FRESHNESS_MS;
-    assert_eq!(JUMP_FRESHNESS_MS, 60_000, "60s 新鲜度窗常量锚点");
-    let at: u128 = 1_000;
-    let stale = |focus_at: u128| focus_at.saturating_sub(at) > JUMP_FRESHNESS_MS;
-    assert!(!stale(at + 59_999), "59999ms：窗内 → 补发跳转");
-    assert!(!stale(at + 60_000), "恰 60000ms：`>` 严格 → 仍新鲜，补发");
-    assert!(stale(at + 60_001), "60001ms：陈旧 → 作废跳转");
-    let src = norm(SESSION_NOTIFY_SRC);
-    assert!(
-        src.contains("now_ms().saturating_sub(at) > JUMP_FRESHNESS_MS"),
-        "新鲜度判定式锚点（> 严格不等号）"
-    );
-}
-
-// ===========================================================================
-// 2) watcher 退避梯（1s/2s/…/60s 封顶）+ 健康线 59.9s/60s/60.1s
+// 1) watcher 退避梯（1s/2s/…/60s 封顶）+ 健康线 59.9s/60s/60.1s
 // ===========================================================================
 
 /// 退避梯全序列（真实 restart_backoff_ms）：1,2,4,8,16,32,60,60…（64s 封顶到 60s）。

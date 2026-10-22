@@ -1279,8 +1279,26 @@ body[data-dsh-sidebar-dragging] .bottomPanel {
   gap: 6px;
   height: 30px;
   padding: 0 4px 0 10px;
+  border: 0;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
   color: var(--dsw-alias-label-secondary);
+  /* The row IS the collapse toggle (see ExplorerRail), so it must read and
+     behave as one: full width, pointer, no UA button chrome. */
+  width: 100%;
+  background: 0 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.explorerRailHeader:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.explorerRailHeader:focus-visible {
+  outline: 1px solid var(--dsw-alias-interactive-focus-ring);
+  outline-offset: -1px;
 }
 
 .explorerRailTitle {
@@ -1349,6 +1367,14 @@ body[data-dsh-sidebar-dragging] .bottomPanel {
   gap: 6px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+/* The 在本地打开 split pair: the Menu anchor is a wrapper span, so the two
+   buttons keep the row's own gap instead of colliding. */
+.openLocallyGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .editorSearchInput {

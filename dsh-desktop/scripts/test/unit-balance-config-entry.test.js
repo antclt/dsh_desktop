@@ -226,10 +226,11 @@ test('桥垫片 ⋯ 菜单不含 toggle-balance / 「显示余额」文案', () 
   assert.ok(!shim.includes('toggle-balance'), 'bridge-shim 不得残留 toggle-balance');
   assert.ok(!shim.includes('显示余额'), 'bridge-shim 不得残留「显示余额/本轮费用」菜单文案');
   assert.ok(!shim.includes('showBalanceDock'), 'bridge-shim 不得残留 showBalanceDock 状态键');
-  // 反证（正向）：同族三开关仍在，负向断言不是把开关族整体删掉也能过。
-  for (const act of ['toggle-notify', 'toggle-close-to-tray', 'toggle-auto-update']) {
+  // 反证（正向）：同族开关仍在（toggle-notify 2026-10-22 随壳层通知下线，不在此列）。
+  for (const act of ['toggle-close-to-tray', 'toggle-auto-update']) {
     assert.ok(shim.includes(`'${act}'`), `同族开关 ${act} 不应被误删`);
   }
+  assert.ok(!shim.includes('toggle-notify'), '壳层回合完成通知开关已下线（改由 dsh-notify 插件）');
 });
 
 test('menu.rs / lifecycle.rs 不含 toggle-balance 与 showBalanceDock', () => {
@@ -241,10 +242,11 @@ test('menu.rs / lifecycle.rs 不含 toggle-balance 与 showBalanceDock', () => {
   assert.ok(menu.includes('toggle_key("toggle-balance"), None'), 'menu.rs 测试须断言退役 act 无映射');
   const lifecycle = read(LIFECYCLE_RS);
   assert.ok(!/"showBalanceDock"\s*:/.test(lifecycle), 'app_init 不得再返回 showBalanceDock');
-  // 反证（正向）：同族开关的返回键仍在。
-  for (const key of ['notifyOnTurnEnd', 'closeToTray', 'autoInstallUpdates']) {
+  // 反证（正向）：同族开关的返回键仍在（notifyOnTurnEnd 2026-10-22 随通知链下线）。
+  for (const key of ['closeToTray', 'autoInstallUpdates']) {
     assert.ok(lifecycle.includes(`"${key}"`), `app_init 返回键 ${key} 不应被误删`);
   }
+  assert.ok(!lifecycle.includes('"notifyOnTurnEnd"'), 'app_init 不得再返回 notifyOnTurnEnd');
 });
 
 // ---- 5. 反证：本文件的负向判据真的会咬 ---------------------------------------

@@ -1,0 +1,827 @@
+// MCP ToolSearch 运行时：遮罩、守卫、搜索工具、状态恢复。
+//
+// 机制采用参考实现（lordqyxz/dsh-tool-search）验证过的架构，按本插件定位改造：
+//   - 遮罩做在 `system-prompt/assemble` waterfall：过滤 `resolved.tools`，全局族与项目族
+//     （scoped 注册）通吃，且每次组装都过滤——晚连服务器的工具在首次出现的那次组装里就被滤掉，
+//     不存在"先放行后补遮罩"的窗口（设计文档决策 8）。
+//   - 自愈走 `tools.guard`：工具不 restrict（保持可解析），守卫对"未发现的延迟工具"返回带指引的
+//     拒绝。guard 能触发正因工具没被 restrict——dsh-tools 的 prepareExecution 在
+//     dispatchToolBody 抛 UNKNOWN_TOOL **之前**就跑 guardReason（:3241 vs :3307），
+//     所以遮罩掉的工具同样能拿到带指引的拒绝。
+//   - 延迟粒度是**按服务器**（deferServers），不是参考实现的"全延迟 + alwaysVisible 白名单"：
+//     未列入 defer 的服务器工具天然稳定，不需要维护一份内置工具白名单，也与本插件的
+//     per-server UI 开关一一对应（设计文档 §3.3 策略决策 B）。
+//   - 恢复走派生消息：搜索结果带累积发现列表（protocol: dsh-tool-search/v1），render 时剥掉
+//     不泄露进提示词；重建的 agent 从 `session.deriveMessages()` 还原。
+//
+// 本文件分两层：导出的是**纯决策函数**（不碰 DSH 服务，可单测）；installToolSearchRuntime 是
+// 一层薄装配（register/guard/on），用夹具按宿主契约测。
+//
+// 结构：所有派生状态（managed 划分、目录、目录正文、遮罩集、阈值判定）都挂在**一个按
+// revision 缓存的视图对象**上。三个调用点（assemble / guard / execute）只做"取视图 + 做自己
+// 那一件事"，取视图包在同一个 fail-open 边界里。这样就不需要 agent/created 预热、
+// tools/change 脏标记、agent/disposed 清理这三个订阅——视图按 revision 自愈，标志是要人
+// 记得置的，漏置就是静默失配。
+
+import { buildCatalog, searchCatalog } from './tool-search-index.js'
+import { revisionOf } from './mcp-registry.js'
+import { chooseToolName, inferMode, probeHost, warnOnce } from './tool-search-host.js'
+import { readSdkSchemas, rendererFor, trimSdkText } from './tool-search-sdk.js'
+import { createState, discover, discoveredFromMessages, discoveryProjection, evict, META_PROTOCOL, parseDiscoveredMeta, PROJECTION_KEY, projectionBound, seed, touch, versionOf } from './tool-search-state.js'
+import { z } from 'zod'
+import * as dshTools from '@deepseek-ai/dsh-tools'
+
+// 发现集的解析与 fold 住在 tool-search-state.js：协议 + 解析器 + 投影必须同时改，分开放
+// 就是静默失败。这里再导出一次，是因为它们长期是本模块的导出面（既有用例与文档按这里引用）。
+export { discoveredFromMessages, parseDiscoveredMeta }
+
+/**
+ * `tool_search` 的备选名（确定性顺序）：只在首选名已被别人占用时才用到（G4）。
+ * 顺序是固定的而不是随机的——换名会出现在守卫指引与目录文案里，模型要能稳定记住它。
+ */
+const TOOL_NAME_CANDIDATES = ['deferred_tool_search', 'mcp_tool_search']
+
+/**
+ * 宿主 PTC 手册的段名。裁剪就是替换 `assembly.sections` 里这一段——它和 `mcp:<server>`
+ * 指令段在同一个数组里，而本插件本来就在改那个数组（F38）。
+ * 段**存在但文本为空**是常见情形（PTC 部署下的 native agent：`sdkSection` 对 native
+ * 返回 ''），所以"按段名找 + 空文本短路"是两件事。
+ */
+const SDK_SECTION_NAME = 'tools:sdk'
+
+/**
+ * 配置缺省。
+ *
+ * **没有门槛**（B1/C3）：`threshold`（会话级聚合）与 `minServerTools`（per-server 下限）
+ * 整个删掉了。官方没有这两道（F8：官方原话「Claude Code 不会对每个服务器施加固定的工具
+ * 上限」，唯一的阈值模式是按**体积**百分比），它们只制造"勾了却没生效"的断层——
+ * 代码替用户猜他的处境。用户勾了就生效，逃逸通道是面板上的开关本身。
+ * 这两个键若被写进配置，`resolveRuntimeConfig` **显式报错**（不静默忽略）。
+ */
+export const DEFAULTS = Object.freeze({
+  toolName: 'tool_search',
+  /**
+   * 一次搜索返回的最大工具数。**10 而不是 5**：关键词排序对"抽象概念 → 具体工具名"的
+   * 映射有天花板（BM25 只做词面匹配，bridging 不了 declared→declaration、
+   * function→symbol 这类派生与同义关系），所以相关工具常散落在 4–10 名。实测两个真实
+   * MCP 工具集（serena 28 工具 / chrome-devtools 32 工具）：top5 漏掉 serena 33% 的
+   * 核心工具，top10 把它拉到 100%，而 chrome-devtools 两种限额都本就 100%——
+   * 即抬高限额只在不漏的场合多花约 570 token，换来难查的服务器不再漏。
+   * 别照抄"一次返回上百个 schema 没有意义"那条顾虑放到 10 上：那是针对全量枚举，
+   * 而枚举该走目录 section 或 `select:`（那里本来就返回请求的全部名字）。
+   */
+  maxResults: 10,
+  /**
+   * 已发现集的上限。别把它当"内部状态大小"来读：已发现的工具是**掀罩**的，会和常驻工具一起
+   * 出现在模型面前，所以它真正约束的是"当前会话里模型面对多少个可选工具"。
+   * 官方给的退化带是"超过 30–50 个可用工具后，选择准确率显著下降"（Anthropic 2025-11-24 博客 +
+   * API 文档同一条）；常驻工具（内置工具 + 未延迟服务器）通常 10–15 个，20 + 12 ≈ 32 正落在下沿。
+   * 20 因此不是随手写的数，只是当初没把这条推导写下来（见 `.tasks/mcp-tool-search/TUNING-DECISIONS.md` Q2）。
+   */
+  maxDiscovered: 20,
+  /**
+   * 目录 section 最多列多少个**名字**。目录只列名字（不列用途，见 catalogSectionText），
+   * 超出部分提示模型改用关键词或 `select:` 查询。
+   *
+   * **已实测（2026-10-18，替换旧外推；口径与全表见 TUNING-DECISIONS Q4）**：一台真实
+   * `jshook` 服务器 360 个工具，names-only 每行均 **32.66** 字符、表头固定 398 字符 →
+   * 全量 360 行 = 12,514 字符，上限 300 时 10,645 字符且 **60 个名字列不出来**。
+   * 对照：同一批工具的**完整定义**（名字+描述+inputSchema）是 159,136 字符，所以目录
+   * 只有被延迟那批的 7.9%——它不是成本，是替代品的零头。
+   *
+   * 300 因此是个**成本上限**而不是"测出来该是 300"：它在大工具集上真丢名字（丢弃点由
+   * 完整名字的 code-unit 排序决定，与常不常用无关）。抬不抬是产品选择（Q4 列了
+   * 300/500/800 三档的实测代价），默认值本轮不动；1.8.0 起用户可以在面板「延迟参数」里
+   * 自己改，所以它不再是锁死的。
+   */
+  maxCatalogLines: 300,
+  /**
+   * 单复数归一（s-stemmer）。默认开：两个真实 MCP 工具集实测零误伤，且在最难的
+   * 工具集（serena）上把核心工具进 top5 从 67% 提到 78%、top10 从 94% 到 100%；
+   * chrome-devtools 上无变化（工具名即查询词，本来就能命中）。
+   * 留成开关是因为 Harman 1991 证明 stemming 在某些语料上无提升——那种场景可以关掉。
+   * 注意查询侧与文档侧必须同一个值（searchCatalog/buildCatalog 都从 config 取）。
+   */
+  stem: true,
+  requireDiscovery: true,
+})
+
+/** 已删除的配置键：写进来就报错（C3：不静默忽略，否则后人会以为它还在生效）。 */
+const REMOVED_KEYS = Object.freeze({
+  threshold: '会话级聚合阈值已删除：用户勾了就生效（官方没有这道门槛，B1/C3）',
+  minServerTools: 'per-server 工具数下限已删除：用户勾了就生效（官方没有这道门槛，B1/C3）',
+  descriptionChars: '目录已改为只列工具名、不列用途（对齐 Claude Code：延迟工具在 prompt 里只有标识符），'
+    + '截断因此不存在；用途由搜索负责（索引吃全文描述）。见 TUNING-DECISIONS.md Q1',
+})
+
+export function resolveRuntimeConfig(config = {}) {
+  for (const [key, reason] of Object.entries(REMOVED_KEYS)) {
+    if (config[key] !== undefined) throw new Error(`${key} 已废弃：${reason}；请从配置里删掉它`)
+  }
+  const toolName = typeof config.toolName === 'string' && config.toolName.trim() !== ''
+    ? config.toolName.trim()
+    : DEFAULTS.toolName
+  const maxResults = positiveInt(config.maxResults, DEFAULTS.maxResults, 'maxResults')
+  // deferServers/serverNames 接受**函数**（活配置：每次视图重建重新读，配置改了不用重装）
+  // 或可迭代对象（测试与静态配置）。函数形态不在这里校验——来源是本插件自己的配置桥。
+  const deferServersOf = typeof config.deferServers === 'function' ? config.deferServers : () => [...(config.deferServers ?? [])]
+  const serverNamesOf = typeof config.serverNames === 'function' ? config.serverNames : () => [...(config.serverNames ?? [])]
+  return {
+    toolName,
+    deferServersOf,
+    serverNamesOf,
+    maxResults,
+    // 累积发现集的上限：它决定"有多少份 schema 长期常驻请求"，不设会随长会话长回全量基线。
+    // 注意它**不是**一次搜索能返回多少名字的上限——关键词形态受 maxResults 管，而 `select:`
+    // 形态按目录 section 的指引按名字取，一次能返回请求的全部名字，可以超过这个数。
+    // 所以淘汰必须避开**本次刚返回的**那批（execute 里把下限抬到本批长度），否则模型刚拿到
+    // "按名字直接调"的指令与完整 schema，下一次调用就被守卫拒——本期修掉的正是这个自相矛盾。
+    maxDiscovered: Math.max(maxResults, positiveInt(config.maxDiscovered, DEFAULTS.maxDiscovered, 'maxDiscovered')),
+    maxCatalogLines: positiveInt(config.maxCatalogLines, DEFAULTS.maxCatalogLines, 'maxCatalogLines'),
+    // 布尔不走 positiveInt：显式 false 必须能关掉词干化（上面 DEFAULTS.stem 的取舍）。
+    stem: typeof config.stem === 'boolean' ? config.stem : DEFAULTS.stem,
+    requireDiscovery: config.requireDiscovery ?? DEFAULTS.requireDiscovery,
+  }
+}
+
+function positiveInt(value, fallback, path) {
+  if (value === undefined) return fallback
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${path} must be a safe integer >= 1`)
+  return value
+}
+
+/**
+ * 工具名归属判定：前缀命中且**唯一**。serverName 含 `__` 时裸前缀匹配会误伤
+ * （mcp__a__b__x 同时像 a 和 a__b 的工具），所以必须要求唯一 owner——与
+ * mcp-registry.toolInventory / workspace-runtime.applyWorkspaceRestrict 同一条规则。
+ */
+export function uniqueOwner(schemaName, serverNames) {
+  let owner = null
+  for (const server of serverNames) {
+    if (!schemaName.startsWith(`mcp__${server}__`)) continue
+    if (owner !== null) return null
+    owner = server
+  }
+  return owner
+}
+
+/**
+ * 把会话可见的 schema 分成"被本机制管理（可延迟）"与"稳定（永可见）"两部分。
+ * 搜索工具自身永远稳定——它不能被自己延迟掉。
+ * 入参 serverNames / deferServers 是 Set（由调用方从活配置物化）。
+ */
+export function partitionSchemas(schemas, { toolName, serverNames, deferServers }) {
+  const managed = new Map()
+  const stable = new Set()
+  const ownerOf = new Map()
+  for (const schema of schemas ?? []) {
+    if (!schema || typeof schema.name !== 'string') continue
+    if (schema.name === toolName) {
+      stable.add(schema.name)
+      continue
+    }
+    const owner = uniqueOwner(schema.name, serverNames)
+    if (owner !== null) {
+      ownerOf.set(schema.name, owner)
+      if (deferServers.has(owner)) managed.set(schema.name, schema)
+      else stable.add(schema.name)
+    } else stable.add(schema.name)
+  }
+  return { managed, stable, ownerOf }
+}
+
+/**
+ * 过滤 assembly 的工具列表：**只摘本机制管理的**（被延迟且未发现），其余一概不动。
+ * 刻意不用"稳定集+已发现"的白名单——assembly 里可能有非本注册表来源的工具
+ * （其他插件的 toolProvider 等），白名单会把它们误删。per-server 延迟的语义是
+ * "只延迟这些服务器的工具，对别的工具没有意见"，黑名单正是这个语义。
+ */
+export function filterManagedTools(tools, managed, discovered) {
+  return (tools ?? []).filter((tool) => !managed.has(tool.name) || discovered.has(tool.name))
+}
+
+/**
+ * 守卫决策：返回拒绝原因（字符串）或放行（undefined）。
+ * 只管"本机制管理的、未发现的"工具；其他策略（如 workspace exclude）拒掉的工具不在
+ * managed 里，守卫不置词——取交集，绝不放宽（设计文档决策 8 附带属性）。
+ */
+export function guardDecision(name, { managed, discovered }, config) {
+  if (name === config.toolName) return undefined
+  if (!config.requireDiscovery) return undefined
+  if (!managed.has(name)) return undefined
+  if (discovered.has(name)) return undefined
+  return `tool ${JSON.stringify(name)} is deferred; call ${config.toolName} with the exact name ${JSON.stringify(name)} as the query to load its schema, then call it directly`
+}
+
+/** 视图 revision：工具可见面内容 + 全部影响划分的配置。变了才重建，否则复用缓存。 */
+export function viewRevision(schemas, config) {
+  return revisionOf({
+    toolName: config.toolName,
+    tools: (schemas ?? []).map((schema) => [schema?.name, schema?.description, schema?.parameters ?? null]),
+    defer: [...config.deferServersOf()].sort(),
+    servers: [...config.serverNamesOf()].sort(),
+    maxCatalogLines: config.maxCatalogLines,
+    // stem 进 revision：开关翻转要能让缓存失效、视图重建，否则改了不生效。
+    stem: config.stem,
+  })
+}
+
+/**
+ * 构建一次视图。纯函数：同样输入同样输出，所以可以按 revision 放心缓存。
+ *
+ * `managed` = 本次可见面里所有列入 defer 的服务器的工具，**没有门槛**：用户勾了就生效。
+ * （两道门槛在第十轮删掉：它们制造"勾了却没生效"的断层，而官方并没有这两道，B1/C3。）
+ *
+ * 视图**不含** `discovered`：发现集按 agent 变，而视图按 revision 缓存。
+ * 由此派生的 `D = managed − discovered` 与两个布尔都在调用点算（B14）：
+ * - `hasDeferredServers = managed.size > 0` —— 守卫与搜索用；
+ * - `hasDeferredWork = D.size > 0` —— 目录段 / 引导段 / SDK 裁剪用。
+ */
+export function buildToolSearchView(schemas, config) {
+  const sets = {
+    toolName: config.toolName,
+    serverNames: new Set(config.serverNamesOf()),
+    deferServers: new Set(config.deferServersOf()),
+  }
+  const { managed, ownerOf } = partitionSchemas(schemas, sets)
+  const catalog = buildCatalog([...managed.values()], config.stem)
+  const managedByServer = new Map()
+  for (const name of managed.keys()) {
+    const owner = ownerOf.get(name)
+    if (owner === undefined) continue
+    if (!managedByServer.has(owner)) managedByServer.set(owner, new Set())
+    managedByServer.get(owner).add(name)
+  }
+  return {
+    managed,
+    ownerOf,
+    catalog,
+    managedByServer,
+  }
+}
+
+/**
+ * `D = managed − discovered`：**还没被发现**的受管工具。
+ *
+ * 这是装配遮罩、指令段遮罩、目录段、SDK 裁剪、守卫五处共用的唯一集合（B11）。
+ * 之前三处各用一个判据（遮罩用 `managed − discovered`、目录用 `managed` 全集、引导用
+ * `deferring`），于是"全部发现之后"目录仍列着所有名字、引导仍说"还有工具被延迟"——
+ * 都是假话（F15）。
+ *
+ * @param {Map<string, object>} managed - 生效的受管工具。
+ * @param {Set<string>|Map<string, number>} discovered - 已发现集（Set 或 LRU Map 都吃）。
+ * @returns {Set<string>}
+ */
+export function deferredTools(managed, discovered) {
+  const deferred = new Set()
+  for (const name of managed.keys()) {
+    if (!discovered.has(name)) deferred.add(name)
+  }
+  return deferred
+}
+
+/**
+ * 目录正文里只列**还没被发现**的工具（显示过滤，不重建索引——索引建在 managed 上，
+ * 才能按 revision 缓存；重建一次的代价是 735 工具 52.8ms，B11 修正）。
+ * @param {Map<string, object>} catalog - 全量目录（按 revision 缓存）。
+ * @param {Set<string>} deferred - `D`。
+ * @returns {Map<string, object>}
+ */
+export function filterCatalog(catalog, deferred) {
+  const shown = new Map()
+  for (const [name, tool] of catalog) {
+    if (deferred.has(name)) shown.set(name, tool)
+  }
+  return shown
+}
+
+/**
+ * 还有未发现工具的服务器——它们的 `mcp:<server>` 指令段要被遮掉。
+ * 返回 section 名（不是服务器名），调用方直接喂给 maskInstructionSections。
+ */
+export function activeMaskedServers(view, discovered) {
+  const masked = new Set()
+  for (const [server, names] of view.managedByServer) {
+    for (const name of names) {
+      if (!discovered.has(name)) { masked.add(`mcp:${server}`); break }
+    }
+  }
+  return masked
+}
+
+/**
+ * 清空被延迟服务器的指令段。**返回新对象**：assembly 的段对象可能被别处共享，
+ * mutate 会把改动泄漏到其他消费者。只动 text，name/order 原样带走。
+ */
+export function maskInstructionSections(sections, maskedServers) {
+  if (maskedServers.size === 0) return sections
+  return (sections ?? []).map((section) => (
+    section?.name !== undefined && maskedServers.has(section.name) ? { ...section, text: '' } : section
+  ))
+}
+
+/**
+ * 没有东西被延迟时清空静态引导段。**返回新对象**（理由同 maskInstructionSections）；
+ * 段里没有它时原样返回——"没事情可做就不碰 assembly"是本文件既有惯例
+ * （maskInstructionSections 的 size===0 早退同此），调用方因此能保持零干预。
+ */
+export function maskGuidanceSection(sections) {
+  if (!(sections ?? []).some((section) => section?.name === GUIDANCE_SECTION_NAME)) return sections
+  return sections.map((section) => (
+    section?.name === GUIDANCE_SECTION_NAME ? { ...section, text: '' } : section
+  ))
+}
+
+/**
+ * 目录 section 的正文：**每工具一行，只有名字**，按 code-unit 名序（字节稳定，利于缓存）。
+ *
+ * 为什么不带用途（曾经的"名字 — 截断到 N 字符的目的"）：
+ *   - 官方文档与 Claude Code 的实现里，延迟工具在 prompt 中**只有标识符**（"Deferred tools
+ *     appear by name … only the name is known"，see TUNING-DECISIONS F1）；可发现性靠
+ *     "类别级引导 + 清晰的 name/description"（F3），而搜索索引吃的是**全文**（F2/F6）。
+ *   - 带用途就必须截断（700 工具 × 完整描述 ≈ 28 万字符），而截断点必然在某处切掉区分性
+ *     信息；那个字符数没有任何测量依据（F5）。不列用途，截断风险从根上消失。
+ *   - 按完整名字排序时，同一服务器的工具共享 `mcp__<server>__` 前缀，**天然按服务器聚簇**，
+ *     所以不需要另加分组头（分组头只是把排序已经表达的信息再写一遍）。
+ */
+function catalogSectionLines(catalog, config) {
+  const all = [...catalog.values()].sort((left, right) => compareNames(left.name, right.name))
+  const limit = config.maxCatalogLines
+  const lines = all.slice(0, limit).map((tool) => `- ${tool.name}`)
+  return { lines, truncated: Math.max(0, all.length - limit) }
+}
+
+/** Code-unit 名字比较——与区域无关，同一输入在任何机器上给出同一顺序（同宿主 compareToolNames）。 */
+function compareNames(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+export function catalogSectionText(catalog, config) {
+  const { lines, truncated } = catalogSectionLines(catalog, config)
+  const body = [
+    '## Deferred tool catalog',
+    '',
+    `The tools below stay deferred: only their names are listed here — neither descriptions nor parameter schemas are loaded. When one fits the task, call ${config.toolName} with a capability query; it matches tool names, descriptions and parameter names, returns the most relevant tools with complete schemas, and from then on the chosen tool is callable directly by its exact name.`,
+    '',
+    ...lines,
+  ]
+  if (truncated > 0) {
+    body.push('', `(${truncated} more deferred tools are not listed here. Search with capability keywords; if you already know an exact name from elsewhere, "select:<exact name>" also works.)`)
+  }
+  return { text: body.join('\n'), truncated }
+}
+
+/**
+ * 提示词 section：第三方文本（MCP 描述）绝不被插值，否则一个 {{var}} 就让每步组装抛错。
+ * `order` 只有走 `systemPrompt.section()` 注册时才需要（那个入口要求有限数）；
+ * 在 assemble waterfall 里直接追加的 section 不需要。
+ */
+const GUIDANCE_SECTION_ORDER = 140
+/** 静态引导段的段名。组装层要按名字把它摘掉，所以提成常量（两处共用）。 */
+const GUIDANCE_SECTION_NAME = 'tool-search:guidance'
+
+function promptSection(name, text, order) {
+  return order === undefined ? { name, text, interpolate: false } : { name, text, interpolate: false, order }
+}
+
+/** 搜索工具的结果 schema：宽松对象，具体形状由 execute 决定（render 只做文本投影）。 */
+const RESULT_SCHEMA = { type: 'object', additionalProperties: true }
+
+/**
+ * 视图算不出来时的零干预视图：回到 feature 前的全量可见行为。
+ * **每次新造一份**而不是共享单例——它的集合若被将来某处误改，共享单例会把这个改动
+ * 泄漏给所有 agent；新造一份让"视图是只读派生状态"这条不变量有结构性保证。
+ */
+function inertView(options = {}) {
+  return {
+    managed: new Map(),
+    ownerOf: new Map(),
+    catalog: new Map(),
+    managedByServer: new Map(),
+    // 视图算不出来（而不是"没有延迟服务器"）时要能在报错里说清是哪一种：
+    // 两者都表现为 managed 为空，原因完全不同，混成一句话就是误导。
+    degraded: options.degraded === true,
+  }
+}
+
+/**
+ * 装配到宿主。返回 cleanup。ctx 契约：tools（register/guard/schemas）、on、effect、logger?。
+ * agent 契约：agent.ctx.tools.schemas(agent)、agent.session.deriveMessages()。
+ */
+export function installToolSearchRuntime(ctx, config = {}) {
+  // 硬校验（同 installAgentRuntime 对 ctx.on 的风格）：tools 服务的 register/guard 是本功能的
+  // 地基，缺任何一样都不是"降级运行"能表达的——装一半比不装更坏。真实宿主恒提供二者
+  // （dsh-tools 服务契约）；缺了即是宿主契约破坏，立刻炸掉好过日志沉底。
+  if (typeof ctx.tools?.register !== 'function' || typeof ctx.tools?.guard !== 'function') {
+    throw new Error('tool-search: 宿主 tools 服务不完整（缺 register/guard），无法装配')
+  }
+  const resolved = resolveRuntimeConfig(config)
+  // 宿主能力探测：装一次，之后不再探测。缺项只记一次日志（warnOnce），不抛错——
+  // 那是"少了优化"，不是"装不上"。
+  const caps = probeHost(ctx)
+  // 重名预检（G4）：宿主的 NamedEntries.insert 对重名直接抛错，而这是构造函数里的同步
+  // 路径——一个同名工具就会让整个 mcp-manager 装不上。换名 + 日志，好过装不上。
+  const chosen = chooseToolName(ctx.tools, resolved.toolName, TOOL_NAME_CANDIDATES, { ctx })
+  // toolName 参与视图划分（搜索工具自身永远稳定）与全部对外文案，换名后必须整体用它。
+  // resolved 是 resolveRuntimeConfig 刚造出的局部对象，此处改写一个字段是与"换名"这件事
+  // 最直接的表达——再拷贝一份反而会造出两个 toolName。
+  if (chosen.renamed) resolved.toolName = chosen.name
+  // per-agent 状态只剩"发现集"——它和视图正交，不该混在视图里。
+  const discoveredStates = new WeakMap()
+  // per-agent 视图缓存：revision 不变就复用。revision 由视图自己的输入算出来，
+  // 所以不需要任何"脏标记"订阅——漏置标志导致静默不遮这一类失配不可能发生。
+  const viewCache = new WeakMap()
+
+  // 发现集的持久化载体（C4）：`ctx.sessionProjections` 的**内部投影**（无 `wire`，不暴露给
+  // 客户端）。这是 PTC 下唯一能恢复发现状态的路径——PTC 的搜索发生在程序内部，只留
+  // `tool/ptc-dispatch` 事件，而它不是 surface 事件，`deriveMessages()` 看不到（F18 实测）。
+  // 投影只当**恢复种子**：运行期状态仍是 per-agent 的 WeakMap，避免"一会话多 agent 共享"
+  // 的语义变化。服务缺席（自定义 profile 没挂 dsh-session-projection）时退回派生消息。
+  const projections = typeof ctx.get === 'function' ? ctx.get('sessionProjections') : undefined
+  let disposeProjection
+  if (caps.projections) {
+    try {
+      disposeProjection = projections.register(discoveryProjection({
+        z,
+        toolName: resolved.toolName,
+        // 有界：状态是纯 JSON 且要随会话持久化，长会话不能无限增长。
+        max: projectionBound(resolved.maxDiscovered),
+      }))
+    } catch (error) {
+      warnOnce(ctx, 'projectionRegister', `注册发现集投影失败（退回归档派生消息）：${error?.message ?? error}`)
+    }
+  }
+
+  const stateFor = (agent) => {
+    let state = discoveredStates.get(agent)
+    if (state === undefined) {
+      state = { ...createState(), restored: false }
+      discoveredStates.set(agent, state)
+    }
+    if (!state.restored) {
+      // resume：只在首次接触这个 agent 时还原一次。
+      const saved = restoreFrom(agent)
+      // 恢复也受运行期上限约束：投影的有界上限（100）比 maxDiscovered 大，正是为了让
+      // "上限被调小"时还能取到最近的这一批。超出部分丢最旧的（列表是从旧到新）。
+      seed(state, saved.length > resolved.maxDiscovered ? saved.slice(-resolved.maxDiscovered) : saved)
+      state.restored = true
+    }
+    return state
+  }
+
+  /**
+   * 还原发现集（从旧到新）。两条来源，投影优先：
+   * 1. `sessionProjections.stateOf(agent.session, KEY)` —— native 与 PTC 通吃（C4）；
+   * 2. 会话派生消息 —— 投影缺席时的退路（native 有效、PTC 无效，F18）。
+   * 投影为空时**仍试**退路：老会话（插件装上之前跑的）没有投影状态，但消息里可能有。
+   */
+  function restoreFrom(agent) {
+    if (caps.projections && agent.session !== undefined) {
+      try {
+        const saved = projections.stateOf(agent.session, PROJECTION_KEY)
+        if (Array.isArray(saved?.discovered) && saved.discovered.length > 0) return saved.discovered
+      } catch (error) {
+        warnOnce(ctx, 'projectionStateOf', `读取发现集投影失败（退回会话派生消息）：${error?.message ?? error}`)
+      }
+    }
+    const messages = typeof agent.session?.deriveMessages === 'function' ? agent.session.deriveMessages() : []
+    return [...discoveredFromMessages(messages)]
+  }
+
+  /**
+   * 这个 agent 的呈现模式。
+   *
+   * 首选宿主 private 的 `modeFor(scope)`（宿主渲染 `tools:sdk` 时用的是同一个方法，同参）。
+   * 拿不到就按 assembly 形状推断（G1 的公开退化判据）——`inferMode` 只需要"清单里有没有
+   * run_code"，不碰任何 private 面。guard/execute 没有 assembly 可看，此时退回 'native'：
+   * 那是本插件今天的默认前提，且缺项已由 probeHost 记过一次。
+   */
+  const modeOf = (scope, assemblyTools, managed) => {
+    if (!caps.modeFor) return inferMode(assemblyTools, managed)
+    try {
+      return ctx.tools.modeFor(scope)
+    } catch (error) {
+      warnOnce(ctx, 'modeForThrew', `ctx.tools.modeFor() 调用失败（按 native 处理）：${error?.message ?? error}`)
+      return 'native'
+    }
+  }
+
+  /**
+   * 取（或按 revision 重建）视图，并判定这个 agent 的呈现模式。
+   *
+   * 返回 `{ mode, view }`。`mode === 'both'` 时视图被换成 inertView（`managed` 为空 ⇒
+   * 两个布尔都假）——**这是唯一 inert 的取值**（B4/§11.4）。写成"非 native 就 inert"
+   * 会把 PTC 整个关掉，是本文件最容易写错的一处判据。
+   *
+   * **唯一的错误边界**：ToolSearch 是优化不是正确性机制，宿主视图不可用、配置读不了都
+   * 退回全量可见并记账，绝不让 assemble/guard 抛错——那会否决建会话或让 agent loop 每步失败。
+   * `revision` 挂在视图上：目录文本的缓存键要用它（B11 修正）。
+   */
+  const viewFor = (agent, assemblyTools) => {
+    try {
+      const schemas = agent.ctx.tools.schemas(agent)
+      const revision = viewRevision(schemas, resolved)
+      const cached = viewCache.get(agent)
+      let view = cached !== undefined && cached.revision === revision ? cached.view : undefined
+      if (view === undefined) {
+        view = { ...buildToolSearchView(schemas, resolved), revision }
+        viewCache.set(agent, { revision, view })
+      }
+      // 模式不进视图缓存：它对同一个 agent 是恒定的，缓存它只会多一个要失效的字段。
+      const mode = modeOf(agent, assemblyTools, view.managed)
+      return { mode, view: mode === 'both' ? inertView() : view }
+    } catch (error) {
+      ctx.logger?.error?.(`mcp-manager: ToolSearch 视图不可用，本轮退回全量可见：${error?.message ?? error}`)
+      return { mode: 'native', view: inertView({ degraded: true }) }
+    }
+  }
+
+  // 目录显示文本缓存（B11 修正）：视图只按 revision 缓存，而目录文本**还**取决于发现集，
+  // 所以必须给文本单独一个缓存，否则每次组装都要重算（735 工具 ~11ms）。
+  // 键 = `${revision}:${versionOf(state)}`；只留两个 slot——发现集的版本号在淘汰/回灌之间
+  // 可能来回，两格足以避免抖动，又不会长成一张表。
+  const catalogCache = new WeakMap()
+  const catalogTextFor = (agent, view, state, deferred) => {
+    const key = `${view.revision}:${versionOf(state)}`
+    let cache = catalogCache.get(agent)
+    if (cache === undefined) {
+      cache = new Map()
+      catalogCache.set(agent, cache)
+    }
+    const hit = cache.get(key)
+    if (hit !== undefined) return hit
+    const text = catalogSectionText(filterCatalog(view.catalog, deferred), resolved).text
+    cache.set(key, text)
+    if (cache.size > 2) cache.delete(cache.keys().next().value)
+    return text
+  }
+
+  // SDK 手册裁剪的取数缓存：`schemas(scope)` + 逐工具 `get()` 是 O(n²)（701 工具 ~278ms），
+  // 按 revision 缓存后一个 revision 只付一次（sdkSchemas 快路径 ~15ms 也一并缓存）。
+  const sdkCache = new WeakMap()
+  // cacheKey 是 provider 那边"谁在问"的身份（per-agent），scope 是要传给宿主取数 API 的
+  // 那个作用域（两者在真实宿主里是同一个对象，但语义不同：混用会让缓存键变成第二个真相源）。
+  const sdkReadFor = (cacheKey, scope, revision) => {
+    const cached = sdkCache.get(cacheKey)
+    if (cached !== undefined && cached.revision === revision) return cached.read
+    const read = readSdkSchemas(ctx.tools, scope, caps)
+    sdkCache.set(cacheKey, { revision, read })
+    return read
+  }
+
+  /**
+   * 裁 `tools:sdk` 手册（PTC 下唯一真正省字的一处：35 工具 12651 → 7431 字符，F5）。
+   *
+   * 四道门，顺序即正确性：
+   * 1. 段存在且**文本非空**——PTC 部署下的 native agent 段还在、文本是 ''，此时
+   *    `render(全集) !== ''` 会白跑一次全集重渲染再报 premise-mismatch；
+   * 2. `requireDiscovery` 为真（B12）——否则藏了签名却允许盲调 = 半失效；
+   * 3. 有 `ptcRuntime`——语言与 `programFormat` 都从它来，没有它就不可能有 PTC 会话；
+   * 4. 能拿到宿主的原输入（`incomplete`/`none` 一律放弃，绝不发一份少签名的手册）。
+   *
+   * 整个函数在调用点包在 try/catch 里：任何异常都沿用宿主原文。
+   * @returns {object[]} 段数组（失败时原样返回同一个引用）。
+   */
+  const trimSdkSections = (agent, scope, view, deferred, sections) => {
+    const section = (sections ?? []).find((entry) => entry?.name === SDK_SECTION_NAME)
+    if (section === undefined || typeof section.text !== 'string' || section.text === '') return sections
+    if (resolved.requireDiscovery !== true) return sections
+    const runtime = typeof ctx.get === 'function' ? ctx.get('ptcRuntime') : undefined
+    if (runtime === undefined) return sections
+    const read = sdkReadFor(agent, scope, view.revision)
+    if (read.schemas === undefined) {
+      warnOnce(ctx, `sdkRead:${read.via}`, `取不到宿主渲染 ${SDK_SECTION_NAME} 的原输入（${read.via}）：本次不裁手册`)
+      return sections
+    }
+    // G3：`programFormat` 有值才转发。0.2.1 起 TS 渲染器多这个参数且宿主会传，
+    // 不转发就会在自检那一步失败、静默退化成不裁；0.2.0 的渲染器忽略第二个实参。
+    const programFormat = typeof runtime.programFormat === 'string' ? runtime.programFormat : undefined
+    const result = trimSdkText({
+      hostText: section.text,
+      schemas: read.schemas,
+      drop: deferred,
+      render: rendererFor(runtime.language),
+      programFormat,
+    })
+    if (!result.ok) {
+      // `no-drop` 是正常情形（没有可裁的东西）；其余是"裁剪没发生"，记一次便于排查，
+      // 但都**不抛错**——最坏 = 今天的净亏，不会更坏（B3）。
+      if (result.reason !== 'no-drop') {
+        warnOnce(ctx, `trim:${result.reason}`, `${SDK_SECTION_NAME} 本次未裁剪（${result.reason}）：沿用宿主原文`)
+      }
+      return sections
+    }
+    return sections.map((entry) => (entry === section ? { ...entry, text: result.text } : entry))
+  }
+
+  /**
+   * `tool_search` 结果里的签名（C1）：参数类型 + 返回类型，用**宿主自己的** schema→类型
+   * 渲染器生成（`jsonSchemaToTs` / `jsonSchemaToPy`，F3 导出）。这样签名与手册里写的是同一种
+   * 语言、同一套渲染规则，模型不用在两套写法之间翻译。
+   *
+   * 拿不到语言、或拿不到某工具的 `output.schema` 时返回 `undefined`（不给这个字段）：
+   * 猜一个类型比不给更坏，而"没有返回类型"恰恰是 C1 要消除的半失效。
+   * @returns {{of: (name: string) => string|undefined}|undefined}
+   */
+  const signatureSource = (agent, view) => {
+    const runtime = typeof ctx.get === 'function' ? ctx.get('ptcRuntime') : undefined
+    const language = runtime?.language
+    if (typeof language !== 'string') return undefined
+    const read = sdkReadFor(agent, agent, view.revision)
+    if (read.schemas === undefined) return undefined
+    const byName = new Map(read.schemas.map((entry) => [entry.name, entry]))
+    const toType = language === 'python' ? dshTools.jsonSchemaToPy : dshTools.jsonSchemaToTs
+    // 类型渲染器会按代码块缩进换行；结果里要的是**一行**签名（模型在程序里照写，不是读文档），
+    // 所以把连续空白压成单空格。语义不变（TS 的换行只是排版），体积小一个量级。
+    const compact = (schema) => toType(schema).replace(/\s+/g, ' ').trim()
+    return {
+      of: (name) => {
+        const entry = byName.get(name)
+        if (entry === undefined || entry.output === undefined) return undefined
+        return language === 'python'
+          ? `async def ${name}(args: ${compact(entry.parameters)}) -> ${compact(entry.output)}`
+          : `tools.${name}(args: ${compact(entry.parameters)}) => Promise<${compact(entry.output)}>`
+      },
+    }
+  }
+
+  const disposeTool = ctx.tools.register({
+    name: resolved.toolName,
+    // 描述刻意不列服务器清单：那是活数据，会过期；活库存由目录 section 按组装承载（决策 9）。
+    // 语言提示按**实测**写（2026-10-18，见 TUNING-DECISIONS Q3）：索引对 CJK 用字符二元分词，
+    // 中文查询**能**命中中文描述；但英文描述 + 中文查询会零命中（`读取文件内容` 搜不到
+    // `read_file`——纯英文描述里没有可匹配的中文 token）。工具名恒为英文标识符，所以
+    // "英文最稳"是真话，但不能写成"只准英文"，否则中文描述的服务器上反而丢了半条路。
+    description: 'Search deferred tools by capability. Only their names are listed upfront — descriptions and parameter schemas are not loaded; this returns the most relevant tools with complete schemas so they can be called directly afterwards. Queries match tool names, descriptions and parameter names. Tool names are English identifiers, so English keywords are the most reliable; if a server describes its tools in another language, keywords in that language match too.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Capability query. Forms: "select:<name>[,<name>...]" for exact names; "+<server> <words>" to require a server; plain keywords otherwise. English keywords are the most reliable (tool names are English identifiers); keywords in a server\'s own description language also match.',
+        },
+        max_results: {
+          type: 'integer',
+          description: `Maximum tools to return (1-${resolved.maxResults}); defaults to ${resolved.maxResults}.`,
+        },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: RESULT_SCHEMA,
+      // 累积发现列表只进 meta，render 剥掉——否则每次搜索都把不断增长的发现表泄回提示词。
+      render: (_args, value) => {
+        const rendered = { ...value }
+        delete rendered.allDiscoveredTools
+        return [{ type: 'text', text: JSON.stringify(rendered) }]
+      },
+      presentationMeta: (_args, value) => ({
+        protocol: META_PROTOCOL,
+        allDiscoveredTools: value.allDiscoveredTools ?? [],
+      }),
+    },
+    async execute(args, exec) {
+      if (exec.agent === undefined) throw new Error(`${resolved.toolName} requires an agent-scoped execution`)
+      const { mode, view } = viewFor(exec.agent)
+      // 没东西可搜 → **明确报错**（B13）。判据是 `managed = ∅`（一个延迟服务器都没有），
+      // 不是 `D = ∅`（都发现了——再搜一次是合法的）。修复前这里是"空结果 + 指向一个不存在的
+      // 目录段"（F10），那是最坏的一种反馈：模型看不出自己错在哪。
+      if (view.managed.size === 0) {
+        throw new Error(view.degraded
+          ? `${resolved.toolName}: deferred tool loading is unavailable in this session (the host tool view could not be read); every tool is visible — call it directly`
+          : `${resolved.toolName}: no MCP server is set to deferred loading in this session; every tool is already available — call it directly`)
+      }
+      const state = stateFor(exec.agent)
+      const query = typeof args.query === 'string' ? args.query.trim() : ''
+      if (query === '') throw new Error('query must not be empty')
+      const limit = Math.min(Math.max(Number(args.max_results) || resolved.maxResults, 1), resolved.maxResults)
+      // 搜索按 `hasDeferredServers`（B14）：受管集为空 = 没有任何服务器被延迟，索引里
+      // 本来就没有东西可搜。判据刻意不是 `D`——B13：全部发现之后再搜一次是合法的。
+      const matches = searchCatalog(view.catalog, query, limit, resolved.stem)
+      // 先 `discover`（B8：发现即播种 lastUsed）再淘汰——顺序反了会把刚发现的一批当最旧踢掉。
+      const discoveredNow = discover(state, matches.filter((match) => match.found).map((match) => match.name))
+      // **只在本次真的新增了名字时淘汰**（B10）：一次"什么都没搜到"的搜索不该踢掉一半，
+      // 而 B9 的"最多踢一半"让这件事从"慢慢收敛"变成"当场掉一半"，所以必须显式门控。
+      // 下限抬到**本批长度**：`select:` 一次返回的名字数不受 maxResults 限制（见 DEFAULTS/
+      // resolveRuntimeConfig 注释），若按 maxDiscovered 硬砍，本批靠前的名字会被当场淘汰并
+      // 在结果里自相矛盾（matches=30 而 discoveredCount=20），下一次调用必被守卫拒。
+      // 代价：单次超量 select 会让累积集临时超过上限；那批 schema 本就已经在提示词里了，
+      // 下一次搜索按正常上限淘汰最旧，集合自然回落（LRU 让它按"最冷"而不是"最早发现"淘汰）。
+      if (discoveredNow.length > 0) {
+        evict(state, Math.max(resolved.maxDiscovered, discoveredNow.length))
+      }
+      // C1：非 native 会话补"签名"（参数 + **返回类型**）。PTC 下模型是在程序里调用工具，
+      // 手册给的正是这两样；只还参数就等于"比不延迟时更少"——那是半失效。
+      // native 下不给：原生调用没有"返回类型"这个契约，加了是噪声。
+      // 拿不到语言或拿不到 output.schema 就不给（退回现状），绝不猜。
+      const signatures = mode === 'native' ? undefined : signatureSource(exec.agent, view)
+      return {
+        protocol: META_PROTOCOL,
+        query,
+        // 刻意**不带 score**：它是内部排序产物（精确命中时是 Infinity），而工具输出要过
+        // `snapshotToolValue` 的无损 JSON 校验——`JSON.stringify(Infinity)` 得到 null，
+        // 整个结果会被判成 INVALID_TOOL_OUTPUT，`select:` 这个主查询形态就此报错。
+        // 排序已由数组顺序表达，模型不需要这个数。
+        matches: matches.map((match) => {
+          if (!match.found) return { name: match.name, found: false }
+          const entry = { name: match.name, description: match.description, parameters: match.parameters }
+          const signature = signatures?.of(match.name)
+          // 可选字段：老客户端/老协议不认它也照常工作（协议仍是 v1，只增不改）。
+          if (signature !== undefined) entry.signature = signature
+          return entry
+        }),
+        discoveredTools: discoveredNow,
+        discoveredCount: state.discovered.size,
+        catalogTools: view.catalog.size,
+        allDiscoveredTools: [...state.discovered.keys()].sort(),
+        instruction: matches.length > 0
+          ? 'Call any returned tool directly by its exact name with arguments matching the returned parameters schema.'
+          : 'No tool matched. Rephrase the query with exact capability words, or consult the deferred tool catalog section of the prompt.',
+      }
+    },
+  })
+
+  const disposeGuard = ctx.tools.guard((execution) => {
+    if (execution.agent === undefined) return undefined
+    // guard 没有 assembly 可看：`modeFor` 缺席时 `modeOf` 会退回 'native'（缺项已记过日志）。
+    const { view } = viewFor(execution.agent)
+    // 守卫按 `hasDeferredServers`（B14）：D = ∅ 时"都发现了"，守卫自然放行（每个工具
+    // 都在 discovered 里），不需要额外的开关判断。
+    if (view.managed.size === 0) return undefined
+    const state = stateFor(execution.agent)
+    // LRU 的**唯一写入口**（B7）：guard 是"每次调用都经过"的现成钩子——含 PTC 的嵌套派发
+    // （已实测走完整管线），所以不需要再加任何订阅。只记录**已发现**的名字：未发现的调用
+    // 会被下面拒掉，把被拒的也算"用过"会让一次性试探永久占住热点位。
+    touch(state, execution.name)
+    return guardDecision(execution.name, { managed: view.managed, discovered: state.discovered }, resolved)
+  })
+
+  // 引导 section（静态：是什么/怎么用）。活的库存目录按组装推送（每个 agent 的可见集不同）。
+  // 服务访问走 ctx.get 而非属性：cordis 对未注入服务的属性访问直接抛错，而 system-prompt
+  // 不属于本插件的硬依赖（缺它时只损失静态引导段，目录 section 与过滤照常）。
+  const systemPrompt = typeof ctx.get === 'function' ? ctx.get('systemPrompt') : undefined
+  const disposeSection = typeof systemPrompt?.section === 'function'
+    ? systemPrompt.section(promptSection(GUIDANCE_SECTION_NAME,
+      `Some tools are deferred: the prompt lists them by name, but neither their descriptions nor their parameter schemas are loaded. When a deferred tool fits the task, call ${resolved.toolName} with a capability query — it matches tool names, descriptions and parameter names, and returns the most relevant tools with complete schemas — then call the chosen tool directly by its exact name. Do not claim a capability is unavailable before searching.`,
+      GUIDANCE_SECTION_ORDER))
+    : undefined
+
+  const disposeAssemble = ctx.on('system-prompt/assemble', async (assembly, context, next) => {
+    const resolvedAssembly = await next()
+    const agent = context?.agent
+    if (agent === undefined) return resolvedAssembly
+    const { mode, view } = viewFor(agent, resolvedAssembly.tools)
+    // `context.scope` 与 `context.agent` 在真实宿主里标识同一个 agent（`AssembleContext`
+    // 的注释即 "当 agent 存在时 scope 必须标识同一个 agent"）；`sdkSection` 用的就是
+    // `context.scope`，所以取数同参——逐字节自检要求两侧同参。
+    const scope = context?.scope ?? agent
+    // `both` 是**唯一** inert 的取值（B4/§11.4）：两条投影都有效，插件一处都不碰。
+    // 不在 0.2.0 上给它任何行为，是因为 0.2.1 已删除该模式——为将死的功能写代码不划算。
+    // ⚠️ 别把这条写成"非 native 就 inert"：那会把 PTC 整个关掉，是本文件最容易写错的地方。
+    if (mode === 'both') return resolvedAssembly
+    // 引导段与活库存目录是同一句话的两半：没有**活要干**（D = ∅，或根本没有延迟服务器）
+    // 时，目录段不会追加，引导段（"Some tools are deferred…"）留着就是在教模型去调
+    // tool_search 找一批并不存在的延迟工具。所以一起摘掉（B14 的 `hasDeferredWork`）。
+    //
+    // 条件判断放在**组装层**而不是注册层：defer 是活状态（用户在面板翻开关、服务器
+    // 可能晚连），而 systemPrompt.section() 是启动时一次性注册。视图按 revision 自愈、
+    // 每次组装重算，所以判断放这里才跟着活状态走，也不需要任何新的订阅——
+    // agent/created、tools/change 那类订阅正是本功能刻意不用的（漏置标志就是静默失配）。
+    //
+    // 清空文本而不是从数组里删掉：宿主 renderPrompt 会把空文本的 section 丢掉
+    // （`.filter(text => text.length > 0)`），效果等于不注入，而段列表形状不变，
+    // 与下面 maskInstructionSections 清空 mcp:<server> 指令段是同一种做法。
+    const withoutGuidance = () => {
+      const sections = maskGuidanceSection(resolvedAssembly.sections)
+      return sections === resolvedAssembly.sections ? resolvedAssembly : { ...resolvedAssembly, sections }
+    }
+    if (view.managed.size === 0) return withoutGuidance()
+    const state = stateFor(agent)
+    const deferred = deferredTools(view.managed, state.discovered)
+    // D = ∅：全部发现。既不加目录也不遮指令段（没有该遮的了），但引导段必须摘——
+    // 它此刻说的"还有工具被延迟"是假话（F15）。
+    if (deferred.size === 0) return withoutGuidance()
+    const tools = filterManagedTools(resolvedAssembly.tools, view.managed, state.discovered)
+    let sections = maskInstructionSections(
+      [...(resolvedAssembly.sections ?? []), promptSection('tool-search:catalog', catalogTextFor(agent, view, state, deferred))],
+      activeMaskedServers(view, state.discovered),
+    )
+    // 手册只在 `ptc` 下裁：native 没有可裁的段（`sdkSection` 对 native 返回 ''），
+    // `both` 已在上面整段放行（B4：0.2.1 起这个模式已被删除，不为将死的功能写行为）。
+    if (mode === 'ptc') {
+      try {
+        sections = trimSdkSections(agent, scope, view, deferred, sections)
+      } catch (error) {
+        warnOnce(ctx, 'trim threw', `裁 ${SDK_SECTION_NAME} 时抛错，沿用宿主原文：${error?.message ?? error}`)
+      }
+    }
+    return { ...resolvedAssembly, tools, sections }
+  }, { prepend: true })
+
+  return () => {
+    for (const dispose of [disposeProjection, disposeAssemble, disposeSection, disposeGuard, disposeTool]) {
+      try { dispose?.() } catch { /* noop：cleanup 幂等，单个失败不阻断其余 */ }
+    }
+  }
+}

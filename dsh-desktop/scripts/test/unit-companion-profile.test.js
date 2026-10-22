@@ -13,7 +13,11 @@ const {
   registerCompanionPatchEntries,
   ACP_DISABLE_BLOCK,
   ACP_SELF_DISABLE_BLOCK,
+  SYNAPSE_SELF_DISABLE_BLOCK,
+  SYNAPSE_DEFAULT_DISABLED_MARKER,
+  ensureDefaultDisabledOnce,
 } = require('../lib/companion-profile');
+const { togglePluginInPatch } = require('../plugin-core/lib/patch-surgery');
 
 test('removedPluginIdsFromPatch: 大小写不敏感的 removed: true 被识别（issue #87）', () => {
   for (const variant of ['true', 'True', 'TRUE', ' true ', 'TRUE ']) {
@@ -70,6 +74,49 @@ test('禁用块机器：两块默认禁用条目顺序写入同一 patch 且各�
   assert.strictEqual(out3.changed, false);
   const out4 = ensureDisabledPatchEntry(out2.patch, acpBasicPattern, ACP_DISABLE_BLOCK);
   assert.strictEqual(out4.changed, false);
+});
+
+test('SYNAPSE_SELF_DISABLE_BLOCK：会话地图默认禁用块形状、幂等与 sync 接线', () => {
+  assert.match(SYNAPSE_SELF_DISABLE_BLOCK, /id:\s*synapse\b/);
+  assert.match(SYNAPSE_SELF_DISABLE_BLOCK, /disabled:\s*true/);
+  assert.ok(!/(?:^|\n)\s*-?\s*id:\s*synapse-x/.test(SYNAPSE_SELF_DISABLE_BLOCK), '块内只登记 synapse 自身');
+
+  const pattern = new RegExp('(?:^|\\n)\\s*-?\\s*id\\s*:\\s*synapse(?![A-Za-z0-9_.-])');
+  const out = ensureDefaultDisabledOnce('- insert:\n    - id: balance\n', pattern, SYNAPSE_SELF_DISABLE_BLOCK, SYNAPSE_DEFAULT_DISABLED_MARKER);
+  assert.strictEqual(out.changed, true);
+  assert.ok(out.patch.includes('id: synapse'));
+  assert.ok(out.patch.includes('disabled: true'));
+  assert.ok(out.patch.includes(SYNAPSE_DEFAULT_DISABLED_MARKER), '写入禁用块的同时写入一次性标记');
+  assert.strictEqual(ensureDefaultDisabledOnce(out.patch, pattern, SYNAPSE_SELF_DISABLE_BLOCK, SYNAPSE_DEFAULT_DISABLED_MARKER).changed, false, '重复同步必须幂等');
+
+  // 已存在登记点（insert 内层或用户条目）时不得再叠一条 disabled：与
+  // ensureDisabledPatchEntry 的「id 已存在即跳过」契约同源，反证用 insert 内层形。
+  const registered = '- insert:\n    - id: synapse\n      name: dsh-synapse\n';
+  assert.strictEqual(ensureDisabledPatchEntry(registered, pattern, SYNAPSE_SELF_DISABLE_BLOCK).changed, false);
+
+  // 用户在内置插件页开启后必须持久：toggle 会删掉 disabled 块与「关闭 synapse」注释，
+  // 但一次性标记应留下，sync 看到标记不得回写禁用块（否则每次重启都回到默认关闭）。
+  const enabled = togglePluginInPatch(out.patch, 'synapse', true, 'dsh-synapse');
+  assert.ok(!/(?:^|\n)\s*-?\s*id:\s*synapse\b/.test(enabled), '开启后顶层注册点应被移除');
+  assert.ok(enabled.includes(SYNAPSE_DEFAULT_DISABLED_MARKER), '一次性标记不得被 toggle 带走');
+  const afterEnable = ensureDefaultDisabledOnce(enabled, pattern, SYNAPSE_SELF_DISABLE_BLOCK, SYNAPSE_DEFAULT_DISABLED_MARKER);
+  assert.strictEqual(afterEnable.changed, false, '已标记的开启状态不得被下次同步回写');
+  assert.ok(!afterEnable.patch.includes('disabled: true'));
+
+  // 用户再次关闭仍应写入（标记只阻止「默认回写」，不阻止显式关闭）。
+  const reDisabled = togglePluginInPatch(enabled, 'synapse', false, 'dsh-synapse');
+  assert.ok(reDisabled.includes('disabled: true'), '显式关闭必须重新写入 disabled');
+
+  // 接线：两个同步入口（Electron CLI 与 Tauri sidecar boot 的 integration/plugin-sync）
+  // 都必须按 bundle 名条件写入该常量——只测常量形状会漏掉「没接上」；只测 CLI 入口
+  // 会漏掉 Tauri 活路径（2026-10-22 实测过这个假绿）。
+  const fs = require('node:fs');
+  const path = require('node:path');
+  for (const rel of ['sync-companion-plugins.js', 'integration/plugin-sync.js']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+    assert.match(src, /bundleNames\.has\('dsh-synapse'\)/, rel + ' 必须按 bundle 名判定');
+    assert.match(src, /SYNAPSE_SELF_DISABLE_BLOCK/, rel + ' 必须写入 synapse 默认禁用块');
+  }
 });
 
 test('registerCompanionPatchEntries: 短 id 不得被同前缀长 id 挡掉（issue #87 词边界防线）', () => {

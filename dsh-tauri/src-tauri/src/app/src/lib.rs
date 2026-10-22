@@ -327,17 +327,9 @@ pub fn run() {
             }
         }));
     }
-    // C1：会话完成通知点击跳转兜底——tauri-plugin-notification 2.3.3 桌面无
-    // 点击回调（action_type_id 仅 mobile），通知发出时记录「最近通知的会话」，
-    // 主窗重新聚焦且在新鲜度窗内即补发 notification-jump（垫片已监听该事件，
-    // bridge-shim.js:78）。限定主窗：浮窗/宠物窗聚焦不得触发跳转。
-    builder = builder.on_window_event(|window, event| {
-        if window.label() == "main" {
-            if let tauri::WindowEvent::Focused(true) = event {
-                session_notify::on_main_window_focused(window.app_handle());
-            }
-        }
-    });
+    // 回合完成通知已下线（改由内置插件 dsh-notify 在渲染进程发送，2026-10-22）；
+    // 壳层不再注册主窗 Focused 钩子补发 notification-jump。tauri-plugin-notification
+    // 仍保留：ACP 授权与崩溃循环两条通知仍在用（见 lib.rs 内 notification() 调用）。
     let app = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

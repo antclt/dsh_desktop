@@ -86,7 +86,7 @@ pub async fn menu_action(action: String, payload: Option<serde_json::Value>, app
             app.exit(0);
             Ok(serde_json::Value::Null)
         }
-        "toggle-notify" | "toggle-close-to-tray" | "toggle-auto-update" => {
+        "toggle-close-to-tray" | "toggle-auto-update" => {
             // toggle_key 对本 arm 恒有值（三条动作三键一一对应）；Option 形态把
             // 「act 在 arm 里但没键」变成显式报错而非静默落到某个默认键上。
             let key = toggle_key(&action).ok_or_else(|| BridgeError::invalid_arg(format!("未知菜单动作：{action}")))?;
@@ -301,23 +301,22 @@ fn updater_err_to_bridge(e: super::updater_client::UpdaterError) -> BridgeError 
     }
 }
 
-/// 菜单 toggle 动作 → settings.json 键（前两者 Electron updater.loadSettings
-/// 同键；autoInstallUpdates 为 Tauri 版新键——自动装更新会重启应用）。
+/// 菜单 toggle 动作 → settings.json 键（closeToTray 与 Electron updater
+/// loadSettings 同键；autoInstallUpdates 为 Tauri 版新键——自动装更新会重启应用）。
 ///
 /// 返回 Option：未知动作宁可显式报错，也不静默落到某个键上写坏配置。
-/// toggle-balance 已退役（2026-10-16，菜单项与壳侧 settings 键同批摘除）：
-/// 它写的壳侧 settings.json 与 dsh-balance 插件读的内核设置条目是两条互不
-/// 相通的线，开关唯一落点已是插件导出的 Config 设置条目（见 §2.4 台账）。
+/// toggle-notify 已随壳层回合完成通知下线移除（2026-10-22，通知改由内置插件
+/// dsh-notify 发送）；toggle-balance 已退役（2026-10-16，菜单项与壳侧 settings
+/// 键同批摘除，见 §2.4 台账）。
 fn toggle_key(action: &str) -> Option<&'static str> {
     match action {
-        "toggle-notify" => Some("notifyOnTurnEnd"),
         "toggle-close-to-tray" => Some("closeToTray"),
         "toggle-auto-update" => Some("autoInstallUpdates"),
         _ => None,
     }
 }
 
-/// 各开关缺省值：Electron 三键沿 `s.x !== false` 缺省 true；autoInstallUpdates
+/// 各开关缺省值：closeToTray 沿 `s.x !== false` 缺省 true；autoInstallUpdates
 /// 缺省 **false**——自动下载安装会中断运行中的会话并重启应用，必须用户显式
 /// 开启（⋯ 菜单「自动安装客户端更新」）。
 fn key_default(key: &str) -> bool {
@@ -356,13 +355,13 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let store = shell_core::SettingsStore::new(&path);
         // 缺省 true（Electron `s.x !== false` 同口径）。
-        assert!(setting_bool(&store, "notifyOnTurnEnd"));
+        assert!(setting_bool(&store, "closeToTray"));
         // 翻转并持久化：true → false。
-        assert!(!toggle_setting(&store, "notifyOnTurnEnd").unwrap());
-        assert_eq!(store.get("notifyOnTurnEnd").unwrap(), Some(serde_json::json!(false)));
+        assert!(!toggle_setting(&store, "closeToTray").unwrap());
+        assert_eq!(store.get("closeToTray").unwrap(), Some(serde_json::json!(false)));
         // 显式 false 再翻：false → true（读文件真值，非内存态）。
-        assert!(toggle_setting(&store, "notifyOnTurnEnd").unwrap());
-        assert_eq!(store.get("notifyOnTurnEnd").unwrap(), Some(serde_json::json!(true)));
+        assert!(toggle_setting(&store, "closeToTray").unwrap());
+        assert_eq!(store.get("closeToTray").unwrap(), Some(serde_json::json!(true)));
         // 读-改-写不破坏同文件其他键。
         store.set("lastWebPort", serde_json::json!(51731)).unwrap();
         toggle_setting(&store, "closeToTray").unwrap();
@@ -379,10 +378,11 @@ mod tests {
     }
 
     /// 菜单 toggle 动作 → settings.json 键映射（Electron 同键 + 新键）。
-    /// toggle-balance 已退役（2026-10-16）→ None：不得静默落到别的键。
+    /// toggle-notify 已随壳层通知下线（2026-10-22）、toggle-balance 已退役
+    /// （2026-10-16）→ None：不得静默落到别的键。
     #[test]
     fn menu_toggle_key_mapping() {
-        assert_eq!(toggle_key("toggle-notify"), Some("notifyOnTurnEnd"));
+        assert_eq!(toggle_key("toggle-notify"), None);
         assert_eq!(toggle_key("toggle-close-to-tray"), Some("closeToTray"));
         assert_eq!(toggle_key("toggle-auto-update"), Some("autoInstallUpdates"));
         assert_eq!(toggle_key("toggle-balance"), None);
@@ -398,7 +398,7 @@ mod tests {
         let seg = src
             .split("\"quit\" =>")
             .nth(1)
-            .and_then(|s| s.split("\"toggle-notify\"").next())
+            .and_then(|s| s.split("\"toggle-close-to-tray\"").next())
             .expect("quit 分支");
         let sh = seg.find("sv.shutdown()").expect("必须先同步杀内核树");
         let ex = seg.find("app.exit(0)").expect("必须退出进程");

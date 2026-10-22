@@ -320,7 +320,7 @@ WSL 模式下，Windows 侧一切「读内核数据」的组件必须把 home �
 
 | 组件 | 消费 | M 级 |
 |------|------|------|
-| session-watcher（会话完成通知） | `<home>/sessions` | M1 |
+| session-watcher（回合计数 / 假死豁免；通知已下线） | `<home>/sessions` | M1 |
 | sidecar boot / guard-* / safe-overlay（`--home`） | profile/补丁/快照 | M1 |
 | 插件管理六通道（plugin_list 等 sidecar 命令） | profile patch + bundles | M1（同一 `--home` 通道） |
 | 诊断 / 备份 / fence file-open | profile / 会话日志 | M2 |

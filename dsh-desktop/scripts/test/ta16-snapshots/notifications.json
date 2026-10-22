@@ -8,10 +8,6 @@
       "dsh-tauri/src-tauri/src/app/src/lib.rs"
     ]
   },
-  "turnEndFallbacks": [
-    "DSH 任务完成",
-    "会话任务已完成"
-  ],
   "shimShellNotifyTemplates": [
     [
       "plugin:notification|notify",

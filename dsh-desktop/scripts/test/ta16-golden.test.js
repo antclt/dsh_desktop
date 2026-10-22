@@ -201,11 +201,9 @@ function buildTraySnapshot() {
 
 function buildNotificationsSnapshot() {
   const snap = {};
-  // session_notify.rs notification_text 兜底（Electron `info.title || '…'` 对译）。
-  const notify = implSeg(readSrc('notify'));
-  const fn = fnSeg(notify, 'pub fn notification_text', 'pub fn valid_jump_session_id');
-  snap.turnEndFallbacks = (fn.match(/unwrap_or\("([^"]+)"\)/g) || [])
-    .map((s) => s.slice('unwrap_or("'.length, -2));
+  // 壳层「回合完成」通知链已于 2026-10-22 下线（改由 dsh-notify 插件承担），
+  // 原 session_notify.rs 的 notification_text 兜底文案不再是用户可见面——
+  // 快照只保留仍然存在的垫片 shellNotify 模板与单实例对话框。
   // 垫片 shellNotify 模板（发现新版本/已下载/已更新）。
   const js = readSrc('shim');
   const templates = [];

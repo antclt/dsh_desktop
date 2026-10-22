@@ -16,7 +16,7 @@
 | `dsh:xxx-yyy`（invoke） | `xxx_yyy` | 前缀 `dsh:` 去除 |
 | `float:close`（send） | `float_close` | fire-and-forget command，返回值固定 `Ok(())`（`pet:*` 三条 send 通道已随 harness-pet 裁撤，见 §2.4） |
 | `guard:action` | `guard_action` | 插件保护中心交互面（status/check/incident/resolve-incident 分发；写动作仍走守护瀑布自动面） |
-| 事件 `dsh:notification-jump` / `chrome:maximized` | event `notification-jump` / `window-maximized` | 冒号统一转连字符（事件 `dsh:balance` → `balance-changed` 已随 Electron 余额线退役，见 §2.4） |
+| 事件 `dsh:notification-jump` / `chrome:maximized` | event `notification-jump` / `window-maximized` | 冒号统一转连字符（事件 `dsh:balance` → `balance-changed` 已随 Electron 余额线退役，见 §2.4）。`notification-jump` 壳层 2026-10-22 起不再发射（通知改由内置插件 dsh-notify 发送），映射保留供垫片兼容 |
 
 ## 2. 全量映射表（38 通道：36 保留自 main.js 提取面 + 2 Tauri 原生新增，见 §2.2）
 
@@ -42,7 +42,7 @@
 | `dsh:open-external` (3254) | `open_external` | app commands/lifecycle |
 | `dsh:page-error`（on, 3162） | `page_error` | app commands/lifecycle |
 | `dsh:renderer-heartbeat`（on, 2896） | `renderer_heartbeat` | app commands/lifecycle |
-| `dsh:current-session`（on, 3168） | `current_session` | app commands/lifecycle（AppState.current_session；session-watcher crate 为 Phase 3 通知链预留，未接线） |
+| `dsh:current-session`（on, 3168） | `current_session` | app commands/lifecycle（AppState.current_session；壳层 2026-10-22 起仅记录，回合完成通知已下线） |
 | `float:close`（on, 3072） | `float_close` | app commands/window |
 
 ### 2.2 保留 —— Phase 2（sidecar 全链路）

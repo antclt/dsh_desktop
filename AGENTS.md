@@ -16,8 +16,8 @@ Node 逻辑仍是活代码（Tauri sidecar 直接复用，零重写）。主平�
 | 目录 | 说明 |
 | --- | --- |
 | `dsh-tauri/` | 桌面壳主线：`contracts/`（六份契约）、`src-tauri/`（Rust 工作区）、`sidecar/`（Node 薄封装）、`ui/`（frontendDist 占位页）、`dlls/`（D3DCOMPILER_47.dll）、`package-payload/`（打包暂存，gitignored）、`ta13-soak/`（Rust soak 压测）、`scripts/`（stage-payload / stage-plugin-gate / smoke-installed）、`docs/` |
-| `dsh-desktop/` | 内核侧 Node 逻辑：构建期补丁、自愈（根级 boot 链脚本 `watchdog.js` / `*-heal.js` 等）、插件同步、余额链、`docs/`、`assets/plugins/`（**随安装包分发**——v1.0.0 内置线，2026-10-08 裁定；内置伴随插件在册 **29** 个（v1.0.0 由 39 精简、2026-10-07 移除 11 个，2026-10-11 增自研 `dsh-builtin-manager` 内置插件管理页，2026-10-16 增自研 `dsh-goal-completion` 目标收尾标签页，2026-10-17 随内核 0.2.1 换代退役 `dsh-reasoning-effort`）；随包 agent 预设子系统已整体拆除）、`vendor/`（node/npm 运行时 + `dsh-kernel/` pin 的离线内核 tgz，后者**必须入库**） |
-| `dsh-desktop/scripts/test/` | 全部 Node 测试（203 个 `*.test.js/.mjs`，另有 `fixtures/`、`ta16-snapshots/`、mock server），单测唯一去处 |
+| `dsh-desktop/` | 内核侧 Node 逻辑：构建期补丁、自愈（根级 boot 链脚本 `watchdog.js` / `*-heal.js` 等）、插件同步、余额链、`docs/`、`assets/plugins/`（**随安装包分发**——v1.0.0 内置线，2026-10-08 裁定；内置伴随插件在册 **34** 个（v1.0.0 由 39 精简、2026-10-07 移除 11 个，2026-10-11 增自研 `dsh-builtin-manager` 内置插件管理页，2026-10-16 增自研 `dsh-goal-completion` 目标收尾标签页，2026-10-17 随内核 0.2.1 换代退役 `dsh-reasoning-effort`）；随包 agent 预设子系统已整体拆除）、`vendor/`（node/npm 运行时 + `dsh-kernel/` pin 的离线内核 tgz，后者**必须入库**） |
+| `dsh-desktop/scripts/test/` | 全部 Node 测试（202 个 `*.test.js/.mjs`，另有 `fixtures/`、`ta16-snapshots/`、mock server），单测唯一去处 |
 | `.github/workflows/` | `ci.yml`（PR 门禁）、`tauri-release.yml`（tag 发版，唯一发布入口）、`release.yml`（退役 Electron 线，全部 `if: false`） |
 
 ## 常用命令
@@ -159,8 +159,9 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   这条判语在 rc.2 时代写成「别当回归」，实为把真缺陷当噪声登记了（better-sidebar 的 `/sidebar/api/*` 405 从那天起就在，
   只是无头跑没人点文件树）。现两件的实测：隔离内核 `POST /sidebar/api/fs.trees` → **200**（真实目录列表）、
   `POST /sidebar/api/fs.read` → **200**、`POST /basics/api/nope` → 插件自己的 `{"ok":false,"code":"not-found"}` 404（不再是空体 405），
-  且 stderr 零 `pending (waiting for`。另记：`dsh-prompt-optimizer` 宿主半边的注释「桌面宿主运行时没有 connection 服务」
-  在 0.2.1 下不成立（本轮实测 `connection` 开机即在位），碰那条线前先按新判据复核，别据那条注释回退。
+  且 stderr 零 `pending (waiting for`。另记（2026-10-17，所指旧自研版已于 2026-10-19 退役）：
+  `dsh-prompt-optimizer` 宿主半边的注释「桌面宿主运行时没有 connection 服务」在 0.2.1 下不成立
+  （当轮实测 `connection` 开机即在位），碰同类注释前先按判据复核，别据注释回退。
 - **内核撤掉「公开提示词变量」这类隐式契约时，坏的是发消息本身，而静态扫与 boot 全绿——换代必须真发一条消息（2026-10-17 实测）**：
   rc.2 的 `dsh-agent-loop` 注册 `provider / model / cwd` 三个 `systemPrompt.variable`，0.2.1-rc.1 只剩前两个；
   内置插件 `dsh-workspace-anchor` 的锚点节带 `{{cwd}}`，于是**每一条 prompt 的装配期**抛
@@ -269,21 +270,29 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   `.gitattributes`（见「CI 全量单测有三类本机假绿环境差」第 ③ 条）。
 - **稳定性三原则（评审默认立场）**：① 客户端必须能打开，装配失败终态恢复页而非退出；
   ② 兼容性不报错，意外以日志收场（`panics.log`）不以崩溃收场；③ 用户数据不动。
-- 文档里的测试基线数字常滞后。**现值（2026-10-18 三次实测，随包内核换代 0.2.1-rc.2 之后；基线含
-  与 GitHub 侧 v1.0.3 合流 + Windows 路径门禁 + 两件插件提交闸门；补丁层净数 62 = 换代退役一条后的 61
+- 文档里的测试基线数字常滞后。**现值（2026-10-22 实测，随包内核 0.2.1-rc.2；基线含
+  与 GitHub 侧 v1.0.3 合流 + Windows 路径门禁 + 两件插件提交闸门 + `dsh-prompt-optimizer`
+  换为 vendored 上游 0.6.1 + better-sidebar「资源管理器栏头折叠 / 在本地打开」两条根治；补丁层净数 62 = 换代退役一条后的 61
   ＋ 吸收 `appboot-bootstrap-singleton`）**：
-  `scripts/test/` 206 个测试文件（`*.test.js` 204 + `*.test.mjs` 2；`unit-patch-pi-ai-opencode-go-models`
-  随该补丁退役一并 `git rm`，新增 `unit-patch-output-parsable`、`unit-workspace-anchor-cwd`、
-  `unit-plugin-inject-services`、mac 设置写入根治的 `unit-appboot-singleton-patch`
-  与「弹窗清草稿」根治的 `unit-auto-compact-gate`），
-  `npm test` = 2277 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
-  与网络浮动（本次全量实测 pass 2268 / skip 9），
+  `scripts/test/` 202 个测试文件（`*.test.js` 201 + `*.test.mjs` 1；`dsh-prompt-optimizer`
+  自研线的四个套件 `unit-prompt-optimizer-{context-intent,lexical-write,project-goal,upgrade}`
+  随目录替换 `git rm`，新增 vendored 机器锁 `unit-prompt-optimizer-vendored`；更早
+  `unit-patch-pi-ai-opencode-go-models` 随该补丁退役一并 `git rm`，另有新增
+  `unit-patch-output-parsable`、`unit-workspace-anchor-cwd`、`unit-plugin-inject-services`、
+  mac 设置写入根治的 `unit-appboot-singleton-patch`、「弹窗清草稿」根治的
+  `unit-auto-compact-gate` 与右上角「文件资源管理器」双坏的
+  `unit-better-sidebar-explorer-open`），
+  `npm test` = 2222 例 / **0 fail / 0 cancelled**；pass 与 skip 的分界随本机材料
+  与网络浮动（本次全量实测 pass 2213 / skip 9），
   skip 逐条都是环境缺料而非缺陷（pristine 夹具缺 `@openai/codex` / `@earendil-works/pi-ai`、
   openclaw 双轨的兄弟目录 `../openclaw-dsh-bridge/` 不在盘、本机无 `D:\workspace\dsh-pack` 克隆、
   真实网络、`.tmp-kernel` 构建产物不可用、无特权创建文件级符号链接）——一律以现跑输出为准，**pass 与 fail 才是判据**。
-  Rust 侧现值 **709 passed / 0 failed / 4 ignored**（8 个 crate / 36 个 target；2026-10-18 内核
-  换代 0.2.1-rc.2 后实跑。`crates/session-watcher` 因 `Cargo.toml` 成员行被 GBK 注释行粘连而不在
-  workspace 内，是零消费者储备件，不计入）——本机只能走 gnu 链，
+  Rust 侧现值 **607 passed / 0 failed / 4 ignored**（8 个 crate / 33 个 target；2026-10-22 本批实跑，
+  较 2026-10-18 的 709/36 少的是随「壳层回合完成通知下线」删除的 3 个通知专属套件。`crates/session-watcher`
+  因 `Cargo.toml` 成员行被 GBK 注释行粘连而不在 workspace 内，是零消费者储备件，不计入。
+  **跑 Rust 全量前先清掉终端里的 `DSH_HOME` / `DSH_TAURI_USERDATA`**：`shell-core` 的
+  `windows_layout_matches_electron` / `unix_layout_home_fallback_not_relative` 会优先读生产覆盖通道，
+  环境里带真值时会拿真实 home 与注入夹具比对而红（2026-10-22 实测；清掉后 26/26 绿））——本机只能走 gnu 链，
   **`cargo test` 必须带 `--target x86_64-pc-windows-gnu`**（与 `RUSTUP_TOOLCHAIN` 配对）：漏了它会去写
   `<CARGO_TARGET_DIR>/debug/`（host 目录，复用不到三元组目录里的增量），链接期炸成
   `final link failed: memory exhausted` + 「crate … required in rlib format」+ 上百条 ICE 级联，
@@ -301,7 +310,7 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
 - 调试开关（随产物保留）：`DSH_TAURI_DIAG=1` 页面探针、`DSH_TAURI_DEVTOOLS=1`、
   `DSH_TAURI_REPO_ROOT=<dir>` 显式内核目录、`DSH_HOME` / `DSH_TAURI_USERDATA` 数据目录重定向。
 - **`assets/plugins/dsh-better-sidebar` 是重建出来的 vendored 上游包，改行为只改 `src/`**：
-  v1.0.0 起它是上游 0.24.1 整包（`docs/builtin-plugins-inventory.md` §5.2 #3），本机的构建链已实测跑通
+  v1.0.0 起它是上游 0.24.2 整包（`docs/builtin-plugins-inventory.md` §5.2 #3），本机的构建链已实测跑通
   （沙箱是工作树内 gitignore 目录 `dsh-desktop/.tmp-bs-build/`：`npm ci --legacy-peer-deps` 装依赖后
   跑沙箱包的 `build` 脚本 = `rmSync lib && tsc -p tsconfig.build.json && tsdown`，
   `tsc` 是类型门禁——它非零退出时 `&&` 链会挡住 `tsdown`，别只看产物生成与否），
@@ -313,7 +322,7 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   （`src/client/chunks/<name>.tsx`，两频道共用，走插件自己的 `/sidebar/bundle` 路由而非模块加载器）。
   **不要只手改产物中的一处**——`tsconfig.build.json` 是 `emitDeclarationOnly`，不再有逐文件 `lib/*.js` 镜像。
   历史上「`lib/` 领先 `src/`」的那批手改进产物（`splitLines`/`diffRows`/`DiffTurnsPanel` 一套）已随换代消失——
-  上游 0.24.1 自带 `src/client/DiffTab.tsx` 与 `src/client/diff/`，我们那份不再回吸，旧表述作废；
+  上游 0.24.2 自带 `src/client/DiffTab.tsx` 与 `src/client/diff/`，我们那份不再回吸，旧表述作废；
   src↔产物同源由 `unit-better-sidebar-diff-surface` 按 `//#region <源路径>` 标记咬住。
 - **插件的运行时落点是 repo 的 `assets/plugins/`，不是 profile**：启动期的伴随插件同步会把
   payload 里的插件目录镜像进 `<DSH_HOME>/profiles/<name>/node_modules/`，所以手工往 profile
@@ -401,13 +410,27 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   column（设置弹层盖在上面时主列仍持有会话）；`undefined` = 无屏幕会话。**别读 `sessions.currentProvideInfo`
   ——它在 rc.2 全包 0 命中、0.2.1-rc.1 全包**仍** 0 命中（幽灵字段，可选链读恒 undefined，会静默把功能做成死的）**；会话列表快照在任何
   DSH 版本也都没有当前会话字段（better-sidebar 在 `src/client/native/surface.ts` 留有同款教训注释）。
-  反例即 dsh-prompt-optimizer 2.3.0：设置行「未识别到当前项目」始终不出项目名，换 `mounted` 后实测
-  项目名/路径即刻就位（解析链用例锁在 `unit-prompt-optimizer-project-goal`）。
+  反例即已退役的 dsh-prompt-optimizer 2.3.0（2026-10-19 该件整体换为上游 vendored 版，专属用例已随旧实现移除）：
+  设置行「未识别到当前项目」始终不出项目名，换 `mounted` 后实测项目名/路径即刻就位。
 - **`ctx.remote.<命名空间>.<动词>` 回的是信封 `{ok, value}` / `{ok:false, error}`，不是裸载荷——客户端插件按裸载荷解析会「静默做成死的」（2026-10-16 隔离内核实测）**：
   `ctx.remote.goals.get(sessionId)` 实际回 `{ok:true, value:{id, revision, objective, phase, activation, …}}`；把它当 view 直接读 `view.id` 恒 `undefined`，界面就把「有目标的会话」显示成「还没有目标」——**不报错、不炸、console 干净**，只有对着真内核才看得出来。写动词同理（`complete` 回的也是信封，成功值在 `value` 里）。
   目标状态本身还分两条线：会话投影 `projections.faceOf("goal").getSnapshot()` 是 `{goal:{id,revision,objective,phase,maxGoalRounds}, roundsStarted, createdAt, updatedAt}`——**没有 `activation`**；`activation`（armed/disarmed）只在远端那份 `value` 里。官方 GoalBar 就是「goal 取投影 + activation 另走观测线」的组合（`dsh-client-ui-goal/lib/client.js` 的 `GoalDock`），所以读目标要按 `id`+`revision` 对齐后合并，两条都缺才算无目标。反例即 dsh-goal-completion 第一版：只押 `goals.get`，真机上整块失明。
-- **DSH composer（Lexical）改文本不派发任何 DOM 事件——按 `input` 事件重读草稿的插件在真机上是静默死的（2026-10-17 隔离内核实测）**：编辑器消费 `paste` 后自己重排 DOM，实测 0 条 `input`/`beforeinput`（合成 `beforeinput` 也不进它的事务）。所以「输入框里现在是什么」只能靠 MutationObserver 订阅（dsh-prompt-optimizer 的 `composer.ts::observeComposerText`：微任务合并 + `focusin` 再定位，`input` 只当 textarea 旧宿主的补充），或者干脆在动作位现读。**推论：不要把「能不能点」绑在这种快照上**——同一轮实测里，字数门一旦绑成 `disabled`，快照陈旧就等于把主操作永久锁死；正确形态是门只写进 title/观测属性（`data-block`），`disabled` 只认由事件驱动的确定状态（如「正在优化」）。自带测试的夹具必须照此形状造（改 value = 只触发 observer、不发事件），否则用例是在替一条宿主根本不存在的契约作证——反证锁在 `unit-prompt-optimizer-context-intent` 的 C6/C6b/D6。
-- **内置插件若自己往磁盘写文件，home 必须按内核口径 `DSH_HOME` 优先，别直接 `homedir()/.dsh`**：dsh-prompt-optimizer 的 `config`/`projects`/`debug.log` 三处历史上都写死后者，实测同一次隔离运行里内核会话在临时 home、插件却去读**本机真实** `~/.dsh/prompt-optimizer-config.json`——两处分裂既让排查指向错文件，也让「测试绝不触碰真实 `~/.dsh`」这条硬要求从插件侧漏掉。写法：`(process.env.DSH_HOME || '').trim() || join(homedir(), '.dsh')`（无 `DSH_HOME` 时仍是 `~/.dsh`，真实用户侧不变）。相应地，**测试套件除 `USERPROFILE`/`HOME` 外还要把 `DSH_HOME` 钉进临时目录**，否则环境里残留的 `DSH_HOME` 会把落点带出沙箱。
+- **DSH composer（Lexical）改文本不派发任何 DOM 事件——按 `input` 事件重读草稿的插件在真机上是静默死的（2026-10-17 隔离内核实测）**：编辑器消费 `paste` 后自己重排 DOM，实测 0 条 `input`/`beforeinput`（合成 `beforeinput` 也不进它的事务）。所以「输入框里现在是什么」只能靠 MutationObserver 订阅（旧自研 dsh-prompt-optimizer 的 `composer.ts::observeComposerText` 即此形：微任务合并 + `focusin` 再定位，`input` 只当 textarea 旧宿主的补充；该件 2026-10-19 已换为上游 vendored 版，结论仍适用于任何读草稿的插件），或者干脆在动作位现读。**推论：不要把「能不能点」绑在这种快照上**——同一轮实测里，字数门一旦绑成 `disabled`，快照陈旧就等于把主操作永久锁死；正确形态是门只写进 title/观测属性（`data-block`），`disabled` 只认由事件驱动的确定状态（如「正在优化」）。自带测试的夹具必须照此形状造（改 value = 只触发 observer、不发事件），否则用例是在替一条宿主根本不存在的契约作证。`unit-prompt-optimizer-context-intent` 曾锁住这批反证，已随旧实现删除；后续任何读草稿的插件须自带同形反证。
+- **内置插件若自己往磁盘写文件，home 必须按内核口径 `DSH_HOME` 优先，别直接 `homedir()/.dsh`**：旧自研 dsh-prompt-optimizer（2026-10-19 已换为无磁盘写入的上游 vendored 版）的 `config`/`projects`/`debug.log` 三处历史上都写死后者，实测同一次隔离运行里内核会话在临时 home、插件却去读**本机真实** `~/.dsh/prompt-optimizer-config.json`——两处分裂既让排查指向错文件，也让「测试绝不触碰真实 `~/.dsh`」这条硬要求从插件侧漏掉。写法：`(process.env.DSH_HOME || '').trim() || join(homedir(), '.dsh')`（无 `DSH_HOME` 时仍是 `~/.dsh`，真实用户侧不变）。相应地，**测试套件除 `USERPROFILE`/`HOME` 外还要把 `DSH_HOME` 钉进临时目录**，否则环境里残留的 `DSH_HOME` 会把落点带出沙箱。
+- **插件用 `priority: 'extension'` 接管内核标签主体时，「只在那个主体内部渲染」的槽会跟着一起消失——静态扫与 boot 全绿（2026-10-21 用户报障「右上角的文件资源管理器点击无反应」）**：
+  内核的「文件资源管理器 / 在本地打开」分体按钮画在 `sidebar.right.tab.files.actions`，而该槽的**唯一宿主**
+  是 built-in `FilesBody`（`@deepseek-ai/dsh-client-ui-sidebar-files/lib/client.js:699`）。better-sidebar 以
+  同 kind 的 extension 注册接管 `files` 之后，那一格**永不再渲染**，入口在产品里彻底不存在；屏幕上只剩我们
+  自己的栏头，而栏头当时是个没有 handler 的 `<span>` → 用户观感就是「点了没反应」。两条排查姿势：
+  ① 先给**宿主半边定罪或开罪**——隔离实机 `GET /open-in-app/apps` 回 `["explorer","vscode","gitbash"]`、
+  `POST /open-in-app/open`（`{app:"explorer",path:<目录>}`）回 **200 `{"ok":true}`** 且资源管理器真开窗，
+  所以报障在客户端/UI 侧，与命令链/契约无关；② 「某个入口不见了」要按**该槽的宿主还在不在渲染**查，
+  接管型插件天然会吞掉宿主专属槽——这类丢失不在任何静态判据里（服务名 inject 扫、模块表扫、boot 五步全绿）。
+  修法两层：栏头整行做成 `button`（`aria-expanded` + 折叠/展开互认），被吞掉的入口由插件在 `TreePanel`
+  工具条自己重建（清单直读宿主 catalog；**宿主不可用或 catalog 为空即整块不渲染，不给死行**）。
+  回归锁 `unit-better-sidebar-explorer-open`（17 例 / 5 条反证，复刻渲染夹具驱动发行字节里的
+  `ExplorerRail` / `TreePanel` / `OpenLocallyButton`）；重建走 `.tmp-bs-build` 沙箱包的 `build` 脚本（先装依赖，再在沙箱里执行该包的构建脚本），
+  产物面 `member` 计数随新增原语取用 413→419，已由 inventory §5.2 #3 的实测列与 `unit-hub-registry` 咬住。
 - **内核右栏是可扩展面，别去改内核包**：`dsh-client-ui-sidebar-right` 的
   `sidebarRightTabs.register` + `sidebar.right.pane.tab` 是公开两段式标签 API（内核自己的
   文件/文档预览/终端也用它）。本仓库的 better-sidebar 已经用它把工作台接成右栏里的一个标签，

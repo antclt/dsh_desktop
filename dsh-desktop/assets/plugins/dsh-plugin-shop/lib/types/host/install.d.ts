@@ -1,0 +1,69 @@
+/** Install gate: the gate rejection paths of §7.2, as a pure function. */
+import type { CatalogSnapshot } from './catalog.ts';
+import type { CatalogEntry } from './types.ts';
+export type InstallRejectionCode = 'not-in-catalog' | 'denied' | 'version-mismatch' | 'needs-acknowledgement' | 'tarball-integrity' | 'ambiguous-identity' | 'name-taken' | 'desktop-profile';
+export interface InstallArgs {
+    name: string;
+    version: string;
+    acknowledged?: boolean;
+    /** Optional identity fields keep old clients readable while refusing an
+     * ambiguous name-only request when the catalog has duplicate names. */
+    source?: 'npm' | 'github';
+    repo?: string;
+    subdir?: string;
+}
+export type ValidateResult = {
+    ok: true;
+    entry: CatalogEntry;
+} | {
+    ok: false;
+    code: InstallRejectionCode;
+    detail: string;
+};
+/**
+ * Decide whether an install request may proceed and return the resolved row.
+ *
+ * `installedSpec` is the profile manifest's dependency for `args.name`, when
+ * it has one.
+ *
+ * What this refuses is REPLACEMENT, and the mechanism is the manifest key: a
+ * profile holds one dependency per name, the shop writes `dependencies[name]`,
+ * so installing a second plugin of that name overwrites the first and a plugin
+ * the user chose is gone with no notice.
+ *
+ * 177 of the catalog's names are claimed by more than one entry, over 461
+ * entries, `dsh-skill-manager` alone by 14 (2026-09-06). This comment is the
+ * ONE place that figure is kept, because three copies of it had already
+ * drifted apart — the design doc said 172/451 and present.ts said 151/243.
+ * It tracks the ecosystem, so re-derive rather than trust it: group
+ * `registry/snapshots/manifest.lock` by bundle name, which is field 0 on an
+ * npm row (`<name> <version> sha512-…`) and field 1 on every github one
+ * (`<owner/slug> <bundle name> <commit|tag>`) — reading field 1 for all of
+ * them undercounts by the 176 release-rescued rows.
+ *
+ * That is the whole of what the name buys. It is NOT the same rule as the
+ * loader's, and the two must not be confused — an earlier version of this
+ * comment and of the published detail said "they declare the same loader entry
+ * id", which is false for a measurable share of the pairs refused here:
+ * `Anyway-one/dsh-balance` declares `id: balance` while `ZHIZHU4410/deepseek-
+ * balance`, also bundle-named `dsh-balance`, declares `id: dsh-balance`. Those
+ * two would load side by side happily if a profile could hold both.
+ *
+ * The loader's own rule cuts the other way and this gate does not reach it:
+ * two DIFFERENTLY-named bundles declaring one entry id make dsh refuse the
+ * whole tree —
+ *
+ *   Error: dsh: plugin tree failed to load: failed to apply loader entry
+ *   include (cordis:include): duplicate loader entry id: plugin-manager
+ *
+ * — and the profile does not boot at all. `2768651338/dsh-plugin-manager` and
+ * `Dingpenghui-good/dsh-plugin-manager` carry different bundle names and both
+ * declare `id: plugin-manager`, so this gate passes them. A candidate's entry
+ * ids are not knowable before its files are on disk, which is why the check
+ * for that lives after the install lands rather than here (see
+ * `collidingEntryId` in index.ts).
+ *
+ * Passing the spec in rather than reading the manifest here keeps the whole
+ * gate a pure function driven by fixtures.
+ */
+export declare function validateInstall(snapshot: CatalogSnapshot, args: InstallArgs, installedSpec?: string): ValidateResult;

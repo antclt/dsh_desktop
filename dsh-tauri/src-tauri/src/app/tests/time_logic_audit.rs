@@ -7,15 +7,15 @@
 //!   · 中断时钟（`thread::sleep`/条件变量相对等待）：睡眠期间暂停 → 唤醒后
 //!     继续剩余时长；
 //!   · 墙钟（`SystemTime`/JS `Date.now()`）：含睡眠，度量真实墙时间。
-//! 能 #[path] 只读编入的用真实实现（session_notify：NotifyThrottle /
-//! restart_backoff_ms；kernel-process：CrashLoopDetector——app 依赖直连）；
+//! 能 #[path] 只读编入的用真实实现（session_notify：restart_backoff_ms；
+//! kernel-process：CrashLoopDetector——app 依赖直连）；
 //! 嵌在线程里的判定用纯函数重实现 + include_str! 源码锚点（file_drop.rs 的
 //! 「接线形态锚点」同款做法），锚点断言生产源确实含该形态。
 //!
 //! 全部测试纯函数运行，不真正让 OS 睡眠。
 
 // ---------------------------------------------------------------------------
-// 只读编入：session_notify.rs（真实 NotifyThrottle / restart_backoff_ms）
+// 只读编入：session_notify.rs（真实 restart_backoff_ms / 健康线）
 // 与 session_notify_boundary.rs 同款最小垫片（仅满足 crate:: 引用编译）。
 // ---------------------------------------------------------------------------
 #![allow(dead_code)]
@@ -280,40 +280,9 @@ fn crash_loop_wall_clock_window_sleep_safe() {
 }
 
 // ===========================================================================
-// P2（核实为安全）：session_notify 限流 30s/15s（墙钟）与 JUMP 60s 新鲜度
+// P2（核实为安全）：watcher 崩溃退避与健康线（墙钟/QPC 注入）
 // 真实实现（#[path] 编入）
 // ===========================================================================
-
-/// 限流器墙钟注入：通知 @t0 → 睡 1h → 同会话再完成：窗口早已过 → 放行。
-/// 睡眠方向是「重新开门」而非误拦——不丢通知、也不产生风暴（每事件至多一条）。
-#[test]
-fn notify_throttle_reopens_after_sleep_jump() {
-    use session_notify_live::{NotifyThrottle, GLOBAL_THROTTLE_MS, SESSION_THROTTLE_MS};
-    let mut t = NotifyThrottle::new();
-    assert!(t.decide("s", 1_000), "睡前首条放行");
-    let woke = 1_000 + 3_600_000;
-    assert!(
-        t.decide("s", woke),
-        "睡眠 1h 后同会话完成应放行（墙钟差 3600s ≫ 30s 窗）"
-    );
-    // 唤醒后短窗口内仍正常限流（无风暴）：15s 全局窗照常拦截第二会话。
-    assert!(!t.decide("other", woke + 1_000), "全局 15s 窗照常生效");
-    assert_eq!((SESSION_THROTTLE_MS, GLOBAL_THROTTLE_MS), (30_000, 15_000));
-}
-
-/// PENDING_JUMP 新鲜度 60s（墙钟）：睡前发出的通知，睡 1h 后用户回焦——
-/// 跳转作废（用户并非针对该通知回前台）。正确方向。
-#[test]
-fn jump_freshness_expires_across_sleep() {
-    use session_notify_live::JUMP_FRESHNESS_MS;
-    let at: u128 = 1_000;
-    let focus_at: u128 = at + 3_600_000;
-    let stale = focus_at.saturating_sub(at) > JUMP_FRESHNESS_MS; // session_notify.rs:617 同式
-    assert!(stale, "睡眠跨越新鲜度窗 → 补发跳转必须作废");
-    // 对照：窗内（30s）仍可跳。
-    let fresh_focus = at + 30_000;
-    assert!(fresh_focus.saturating_sub(at) <= JUMP_FRESHNESS_MS);
-}
 
 /// watcher 崩溃退避（真实 restart_backoff_ms）：唤醒引发的退出走
 /// `spawned_at.elapsed() >= 60s`（QPC）判定健康周期——睡眠使 elapsed 跳大，
