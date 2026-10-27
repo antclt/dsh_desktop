@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.0.8] — 2026-10-27
+
+壳层代码本轮零改动：只把随包内核从 0.2.1-rc.2 换到 0.2.1-rc.4（内容见 `dsh-desktop/CHANGELOG.md` 同名节）。版本号三处同步至 1.0.8，供 `tauri-release.yml` 与 tag 做 fail-fast 比对。
+
 ## [1.0.7] — 2026-10-22
 
 ### fix(notify)：壳层「回合完成」通知下线，改由随包 `dsh-notify` 插件接管

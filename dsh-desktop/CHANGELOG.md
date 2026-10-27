@@ -5,6 +5,10 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-10-27
+
+（本轮随包内核换代 0.2.1-rc.2 → 0.2.1-rc.4，内容见下节；壳层与插件代码零改动。）
+
 ### build(kernel)：随包内核换代 0.2.1-rc.2 → 0.2.1-rc.4（2026-10-27）
 
 - **pin**：`scripts/compat/kernel-pin.json` 的 `kernel.tag` / `kernel.packageVersion` 改
