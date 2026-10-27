@@ -5,6 +5,35 @@ DeepSeek Harness（dsh）的 Windows 桌面客户端：内置独立 Node 运行�
 
 ## [Unreleased]
 
+### build(kernel)：随包内核换代 0.2.1-rc.2 → 0.2.1-rc.4（2026-10-27）
+
+- **pin**：`scripts/compat/kernel-pin.json` 的 `kernel.tag` / `kernel.packageVersion` 改
+  `dsh-v0.2.1-rc.4` / `0.2.1-rc.4`；`validate-pin` 回 `✓ dsh-v0.2.1-rc.4（0.2.1-rc.4，offline-tarball）`。
+- **vendor**：`vendor/dsh-kernel/` 换成 340 个 `deepseek-ai-dsh-*-0.2.1-rc.4.tgz` + 13 个框架件
+  （353 总计；rc.2 的 339 个 tarball 全部移出，无混版）。每个 tarball 按 registry `dist.integrity`
+  校 sha512 + 内嵌 `package.json` 校 name/version 才入库。家族本轮**零撤包**：340 个候选名在
+  registry 上全有 rc.4 版本。
+- **唯一新包**：`@deepseek-ai/dsh-client-ui-entry-customization`（rc.3 引入的左栏 / 会话视图 / 右栏
+  「更多」菜单——浏览与创建插件），随 vendor 入库；`package.json` 336 条 `@deepseek-ai/dsh*`
+  依赖与 `package-lock.json`（1021 条目 / 353 个 `file:` 条目）由 `generate-kernel-lock.mjs` 同批重生成。
+- **补丁层零重靶**：`patch-deps` 实况「写入 75 处 / 失配 0 / 失败 0 / 降级 0 / 告警 0 / 共 62 项」；
+  `patch-surface` 85 文件干预面零漂移（重取快照）；`ta6-baseline-matrix` 判定矩阵与 rc.2 **逐 id 相同**
+  （43 changed / 14 root / 5 target-absent）。9 处「内容漂移」逐文件核过：7 个是真被补丁改过、
+  transform 仍命中 rc.4 字节、注入体引用的上游符号一个没丢；另 2 个（`dsh-client-ui-plugin-manager`、
+  `dsh-tool-cordis/lib/types/api-catalog.js`）根本没被打过补丁，进面纯因 marker `the profile`
+  （`patch-adapters.js:163` 的横幅被撇号截断）撞上上游散文——见「已知问题」。
+- **上游变更面**（rc.3 → rc.4 无 GitHub release，按 npm 与发行字节实测）：rc.3 给左栏 / 会话视图 /
+  右栏各加一个「更多」菜单，并修「切换会话后点新会话找不回未发送草稿」；rc.4 把 DeepSeek API Key
+  适配器的模型列表刷新口径与账号登录模式对齐。340 个包里有 16 个换了主入口产物（含
+  `dsh-api-remotes` / `dsh-client-ui-conversation` / `dsh-llm-deepseek` 等），我们的锚点全部原样命中。
+- **验证**：`npm test` 2222 例 / 2213 pass / 9 skip / **0 fail**；`check-syntax.js` 通过；
+  `unit-patch-output-parsable` 把 109 个被干预产物 CJS+ESM 双形态编译通过。
+- **已知问题（未在本轮修）**：`patch-surface.js:30` 的 `MARKER_RE` 终止符含撇号，把
+  `/** dsh-desktop guard: the profile's own patch layer …` 截成泛化 marker `the profile`，
+  再叠 `buildSurface` 的全文件子串匹配 → 快照里 **49/85** 个条目挂在这一条垃圾标记上，
+  每次换版必报那 2 个从未打补丁的文件为漂移。修法（marker 捕获加引号感知、或把该横幅文本去掉撇号）
+  单独提交，不与换代混在一起。
+
 ### feat(plugin)：移除「临时对话」+ 内置 DeepSeek-Bot（2026-10-22）
 
 - **移除「临时对话」**：`side-session`（`@dsh-external/dsh-side-session` 0.3.1）从

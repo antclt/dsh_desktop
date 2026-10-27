@@ -1,12 +1,12 @@
-# Vendored dsh kernel tarballs (ACTIVE — 0.2.1-rc.2)
+# Vendored dsh kernel tarballs (ACTIVE — 0.2.1-rc.4)
 
 This directory holds the packed, npm-installable tarballs for the
-`@deepseek-ai/dsh` **0.2.1-rc.2** kernel (the full `@deepseek-ai/dsh-*`
-family — 339 packages, plus 13 framework-line tarballs whose version line is
+`@deepseek-ai/dsh` **0.2.1-rc.4** kernel (the full `@deepseek-ai/dsh-*`
+family — 340 packages, plus 13 framework-line tarballs whose version line is
 its own: cordis / cordis-plugin-* / cosmokit / schemastery / node-addon-system
 + its four platform subpackages / libreoffice-kit). The kernel is downloaded
 from the **npm registry**
-(`registry.npmjs.org/@deepseek-ai/dsh-*` at the exact `0.2.1-rc.2` dist-tag
+(`registry.npmjs.org/@deepseek-ai/dsh-*` at the exact `0.2.1-rc.4` dist-tag
 version) and is **NOT** re-published here under any other version. This is the
 **active** vendored set: `dsh-desktop/package.json` / `package-lock.json`
 resolve every `@deepseek-ai/dsh*` package against these `file:` tarballs, so a
@@ -18,13 +18,15 @@ The single source of truth for the pinned kernel version is
 `kernel.vendorDir`). Everything here — the tarball file names, the manifests, and the
 comments in the surrounding scripts — must agree with that pin.
 
-Contents: 339 `deepseek-ai-dsh-<pkg>-0.2.1-rc.2.tgz` tarballs + 13 framework tarballs
-(352 total). The authoritative list is whatever is present in this directory — verify with
+Contents: 340 `deepseek-ai-dsh-<pkg>-0.2.1-rc.4.tgz` tarballs + 13 framework tarballs
+(353 total). The authoritative list is whatever is present in this directory — verify with
 `Get-ChildItem dsh-desktop/vendor/dsh-kernel` rather than trusting any enumerated
-diff. (Relative to the 0.2.1-rc.1 set of 337 tarballs, 0.2.1-rc.2 adds 2 dsh packages —
-`dsh-client-ui-deepseek-model-label-1017`（V4.1-Flash-1017 模型标签）与
-`dsh-web-deepseek-api`（DeepSeek Search/Fetch）— drops none, and keeps the framework line
-unchanged: cordis 4.0.5 / cosmokit 1.8.6 / schemastery 3.18.5 / cordis-plugin-* 各同档.)
+diff. (Relative to the 0.2.1-rc.2 set of 339 tarballs, 0.2.1-rc.4 adds exactly one dsh
+package — `dsh-client-ui-entry-customization`（左栏 / 会话视图 / 右栏的「更多」菜单，
+浏览与创建插件；rc.3 引入）— drops none, and keeps the framework line unchanged:
+cordis 4.0.5 / cosmokit 1.8.6 / schemastery 3.18.5 / cordis-plugin-* 各同档.
+2026-10-27 换代实测：340 个候选名在 registry 上**全部**有 rc.4 版本（零上游撤包），
+所以这一代只需「旧版 tarball 全部移出 + 新版全量入 + 补上 1 个新包」。)
 
 **框架件的平台子包只收 node-addon-system 的四件**：`@deepseek-ai/libreoffice-kit`
 的平台子包（darwin-x64 / win32-arm64 / wasm 等）历史上就不进 vendor，registry 上
@@ -32,14 +34,15 @@ unchanged: cordis 4.0.5 / cosmokit 1.8.6 / schemastery 3.18.5 / cordis-plugin-* 
 
 ## Where they came from
 
-- Downloaded from the public npm registry at version `0.2.1-rc.2` (the registry
-  uses `-rc.2`, not `-rc2`). For each package in the dsh family, the
+- Downloaded from the public npm registry at version `0.2.1-rc.4` (the registry
+  uses `-rc.4`, not `-rc4`). For each package in the dsh family, the
   `dist.tarball` URL was fetched and the payload verified: the embedded
   `package.json` must report `name` equal to the requested package and `version`
-  equal to `0.2.1-rc.2` before the file is accepted into this directory.
+  equal to `0.2.1-rc.4`, and the sha512 must match the registry `dist.integrity`,
+  before the file is accepted into this directory.
 - Tarball file naming follows the vendoring convention
   `deepseek-ai-dsh-<name>-<version>.tgz` (i.e. `@deepseek-ai/dsh-acp` →
-  `deepseek-ai-dsh-acp-0.2.1-rc.2.tgz`, dropping `@`, replacing `/` with `-`).
+  `deepseek-ai-dsh-acp-0.2.1-rc.4.tgz`, dropping `@`, replacing `/` with `-`).
   `scripts/generate-kernel-lock.mjs` reverses this convention to build the
   `file:vendor/dsh-kernel/*.tgz` dependency map.
 - Framework packages (`@deepseek-ai/cordis*`, cosmokit, schemastery,

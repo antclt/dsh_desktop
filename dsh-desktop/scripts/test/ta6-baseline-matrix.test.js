@@ -136,9 +136,19 @@ function integrityProblems(ids, baseline) {
 // 的版本号、web-search 设置页重写 + 新 Search/Fetch 字段、cordis-client-runner 的
 // 内置件清单、web-search-deepseek 的 thinking 参数与错误文案）全部在补丁层重锚后
 // 仍判 changed，没有新增 anchor-missing，也没有补丁因此退役。
+//
+// 0.2.1-rc.2 → 0.2.1-rc.4 的矩阵**同样逐项不变**（2026-10-27 重录，root =
+// .tmp-kernel/.consumer-0.2.1-rc.4，353 包）：仍是 43 changed / 14 root /
+// 5 target-absent，与 rc.2 基线逐 id 相同，零 anchor-missing、零 already、
+// 零 THROW；patch-deps 实况同为「写入 75 处 / 失配 0 / 失败 0 / 降级 0 / 告警 0 /
+// 共 62 项」，两边互为对账。上游这两代是「加功能不加破坏」的一轮：rc.3 给左栏、
+// 会话视图、右栏各加一个「更多」菜单（浏览与创建插件），带来家族里**唯一的新包**
+// `@deepseek-ai/dsh-client-ui-entry-customization`（rc.4 起随 vendor 入库）；rc.3
+// 还修了「切换会话后点新会话找不回未发送草稿」；rc.4 只把 DeepSeek API Key 适配器
+// 的模型列表刷新口径与账号登录模式对齐。62 项补丁的锚点全部原样命中，无需重靶。
 // ===========================================================================
 const BASELINE = {
-  '0.2.1-rc.2': {
+  '0.2.1-rc.4': {
     'slot-legacy-key': 'changed',
     'slot-unkeyed-compat': 'changed',
     'slot-error-isolation': 'changed',
@@ -162,7 +172,6 @@ const BASELINE = {
     'plugin-inventory-tab-merge': 'changed',
     'onboarding-step-progress-timeout': 'changed',
     'onboarding-guard-report': 'changed',
-    'appboot-bootstrap-singleton': 'changed',
     'web-search-baseurl': 'root',
     'menu-viewport': 'root',
     'session-manage': 'root',
@@ -201,6 +210,7 @@ const BASELINE = {
     'reasoning-row-collapse-width': 'changed',
     'session-unknown-event-tolerance': 'changed',
     'released-v0-history-recovery': 'changed',
+    'appboot-bootstrap-singleton': 'changed',
   },
 };
 

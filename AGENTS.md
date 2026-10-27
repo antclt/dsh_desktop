@@ -206,7 +206,7 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   **多行锚点的反证用例静默空转**（`src.includes('…{\n\t\tsetAction(…')` 恒 false，`replace` 什么都没换；
   带 `assert.ok(锚点在位)` 的当场判红，不带的就把「未变异的成功渲染」当成反证结果判绿——
   **用例红都不等于判据在跑**）。2026-10-18 起用仓库根 `.gitattributes`（`* text=auto eol=lf`
-  + `*.tgz`/图像/原生件 `-text`，防 vendor 344 个内核 tgz 被规整化）钉死，本机与 CI 从此同一字节；
+  + `*.tgz`/图像/原生件 `-text`，防 vendor 353 个内核 tgz 被规整化）钉死，本机与 CI 从此同一字节；
   再遇到「这条用例只在 CI 红」先查行尾，别改测试逻辑。
 - **冒烟测试绝不跑真安装器**：NSIS 的 PREINSTALL 会静默卸载本机真实版本。
   冒烟用手拼安装布局 + `DSH_HOME`/`DSH_TAURI_USERDATA` 隔离。
@@ -270,10 +270,10 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   `.gitattributes`（见「CI 全量单测有三类本机假绿环境差」第 ③ 条）。
 - **稳定性三原则（评审默认立场）**：① 客户端必须能打开，装配失败终态恢复页而非退出；
   ② 兼容性不报错，意外以日志收场（`panics.log`）不以崩溃收场；③ 用户数据不动。
-- 文档里的测试基线数字常滞后。**现值（2026-10-22 实测，随包内核 0.2.1-rc.2；基线含
+- 文档里的测试基线数字常滞后。**现值（2026-10-27 实测，随包内核 0.2.1-rc.4；基线含
   与 GitHub 侧 v1.0.3 合流 + Windows 路径门禁 + 两件插件提交闸门 + `dsh-prompt-optimizer`
   换为 vendored 上游 0.6.1 + better-sidebar「资源管理器栏头折叠 / 在本地打开」两条根治；补丁层净数 62 = 换代退役一条后的 61
-  ＋ 吸收 `appboot-bootstrap-singleton`）**：
+  ＋ 吸收 `appboot-bootstrap-singleton`；rc.2 → rc.4 换代零重靶，62 项判定矩阵逐 id 不变）**：
   `scripts/test/` 202 个测试文件（`*.test.js` 201 + `*.test.mjs` 1；`dsh-prompt-optimizer`
   自研线的四个套件 `unit-prompt-optimizer-{context-intent,lexical-write,project-goal,upgrade}`
   随目录替换 `git rm`，新增 vendored 机器锁 `unit-prompt-optimizer-vendored`；更早
@@ -287,8 +287,10 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   skip 逐条都是环境缺料而非缺陷（pristine 夹具缺 `@openai/codex` / `@earendil-works/pi-ai`、
   openclaw 双轨的兄弟目录 `../openclaw-dsh-bridge/` 不在盘、本机无 `D:\workspace\dsh-pack` 克隆、
   真实网络、`.tmp-kernel` 构建产物不可用、无特权创建文件级符号链接）——一律以现跑输出为准，**pass 与 fail 才是判据**。
-  Rust 侧现值 **607 passed / 0 failed / 4 ignored**（8 个 crate / 33 个 target；2026-10-22 本批实跑，
-  较 2026-10-18 的 709/36 少的是随「壳层回合完成通知下线」删除的 3 个通知专属套件。`crates/session-watcher`
+  Rust 侧现值（2026-10-27 本批实跑）**603 passed / 0 failed / 3 ignored / 31 个 target**：
+  `cargo test --workspace --exclude kernel-process`（551）+ `cargo test -p kernel-process` 的 lib 半边（52）＝ 603；
+  缺口是 `kernel-process` 的集成测试 exe（`ta1_crash_loop_property` 等 4 例）**本机被安全软件拒绝执行**
+  （见下条），不是代码红。参照值：2026-10-22 的 607/4/33 含那 4 例。`crates/session-watcher`
   因 `Cargo.toml` 成员行被 GBK 注释行粘连而不在 workspace 内，是零消费者储备件，不计入。
   **跑 Rust 全量前先清掉终端里的 `DSH_HOME` / `DSH_TAURI_USERDATA`**：`shell-core` 的
   `windows_layout_matches_electron` / `unix_layout_home_fallback_not_relative` 会优先读生产覆盖通道，
@@ -456,6 +458,18 @@ bash dsh-tauri/scripts/smoke-installed.sh            # ③ 安装布局冒烟
   默认），回归锁 `main_and_float_windows_reenable_html5_external_drop_shape`（windows.rs 形状测试）。
   排查任何「拖入没反应」，先在页面里装 HTML5 监听计数再拖一个文件进去：`0`＝壳拦了（查这条），
   有事件但不加附件＝页面/插件半边的事。
+- **本机安全软件（Kaspersky）按文件名拦「未知进程写 DLL」与「未知进程执行新 exe」——报成 `os error 5`，看着像代码坏了（2026-10-27 实测）**：
+  `cargo build -p dsh-tauri-app` / `cargo test --workspace` 的 build script 在
+  `tauri_build::copy_resources` 处炸 `copy "\\?\…\D3DCOMPILER_47.dll" -> "\\?\C:\dsh-tauri-build\…\debug\D3DCOMPILER_47.dll": 拒绝访问 (os error 5)`
+  （同批 `onnxruntime.dll` 也是），而**同一条目用 node / PowerShell 复制完全正常**——对照实验：
+  新编出的 Rust 小程序建这个文件名必被拒，`node -e "fs.writeFileSync(...)"` 成功；执行面同款：
+  `could not execute process …\kernel_process-*.exe (never executed): 拒绝访问`。
+  已排除：ACL（`Get-Acl` 正常、`robocopy /L` 与逐文件 `copyFileSync` 全通 82,829 个）、文件锁
+  （无进程占用、`File::create` 也拒）、MAX_PATH（报错是 5 而非 3/206）、`\\?\` 前缀（普通路径同样拒）。
+  绕法：跑 Rust 时用 `TAURI_CONFIG='{"bundle":{"resources":null}}'` 让 build script 不 copy 资源
+  （`kernel-process` 的集成测试 exe 仍会被拦，只能靠 CI 补）；根治要让安全软件对
+  `C:\dsh-tauri-build\**` 与 `<repo>\dsh-tauri\**` 放开「写入 / 执行」。**别把这条当代码回归，
+  也别为此改 `tauri.conf.json` 的 `bundle.resources`。**
 
 ## 动敏感区域前先读
 
